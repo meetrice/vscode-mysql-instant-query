@@ -11,6 +11,7 @@ import { MySQLTreeDataProvider, TableFilterState } from "./mysqlTreeDataProvider
 import { FilterInputPanel } from "./filterInputPanel";
 import { Global } from "./common/global";
 import { I18n } from "./common/i18n";
+import { SqlResultWebView } from "./sqlResultWebView";
 
 export function activate(context: vscode.ExtensionContext) {
     // Initialize i18n
@@ -182,6 +183,14 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.addColumn", async (tableNode: TableNode) => {
         await tableNode.addColumn();
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.refreshResults", async () => {
+        const queryInfo = SqlResultWebView.getLastQueryInfo();
+        if (queryInfo && queryInfo.sql) {
+            // Re-execute the query with updatePanel=true
+            await Utility.runQueryWithTotal(queryInfo.sql, queryInfo.database, queryInfo.table, true);
+        }
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.viewTableStructureFromEditor", async () => {

@@ -24,8 +24,9 @@ function getStringLength(str: string): number {
 
 export class SqlResultWebView {
     private static currentPanel: vscode.WebviewPanel | undefined = null;
+    private static lastQueryInfo: { sql?: string; database?: string; table?: string } | undefined = undefined;
 
-    public static async show(data, title, sql?: string) {
+    public static async show(data, title, sql?: string, database?: string, table?: string) {
         // Always update or create SQL document with the new SQL
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor && activeEditor.document.languageId === 'sql') {
@@ -51,6 +52,9 @@ export class SqlResultWebView {
             retainContextWhenHidden: true,
             enableScripts: true,
         });
+
+        // Store query info for refresh functionality
+        SqlResultWebView.lastQueryInfo = { sql, database, table };
 
         SqlResultWebView.currentPanel = panel;
         panel.webview.html = SqlResultWebView.getWebviewContent(data);
@@ -84,10 +88,37 @@ export class SqlResultWebView {
 
     }
 
-    public static updatePanel(data: any) {
+    public static updatePanel(data: any, sql?: string, database?: string, table?: string) {
         if (SqlResultWebView.currentPanel) {
+            // Update SQL editor if SQL is provided
+            if (sql) {
+                const activeEditor = vscode.window.activeTextEditor;
+                if (activeEditor && activeEditor.document.languageId === 'sql') {
+                    const editor = vscode.window.activeTextEditor;
+                    const fullRange = new vscode.Range(
+                        editor.document.positionAt(0),
+                        editor.document.positionAt(editor.document.getText().length)
+                    );
+                    editor.edit(editBuilder => {
+                        editBuilder.replace(fullRange, (sql ? "\n" + sql : "\n"));
+                    });
+                }
+            }
+            // Update stored query info
+            if (sql || database || table) {
+                SqlResultWebView.lastQueryInfo = {
+                    sql: sql || SqlResultWebView.lastQueryInfo?.sql,
+                    database: database || SqlResultWebView.lastQueryInfo?.database,
+                    table: table || SqlResultWebView.lastQueryInfo?.table
+                };
+            }
+            // Update webview content
             SqlResultWebView.currentPanel.webview.html = SqlResultWebView.getWebviewContent(data);
         }
+    }
+
+    public static getLastQueryInfo(): { sql?: string; database?: string; table?: string } | undefined {
+        return SqlResultWebView.lastQueryInfo;
     }
 
     public static getWebviewContent(data): string {
