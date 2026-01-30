@@ -376,16 +376,36 @@ export class Utility {
     }
 
     public static async createSQLTextDocument(sql: string = "", appendToExisting: boolean = true) {
-        const activeEditor = vscode.window.activeTextEditor;
+        // Check if we should append to existing SQL editor
+        if (appendToExisting) {
+            // First, try to use the active editor if it's a SQL file
+            let sqlEditor = vscode.window.activeTextEditor;
+            if (sqlEditor && sqlEditor.document.languageId === 'sql') {
+                await Utility.appendSQLToEditor(sql, sqlEditor);
+                return sqlEditor;
+            }
 
-        // Check if there's an active SQL editor and we should append
-        if (appendToExisting && activeEditor && activeEditor.document.languageId === 'sql') {
-            // Append to existing SQL document
-            await Utility.appendSQLToEditor(sql);
-            return activeEditor;
+            // If active editor is not SQL, check all visible editors for a SQL file
+            const visibleEditors = vscode.window.visibleTextEditors;
+            for (const editor of visibleEditors) {
+                if (editor.document.languageId === 'sql') {
+                    await Utility.appendSQLToEditor(sql, editor);
+                    return editor;
+                }
+            }
+
+            // If no visible SQL editor, check all open text documents
+            const sqlDocuments = vscode.workspace.textDocuments.filter(doc => doc.languageId === 'sql');
+            if (sqlDocuments.length > 0) {
+                // Open the first SQL document
+                const doc = await vscode.workspace.openTextDocument(sqlDocuments[0].uri);
+                const editor = await vscode.window.showTextDocument(doc, { preview: false });
+                await Utility.appendSQLToEditor(sql, editor);
+                return editor;
+            }
         }
 
-        // Create new SQL document (original behavior)
+        // Create new SQL document (no existing SQL editor found)
         // Add an empty line at the beginning for better editing experience
         const content = sql ? "\n" + sql : "\n";
         const textDocument = await vscode.workspace.openTextDocument({ content: content, language: "sql" });
@@ -396,12 +416,12 @@ export class Utility {
         return editor;
     }
 
-    public static async appendSQLToEditor(sql: string) {
-        const activeEditor = vscode.window.activeTextEditor;
+    public static async appendSQLToEditor(sql: string, targetEditor?: vscode.TextEditor) {
+        // Use provided editor or fall back to active editor
+        const editor = targetEditor || vscode.window.activeTextEditor;
 
-        if (activeEditor && activeEditor.document.languageId === 'sql') {
+        if (editor && editor.document.languageId === 'sql') {
             // Append to existing SQL document
-            const editor = vscode.window.activeTextEditor;
             const document = editor.document;
             const lastLine = document.lineCount - 1;
             const lastLineLength = document.lineAt(lastLine).text.length;
