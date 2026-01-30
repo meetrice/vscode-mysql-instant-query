@@ -1301,6 +1301,81 @@ export class SqlResultWebView {
                         // Cell editing tracking removed - no longer needed
                     }
                 });
+
+                // Initialize column resize functionality
+                function initColumnResize() {
+                    const table = document.querySelector('table');
+                    if (!table) return;
+
+                    let resizing = false;
+                    let currentTh = null;
+                    let startX = 0;
+                    let startWidth = 0;
+
+                    // Mouse down on resize handle
+                    table.addEventListener('mousedown', function(e) {
+                        if (e.target.classList.contains('resize-handle')) {
+                            e.preventDefault();
+                            resizing = true;
+                            currentTh = e.target.closest('th');
+                            startX = e.pageX;
+                            startWidth = currentTh.offsetWidth;
+
+                            // Add active class for visual feedback
+                            e.target.classList.add('active');
+
+                            // Add temporary event listeners
+                            document.addEventListener('mousemove', handleMouseMove);
+                            document.addEventListener('mouseup', handleMouseUp);
+                        }
+                    });
+
+                    function handleMouseMove(e) {
+                        if (!resizing || !currentTh) return;
+
+                        const width = startWidth + (e.pageX - startX);
+
+                        // Set minimum width
+                        if (width >= 50) {
+                            currentTh.style.width = width + 'px';
+                            currentTh.style.minWidth = width + 'px';
+                            currentTh.style.maxWidth = width + 'px';
+
+                            // Apply same width to filter header cell
+                            const colIndex = currentTh.getAttribute('data-column-name');
+                            const filterCells = document.querySelectorAll(\`th[data-column-name="\${colIndex}"], td[data-column-name="\${colIndex}"]\`);
+                            filterCells.forEach(cell => {
+                                cell.style.width = width + 'px';
+                                cell.style.minWidth = width + 'px';
+                                cell.style.maxWidth = width + 'px';
+                            });
+                        }
+                    }
+
+                    function handleMouseUp(e) {
+                        if (resizing) {
+                            resizing = false;
+
+                            // Remove active class
+                            const activeHandle = document.querySelector('.resize-handle.active');
+                            if (activeHandle) {
+                                activeHandle.classList.remove('active');
+                            }
+
+                            // Remove temporary event listeners
+                            document.removeEventListener('mousemove', handleMouseMove);
+                            document.removeEventListener('mouseup', handleMouseUp);
+
+                            currentTh = null;
+                        }
+                    }
+                }
+
+                // Call initialization functions
+                initFilters();
+                initActionButtons();
+                initRowCheckboxes();
+                initColumnResize();
             <\/script>
         `;
 
@@ -1360,7 +1435,7 @@ export class SqlResultWebView {
             const escapedField = this.escapeHtml(field);
             const comment = columnComments && columnComments[field] ? this.escapeHtml(columnComments[field]) : '';
             const commentHtml = comment ? `<span class="column-comment">${comment}</span>` : '';
-            head += `<th class="data-column" data-column-name="${escapedField}" onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}"><span class="column-name">${escapedField}</span>${commentHtml}</th>`;
+            head += `<th class="data-column" data-column-name="${escapedField}" onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}" style="position: relative;"><span class="column-name">${escapedField}</span>${commentHtml}<div class="resize-handle" data-column-index="${index}"></div></th>`;
         });
 
         // Generate filter row (first column has action buttons)
