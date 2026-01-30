@@ -308,6 +308,71 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage("Generated UPDATE statement in SQL editor");
     }));
 
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.generateInsertSQL", async (message: any) => {
+        console.log('generateInsertSQL received message:', JSON.stringify(message));
+
+        const queryInfo = SqlResultWebView.getLastQueryInfo();
+        if (!queryInfo || !queryInfo.database || !queryInfo.table) {
+            vscode.window.showWarningMessage("Cannot determine database or table for INSERT operation");
+            return;
+        }
+
+        const { rowData, fields } = message;
+        console.log('rowData:', JSON.stringify(rowData));
+        console.log('fields:', JSON.stringify(fields));
+        console.log('fields.length:', fields.length);
+
+        const database = queryInfo.database;
+        const table = queryInfo.table;
+
+        // Filter out empty values and only include fields with values
+        const fieldsWithValues: string[] = [];
+        const values: string[] = [];
+
+        for (const field of fields) {
+            const value = rowData[field];
+            console.log(`Processing field: ${field}, value: ${value}, typeof: ${typeof value}`);
+
+            // Skip empty values
+            if (value === undefined || value === null || value === '') {
+                console.log(`Skipping field ${field} - empty value`);
+                continue;
+            }
+
+            fieldsWithValues.push(`\`${field}\``);
+
+            // Determine if value is numeric
+            const isNumeric = !isNaN(Number(value)) && value !== '';
+            if (isNumeric) {
+                values.push(String(value));
+            } else {
+                // Escape single quotes for string values
+                const escapedValue = String(value).replace(/'/g, "''");
+                values.push(`'${escapedValue}'`);
+            }
+        }
+
+        console.log('fieldsWithValues:', fieldsWithValues);
+        console.log('fieldsWithValues.length:', fieldsWithValues.length);
+
+        if (fieldsWithValues.length === 0) {
+            vscode.window.showWarningMessage("No values to insert. Please fill in at least one field.");
+            return;
+        }
+
+        // Generate INSERT SQL with only fields that have values
+        const columns = fieldsWithValues.join(', ');
+        const valuesStr = values.join(', ');
+        const sql = `INSERT INTO \`${database}\`.\`${table}\`\n(\n  ${columns}\n)\nVALUES\n(\n  ${valuesStr}\n);`;
+
+        console.log('Generated SQL:', sql);
+
+        // Create SQL document with the INSERT statement
+        await Utility.createSQLTextDocument(sql);
+
+        vscode.window.showInformationMessage("Generated INSERT statement in SQL editor");
+    }));
+
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.viewTableStructureFromEditor", async () => {
         if (!vscode.window.activeTextEditor) {
             vscode.window.showWarningMessage(I18n.t("error.noActiveEditor"));

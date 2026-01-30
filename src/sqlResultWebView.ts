@@ -86,6 +86,9 @@ export class SqlResultWebView {
                 } else if (message.command === 'generateUpdateSQL') {
                     // Generate UPDATE SQL
                     vscode.commands.executeCommand('mysqlInstantQuery.generateUpdateSQL', message);
+                } else if (message.command === 'generateInsertSQL') {
+                    // Generate INSERT SQL
+                    vscode.commands.executeCommand('mysqlInstantQuery.generateInsertSQL', message);
                 }
             },
             undefined,
@@ -317,6 +320,26 @@ export class SqlResultWebView {
                     background-color: #45a049;
                     transform: scale(1.1);
                 }
+                .save-new-row-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 20px;
+                    height: 20px;
+                    margin-left: 4px;
+                    border: 1px solid #4caf50;
+                    border-radius: 3px;
+                    background-color: #4caf50;
+                    color: white;
+                    cursor: pointer;
+                    font-size: 14px;
+                    font-weight: bold;
+                    transition: all 0.2s;
+                }
+                .save-new-row-btn:hover {
+                    background-color: #45a049;
+                    transform: scale(1.1);
+                }
                 .save-row-btn.hidden {
                     display: none !important;
                 }
@@ -347,16 +370,23 @@ export class SqlResultWebView {
                 }
                 .edit-cell {
                     position: relative;
+                    padding: 0 !important;
                 }
                 .edit-cell input {
                     width: 100%;
-                    padding: 4px 6px;
-                    border: 1px solid #007acc;
-                    border-radius: 2px;
+                    height: 100%;
+                    padding: 6px 8px;
+                    border: none;
+                    border-radius: 0;
                     font-size: 13px;
                     font-family: inherit;
                     background-color: var(--vscode-input-background);
                     color: var(--vscode-input-foreground);
+                    box-sizing: border-box;
+                    outline: none;
+                }
+                .edit-cell input:focus {
+                    box-shadow: inset 0 0 0 1px #007acc;
                 }
                 .edit-cell input:focus {
                     outline: none;
@@ -982,7 +1012,7 @@ export class SqlResultWebView {
                     }
                 });
 
-                // Save button click handler
+                // Save button click handler for editing rows
                 document.addEventListener('click', function(e) {
                     if (!e.target.classList.contains('save-row-btn')) return;
 
@@ -991,6 +1021,18 @@ export class SqlResultWebView {
 
                     if (row && row.classList.contains('editing')) {
                         saveEdit();
+                    }
+                });
+
+                // Save button click handler for new rows
+                document.addEventListener('click', function(e) {
+                    if (!e.target.classList.contains('save-new-row-btn')) return;
+
+                    const rowIndex = e.target.getAttribute('data-row-index');
+                    const row = document.querySelector('tr[data-row-index="' + rowIndex + '"]');
+
+                    if (row && row.classList.contains('new-row')) {
+                        saveNewRow(row);
                     }
                 });
 
@@ -1055,6 +1097,74 @@ export class SqlResultWebView {
                     });
                 }
 
+                function saveNewRow(row) {
+                    // Get all data columns in the row (including new row cells)
+                    const cells = row.querySelectorAll('td.data-column');
+                    const rowData = {};
+                    const fieldsWithValues = [];
+
+                    console.log('saveNewRow called');
+                    console.log('Row HTML:', row.innerHTML);
+                    console.log('Cells found:', cells.length);
+
+                    // Collect field names and values from visible cells only
+                    cells.forEach(cell => {
+                        // Skip hidden cells
+                        if (cell.classList.contains('hidden')) {
+                            console.log('Skipping hidden cell');
+                            return;
+                        }
+
+                        const fieldName = cell.getAttribute('data-column-name');
+                        const input = cell.querySelector('input');
+                        const value = input ? input.value.trim() : '';
+
+                        console.log('Field:', fieldName, 'Has input:', !!input, 'Value:', value, 'IsEmpty:', value === '');
+
+                        if (fieldName) {
+                            rowData[fieldName] = value;
+                            // Only add to fieldsWithValues if value is not empty
+                            if (value !== '') {
+                                fieldsWithValues.push(fieldName);
+                            }
+                        }
+                    });
+
+                    console.log('Final rowData:', JSON.stringify(rowData));
+                    console.log('Final fieldsWithValues:', JSON.stringify(fieldsWithValues));
+                    console.log('fieldsWithValues.length:', fieldsWithValues.length);
+
+                    // Only include fields that have values
+                    const filteredRowData = {};
+                    fieldsWithValues.forEach(field => {
+                        filteredRowData[field] = rowData[field];
+                    });
+
+                    console.log('Filtered rowData to send:', JSON.stringify(filteredRowData));
+
+                    // Generate INSERT SQL with only fields that have values
+                    if (fieldsWithValues.length === 0) {
+                        console.log('ERROR: fieldsWithValues is empty!');
+                        vscode.postMessage({
+                            command: 'showWarning',
+                            message: 'No values to insert. Please fill in at least one field.'
+                        });
+                        return;
+                    }
+
+                    console.log('Calling generateInsertSQL with:', JSON.stringify(filteredRowData), JSON.stringify(fieldsWithValues));
+                    generateInsertSQL(filteredRowData, fieldsWithValues);
+                }
+
+                function generateInsertSQL(rowData, fields) {
+                    // Collect all data and send to extension for SQL generation
+                    vscode.postMessage({
+                        command: 'generateInsertSQL',
+                        rowData: rowData,
+                        fields: fields
+                    });
+                }
+
                 function toggleSelectAll() {
                     const checkboxes = document.querySelectorAll('.row-checkbox');
                     const allChecked = Array.from(checkboxes).every(cb => cb.checked);
@@ -1102,20 +1212,28 @@ export class SqlResultWebView {
                     const table = document.querySelector('table tbody');
                     if (!table) return;
 
-                    const fields = Array.from(document.querySelectorAll('th.data-column'))
+                    // Get only visible data columns from the FIRST header row only (not filter row)
+                    const firstHeaderRow = document.querySelector('table thead tr:first-child');
+                    if (!firstHeaderRow) return;
+
+                    const fields = Array.from(firstHeaderRow.querySelectorAll('th.data-column'))
+                        .filter(th => !th.classList.contains('hidden'))
                         .map(th => th.getAttribute('data-column-name'))
                         .filter(name => name);
 
+                    console.log('addNewRow: visible fields:', fields);
+
                     const newRow = document.createElement('tr');
                     newRow.classList.add('new-row');
+                    newRow.setAttribute('data-row-index', 'new');
 
-                    // Add sticky column with checkbox
+                    // Add sticky column with checkbox and save button
                     const stickyCell = document.createElement('td');
                     stickyCell.className = 'sticky-column';
-                    stickyCell.innerHTML = '<input type="checkbox" class="row-checkbox" data-row-index="new">';
+                    stickyCell.innerHTML = '<input type="checkbox" class="row-checkbox" data-row-index="new"><button class="save-new-row-btn" data-row-index="new" title="Save new row">✓</button>';
                     newRow.appendChild(stickyCell);
 
-                    // Add editable cells
+                    // Add editable cells for visible fields only
                     fields.forEach(fieldName => {
                         const cell = document.createElement('td');
                         cell.className = 'data-column edit-cell';
