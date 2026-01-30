@@ -826,7 +826,6 @@ export class SqlResultWebView {
                     const allChecked = Array.from(checkboxes).every(cb => cb.checked);
                     checkboxes.forEach(cb => {
                         cb.checked = !allChecked;
-                        cb.style.display = 'inline-block';
                         cb.closest('tr').classList.toggle('selected', !allChecked);
                     });
                 }
@@ -1029,8 +1028,8 @@ export class SqlResultWebView {
 
         rows.forEach((row: any, rowIndex: number) => {
             body += "<tr>";
-            // Add empty cell in the first column
-            body += `<td class='sticky-column'><input type='checkbox' class='row-checkbox' data-row-index='${rowIndex}' style='display:none;'></td>`;
+            // Add checkbox cell with visible checkbox
+            body += `<td class='sticky-column'><input type='checkbox' class='row-checkbox' data-row-index='${rowIndex}'></td>`;
             for (const field in row) {
                 if (row.hasOwnProperty(field)) {
                     const value = row[field];
