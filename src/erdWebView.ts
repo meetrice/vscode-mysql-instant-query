@@ -589,6 +589,37 @@ export class ErdWebView {
             color: var(--vscode-editor-foreground);
             z-index: 1000;
         }
+        /* Context menu */
+        .context-menu {
+            position: fixed;
+            display: none;
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 10000;
+            min-width: 150px;
+        }
+        .context-menu-item {
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--vscode-editor-foreground);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .context-menu-item:hover {
+            background-color: var(--vscode-toolbar-hoverBackground);
+        }
+        .context-menu-item.danger {
+            color: var(--vscode-errorForeground);
+        }
+        .context-menu-separator {
+            height: 1px;
+            background-color: var(--vscode-panel-border);
+            margin: 4px 0;
+        }
     </style>
 </head>
 <body>
@@ -612,6 +643,11 @@ export class ErdWebView {
         <button class="zoom-btn" id="resetZoomBtn" title="Reset">⟲</button>
     </div>
     <div class="zoom-level" id="zoomLevel">100%</div>
+
+    <!-- Context menu -->
+    <div class="context-menu" id="contextMenu">
+        <div class="context-menu-item danger" id="ctxDelete">🗑️ Delete</div>
+    </div>
 
     <script>
         const vscode = acquireVsCodeApi();
@@ -825,6 +861,24 @@ export class ErdWebView {
                     table.style.zIndex = '1000';
                 });
 
+                // Right-click context menu
+                table.addEventListener('contextmenu', function(e) {
+                    e.preventDefault();
+
+                    // Select this table
+                    selectTable(table);
+                    selectedTable = table;
+
+                    // Show context menu at mouse position
+                    const contextMenu = document.getElementById('contextMenu');
+                    contextMenu.style.left = e.clientX + 'px';
+                    contextMenu.style.top = e.clientY + 'px';
+                    contextMenu.style.display = 'block';
+
+                    // Store reference to the table for delete action
+                    contextMenu.dataset.tableName = table.dataset.table;
+                });
+
                 table.addEventListener('mousedown', function(e) {
                     if (e.target.classList.contains('toggle-comments-btn')) return;
                     if (e.target.classList.contains('resize-handle')) return;
@@ -976,14 +1030,62 @@ export class ErdWebView {
                 }
             });
 
-            // Click outside to deselect
+            // Click outside to deselect and hide context menu
             document.addEventListener('click', function(e) {
+                // Hide context menu
+                if (!e.target.closest('.context-menu')) {
+                    document.getElementById('contextMenu').style.display = 'none';
+                }
+
                 if (!e.target.closest('.table-node') && !e.target.closest('.zoom-controls')) {
                     if (selectedTable) {
                         selectedTable.classList.remove('selected');
                         selectedTable = null;
                     }
                 }
+            });
+
+            // Context menu item handlers
+            document.getElementById('ctxDelete').addEventListener('click', function() {
+                const contextMenu = document.getElementById('contextMenu');
+                const tableName = contextMenu.dataset.tableName;
+
+                if (tableName) {
+                    // Find and remove the table
+                    const tableToRemove = document.querySelector('[data-table="' + tableName + '"]');
+                    if (tableToRemove) {
+                        // Remove relationships involving this table
+                        const initialRelCount = relationships.length;
+                        // Remove elements from const array using splice
+                        for (let i = relationships.length - 1; i >= 0; i--) {
+                            if (relationships[i].fromTable === tableName || relationships[i].toTable === tableName) {
+                                relationships.splice(i, 1);
+                            }
+                        }
+
+                        // Remove from tables array
+                        const tableIndex = tables.findIndex(function(t) { return t.tableName === tableName; });
+                        if (tableIndex !== -1) {
+                            tables.splice(tableIndex, 1);
+                        }
+
+                        // Remove from DOM
+                        tableToRemove.remove();
+
+                        // Clear selection
+                        if (selectedTable && selectedTable.dataset.table === tableName) {
+                            selectedTable = null;
+                        }
+
+                        // Redraw relationships
+                        drawRelationships();
+
+                        console.log('[ContextMenu Delete] Removed table:', tableName, 'and', initialRelCount - relationships.length, 'relationships');
+                    }
+                }
+
+                // Hide context menu
+                contextMenu.style.display = 'none';
             });
 
             // Delete key handler - remove selected table
@@ -994,9 +1096,12 @@ export class ErdWebView {
 
                         // Remove relationships involving this table
                         const initialRelCount = relationships.length;
-                        relationships = relationships.filter(function(rel) {
-                            return rel.fromTable !== tableName && rel.toTable !== tableName;
-                        });
+                        // Remove elements from const array using splice
+                        for (let i = relationships.length - 1; i >= 0; i--) {
+                            if (relationships[i].fromTable === tableName || relationships[i].toTable === tableName) {
+                                relationships.splice(i, 1);
+                            }
+                        }
 
                         // Remove from tables array
                         const tableIndex = tables.findIndex(function(t) { return t.tableName === tableName; });
