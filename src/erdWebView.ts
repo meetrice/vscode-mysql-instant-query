@@ -364,7 +364,6 @@ export class ErdWebView {
             color: rgba(255, 255, 255, 0.8);
             font-weight: normal;
             margin-left: 8px;
-            font-style: italic;
         }
         .toggle-comments-btn {
             background: rgba(255, 255, 255, 0.2);
@@ -407,7 +406,6 @@ export class ErdWebView {
             font-size: 11px;
             color: var(--vscode-descriptionForeground);
             margin-left: 8px;
-            font-style: italic;
             opacity: 0.8;
             flex-shrink: 0;
         }
@@ -701,13 +699,38 @@ export class ErdWebView {
 
                 if (!fromEl || !toEl) return;
 
+                let fromX, fromY, toX, toY;
                 const fromRect = fromEl.getBoundingClientRect();
                 const toRect = toEl.getBoundingClientRect();
 
-                const fromX = fromRect.right;
-                const fromY = fromRect.top + fromRect.height / 2;
-                const toX = toRect.left;
-                const toY = toRect.top + toRect.height / 2;
+                // Check if this is a column-to-column relationship
+                if (rel.fromColumn && rel.toColumn) {
+                    // Find the specific column connection points
+                    const fromColumnPoint = fromEl.querySelector('.column-connector-right[data-column="' + rel.fromColumn + '"]');
+                    const toColumnPoint = toEl.querySelector('.column-connector-left[data-column="' + rel.toColumn + '"]');
+
+                    if (fromColumnPoint && toColumnPoint) {
+                        const fromPointRect = fromColumnPoint.getBoundingClientRect();
+                        const toPointRect = toColumnPoint.getBoundingClientRect();
+
+                        fromX = fromPointRect.left + fromPointRect.width / 2;
+                        fromY = fromPointRect.top + fromPointRect.height / 2;
+                        toX = toPointRect.left + toPointRect.width / 2;
+                        toY = toPointRect.top + toPointRect.height / 2;
+                    } else {
+                        // Fallback to table-level connection
+                        fromX = fromRect.right;
+                        fromY = fromRect.top + fromRect.height / 2;
+                        toX = toRect.left;
+                        toY = toRect.top + toRect.height / 2;
+                    }
+                } else {
+                    // Table-level connection (no specific columns)
+                    fromX = fromRect.right;
+                    fromY = fromRect.top + fromRect.height / 2;
+                    toX = toRect.left;
+                    toY = toRect.top + toRect.height / 2;
+                }
 
                 const midX = (fromX + toX) / 2;
                 const path = 'M ' + fromX + ' ' + fromY + ' C ' + midX + ' ' + fromY + ', ' + midX + ' ' + toY + ', ' + toX + ' ' + toY;
