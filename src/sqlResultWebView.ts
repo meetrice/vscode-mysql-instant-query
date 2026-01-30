@@ -1084,7 +1084,7 @@ export class SqlResultWebView {
             </div>
         </th>`;
         fields.forEach((field, index) => {
-            filterRow += `<th class="filter-header data-column" data-column-name="${this.escapeHtml(field)}"><input type="text" class="filter-input" data-column-index="${index}" placeholder="Filter..."></th>`;
+            filterRow += `<th class="filter-header data-column" data-column-name="${this.escapeHtml(field)}"><input type="text" class="filter-input" data-column-index="${index}" placeholder=""></th>`;
         });
 
         let body = "<table><thead><tr>" + head + "</tr><tr>" + filterRow + "</tr></thead><tbody>";
