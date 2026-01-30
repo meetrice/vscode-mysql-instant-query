@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # VSCode Extension Publish Script
-# Version: 0.6.0
+# Version: 0.7.0
 
 echo "======================================"
 echo "  MySQL Instant Query Extension"
-echo "  Publishing Version 0.6.0"
+echo "  Publishing Version 0.7.0"
 echo "======================================"
 echo ""
 
@@ -32,31 +32,28 @@ fi
 echo "✅ Packaging successful!"
 echo ""
 
-# Step 3: Publish to marketplace (uncomment to actually publish)
+# Step 3: Publish to marketplace
 echo "📦 Step 3: Publishing to VSCode Marketplace..."
-echo "⚠️  To publish, uncomment the line below:"
-echo "# vsce publish"
-echo ""
-echo "Or manually publish with:"
-echo "vsce publish"
+vsce publish
+
+if [ $? -ne 0 ]; then
+    echo "❌ Publishing failed!"
+    exit 1
+fi
+echo "✅ Publishing successful!"
 echo ""
 
-# Step 4: Git commit (optional)
+# Step 4: Git commit
 echo "📝 Step 4: Git commit recommended changes..."
 echo "git add package.json RELEASE_NOTES.md"
-echo "git commit -m \"chore: release version 0.6.0\""
-echo "git tag v0.6.0"
+echo 'git commit -m "chore: release version 0.7.0"'
+echo "git tag v0.7.0"
 echo ""
 
 echo "======================================"
-echo "  ✅ Ready to publish!"
+echo "  ✅ Version 0.7.0 Published!"
 echo "======================================"
 echo ""
-echo "Package created: mysql-instant-query-0.6.0.vsix"
-echo ""
-echo "To publish, run:"
-echo "  vsce publish"
-echo ""
-echo "Or test locally first:"
-echo "  code --install-extension mysql-instant-query-0.6.0.vsix"
+echo "Extension published to marketplace:"
+echo "https://marketplace.visualstudio.com/items?itemName=meetrice.mysql-instant-query"
 echo ""

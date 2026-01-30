@@ -1,90 +1,79 @@
-# Release Notes - Version 0.6.0
+# Release Notes - Version 0.7.0
 
 ## 🎉 Major New Features
 
-### 1. SQL Editor Run Now Buttons
-- Added "Run Now" buttons (▶) above each SQL statement in the SQL editor
-- Click to execute individual SQL statements without updating editor content
-- Supports multiple SQL statements with individual buttons for each
-- Uses CodeLens API for seamless integration
+### 1. Resizable Table Columns
+- Added drag-to-resize functionality for all table columns
+- Hover over column edge to see resize cursor
+- Drag to adjust column width to your preference
+- Minimum width of 50px prevents columns from becoming too narrow
+- Width changes sync across header rows and data cells
 
-### 2. Enhanced Table Information Display
-- Results panel now displays the current table name at the top
-- Shows format: `📊 Table: \`database\`.\`table\``
-- Helps identify which table's data you're viewing
+### 2. Enhanced Results Panel Layout
+- **Compact design**: Removed padding around table edges for maximum viewing space
+- **Clean title display**: Results tab now shows `\`database\`.\`table\`` format in tab title
+- **Removed duplicate header**: Table name no longer shows inside panel (avoids redundancy)
+- Table flush against panel edges for better space utilization
 
-### 3. Improved SQL Statement Generation
-- **Single-line format**: All generated UPDATE/INSERT/DELETE statements are now in single-line format for better readability
-- **Smart appending**: Generated SQL statements automatically append to existing SQL editor instead of creating new tabs
-- **Auto-scroll**: Editor automatically scrolls to show newly generated SQL in the center of the screen
-- **Better table name parsing**: Enhanced SQL parsing to correctly handle `database.table` format
-
-### 4. Enhanced Table Name Parsing
-- Improved parsing of SQL queries with better support for:
-  - `database`.`table` format (with backticks)
-  - `database`.table format
-  - database.`table` format
-  - Simple table names
-- Added comprehensive debugging logs for troubleshooting
+### 3. Improved "Run Now" Button Accuracy
+- **Precise SQL extraction**: "Run Now" button now executes only the SQL statement from keyword to semicolon
+- Handles nested parentheses correctly
+- Properly tracks quotes (single, double, backtick)
+- Respects escape characters
+- Excludes any content after the semicolon (like table structure documentation)
 
 ## 🔧 Improvements
 
-### Smart SQL Editor Management
-- Prioritizes appending to existing SQL editors over creating new ones
-- Searches through visible editors and all open documents
-- Only creates new SQL documents when none exist
-
 ### Better User Experience
-- All right-click menu commands now append SQL to current editor by default
-- No more cluttering with multiple SQL tabs
-- Cursor positioning at newly generated SQL for immediate review
+- Results panel uses full available space with zero padding
+- Column widths persist during the session
+- More intuitive table layout
+- Cleaner visual hierarchy
 
-### Enhanced Debugging
-- Added console logging for UPDATE/INSERT statement generation
-- Better error messages with specific details about what's missing
-- Logs table name parsing steps for troubleshooting
+### Enhanced Code Quality
+- Fixed table name parsing edge cases
+- Improved SQL statement boundary detection
+- Better handling of complex SQL with nested structures
 
 ## 🐛 Bug Fixes
 
-- Fixed "Cannot determine database or table for UPDATE operation" error
-- Corrected table name parsing to handle `database.table` format properly
-- Fixed Count Table function to append instead of replace content
-- Resolved duplicate variable declarations in webview rendering
+- Fixed "Run Now" button including content after semicolon in execution
+- Resolved SQL syntax errors caused by including table structure documentation
+- Improved handling of quoted strings in SQL statement detection
 
 ## 📝 Technical Details
 
 ### Modified Files
-- `src/runButtonProvider.ts` - CodeLens provider for SQL statements
-- `src/common/utility.ts` - Enhanced SQL parsing and editor management
-- `src/extension.ts` - Improved UPDATE/INSERT/DELETE generation
-- `src/sqlResultWebView.ts` - Table name display in results
-- `package.json` - Version update to 0.6.0
+- `src/sqlResultWebView.ts` - Column resize functionality, compact layout, enhanced title display
+- `src/runButtonProvider.ts` - Improved SQL statement extraction logic
+- `package.json` - Version update to 0.7.0
 
 ### Configuration
-- Added `mysql-instant-query.enableRunNowCodeLens` setting (default: true)
+- No new settings added
+- All existing settings remain unchanged
 
 ## 🚀 Usage Examples
 
-### Run Now Buttons
-```sql
-SELECT * FROM users WHERE id = 1;
--- ▶ Run Now button appears above
+### Resizing Columns
+1. Open any query results
+2. Move mouse to the right edge of any column header
+3. Cursor changes to resize indicator
+4. Click and drag to adjust width
+5. Release to set new width
 
-SELECT * FROM orders WHERE status = 'pending';
--- ▶ Run Now button appears above this too
+### Run Now Button Precision
+```sql
+-- This SQL will be executed completely:
+SELECT * FROM `wecomf`.`fa_uran_videofiles` ORDER BY `id` DESC LIMIT 5;
+
+-- This content (table structure) is NOT executed:
+id (编号)  filename (文件名)  path (路径) ...
 ```
 
-### Generated SQL Format
-```sql
--- UPDATE (single line)
-UPDATE `database`.`table` SET `column` = 'value' WHERE `id` = 1;
-
--- INSERT (single line)
-INSERT INTO `database`.`table` (`col1`, `col2`) VALUES ('val1', 'val2');
-
--- DELETE (single line)
-DELETE FROM `database`.`table` WHERE `id` = 1;
-```
+### Results Tab Title
+- Tab shows: `` `database`.`table` ``
+- Panel shows clean table without redundant title
+- Maximum space for data viewing
 
 ## 📋 Compatibility
 
