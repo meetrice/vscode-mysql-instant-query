@@ -433,6 +433,16 @@ export class Utility {
             await editor.edit(editBuilder => {
                 editBuilder.insert(insertPosition, content);
             });
+
+            // Scroll to the newly added SQL
+            // Calculate the new line count after insertion
+            const newLineCount = document.lineCount;
+            const targetLine = newLineCount - 1;
+
+            // Move cursor to the end of the new content and reveal it in center of screen
+            const endPosition = new vscode.Position(targetLine, document.lineAt(targetLine).text.length);
+            editor.selection = new vscode.Selection(endPosition, endPosition);
+            editor.revealRange(new vscode.Range(targetLine, 0, targetLine, 0), vscode.TextEditorRevealType.InCenter);
         } else {
             // Create new SQL document if no active SQL editor
             await Utility.createSQLTextDocument(sql);
