@@ -5,6 +5,7 @@ import { AppInsightsClient } from "../common/appInsightsClient";
 import { Global } from "../common/global";
 import { OutputChannel } from "../common/outputChannel";
 import { Utility } from "../common/utility";
+import { I18n } from "../common/i18n";
 import { InfoNode } from "./infoNode";
 import { INode } from "./INode";
 
@@ -87,8 +88,8 @@ export class ColumnNode implements INode {
 
         // Prompt user for filter value
         const filterValue = await vscode.window.showInputBox({
-            prompt: `Enter filter value for column '${columnName}' (type: ${columnType})`,
-            placeHolder: "filter value",
+            prompt: I18n.format("selectFilter.prompt", [columnName, columnType]),
+            placeHolder: I18n.t("selectFilter.placeholder", "filter value"),
             ignoreFocusOut: true
         });
 

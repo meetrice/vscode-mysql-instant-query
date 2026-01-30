@@ -293,7 +293,7 @@ export class Utility {
         if (updatePanel) {
             SqlResultWebView.updatePanel(data);
         } else {
-            SqlResultWebView.show(data, title);
+            SqlResultWebView.show(data, title, sql);
         }
     }
 

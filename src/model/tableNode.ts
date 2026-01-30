@@ -5,6 +5,7 @@ import { AppInsightsClient } from "../common/appInsightsClient";
 import { Global } from "../common/global";
 import { OutputChannel } from "../common/outputChannel";
 import { Utility } from "../common/utility";
+import { I18n } from "../common/i18n";
 import { ColumnNode } from "./columnNode";
 import { InfoNode } from "./infoNode";
 import { INode } from "./INode";
@@ -478,15 +479,15 @@ export class TableNode implements INode {
 
         // Step 1: Get column name
         const columnName = await vscode.window.showInputBox({
-            prompt: "Enter column name",
-            placeHolder: "column_name",
+            prompt: I18n.t("addColumn.prompt.columnName", "Enter column name"),
+            placeHolder: I18n.t("addColumn.placeholder.columnName", "column_name"),
             ignoreFocusOut: true,
             validateInput: (value) => {
                 if (!value || !value.trim()) {
-                    return "Column name cannot be empty";
+                    return I18n.t("addColumn.error.emptyColumnName", "Column name cannot be empty");
                 }
                 if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) {
-                    return "Invalid column name. Use letters, numbers, and underscores, starting with a letter or underscore";
+                    return I18n.t("addColumn.error.invalidColumnName", "Invalid column name. Use letters, numbers, and underscores, starting with a letter or underscore");
                 }
                 return null;
             }
@@ -498,24 +499,24 @@ export class TableNode implements INode {
 
         // Step 2: Select column type
         const typeOptions: vscode.QuickPickItem[] = [
-            { label: "VARCHAR", description: "Variable-length string" },
-            { label: "INT", description: "Integer" },
-            { label: "BIGINT", description: "Large integer" },
-            { label: "DECIMAL", description: "Fixed-point number" },
-            { label: "TEXT", description: "Long text" },
-            { label: "DATE", description: "Date (YYYY-MM-DD)" },
-            { label: "DATETIME", description: "Date and time" },
-            { label: "TIMESTAMP", description: "Timestamp" },
-            { label: "TINYINT", description: "Small integer (0-255)" },
-            { label: "SMALLINT", description: "Small integer" },
-            { label: "FLOAT", description: "Floating-point number" },
-            { label: "DOUBLE", description: "Double precision floating-point" },
-            { label: "BOOLEAN", description: "True/False" },
-            { label: "JSON", description: "JSON data" },
+            { label: "VARCHAR", description: I18n.t("addColumn.type.varchar", "Variable-length string") },
+            { label: "INT", description: I18n.t("addColumn.type.int", "Integer") },
+            { label: "BIGINT", description: I18n.t("addColumn.type.bigint", "Large integer") },
+            { label: "DECIMAL", description: I18n.t("addColumn.type.decimal", "Fixed-point number") },
+            { label: "TEXT", description: I18n.t("addColumn.type.text", "Long text") },
+            { label: "DATE", description: I18n.t("addColumn.type.date", "Date (YYYY-MM-DD)") },
+            { label: "DATETIME", description: I18n.t("addColumn.type.datetime", "Date and time") },
+            { label: "TIMESTAMP", description: I18n.t("addColumn.type.timestamp", "Timestamp") },
+            { label: "TINYINT", description: I18n.t("addColumn.type.tinyint", "Small integer (0-255)") },
+            { label: "SMALLINT", description: I18n.t("addColumn.type.smallint", "Small integer") },
+            { label: "FLOAT", description: I18n.t("addColumn.type.float", "Floating-point number") },
+            { label: "DOUBLE", description: I18n.t("addColumn.type.double", "Double precision floating-point") },
+            { label: "BOOLEAN", description: I18n.t("addColumn.type.boolean", "True/False") },
+            { label: "JSON", description: I18n.t("addColumn.type.json", "JSON data") },
         ];
 
         const selectedType = await vscode.window.showQuickPick(typeOptions, {
-            placeHolder: "Select column type",
+            placeHolder: I18n.t("addColumn.placeholder.selectType", "Select column type"),
             ignoreFocusOut: true
         });
 
@@ -528,9 +529,12 @@ export class TableNode implements INode {
 
         // Step 3: Get length for types that require it
         if (["VARCHAR", "CHAR", "DECIMAL", "NUMERIC"].includes(columnType)) {
+            const isDecimal = columnType === "DECIMAL" || columnType === "NUMERIC";
             const lengthInput = await vscode.window.showInputBox({
-                prompt: `Enter length for ${columnType}`,
-                placeHolder: columnType === "DECIMAL" || columnType === "NUMERIC" ? "10,2" : "255",
+                prompt: I18n.format("addColumn.prompt.typeLength", [columnType]),
+                placeHolder: isDecimal ?
+                    I18n.t("addColumn.placeholder.decimalLength", "10,2") :
+                    I18n.t("addColumn.placeholder.typeLength", "255"),
                 ignoreFocusOut: true
             });
             if (lengthInput) {
@@ -540,26 +544,26 @@ export class TableNode implements INode {
 
         // Step 4: Optional - nullable
         const nullableOptions: vscode.QuickPickItem[] = [
-            { label: "NOT NULL", description: "Column cannot be null" },
-            { label: "NULL", description: "Column can be null" },
+            { label: "NULL", description: I18n.t("addColumn.nullable.null", "Column can be null"), picked: true },
+            { label: "NOT NULL", description: I18n.t("addColumn.nullable.notNull", "Column cannot be null") },
         ];
 
         const nullableOption = await vscode.window.showQuickPick(nullableOptions, {
-            placeHolder: "Select nullability (default: NULL)",
+            placeHolder: I18n.t("addColumn.placeholder.selectNullable", "Select nullability (default: NULL)"),
             ignoreFocusOut: true
         });
 
         // Step 5: Optional - default value
         const defaultValue = await vscode.window.showInputBox({
-            prompt: "Enter default value (optional)",
-            placeHolder: "Leave empty for no default",
+            prompt: I18n.t("addColumn.prompt.defaultValue", "Enter default value (optional)"),
+            placeHolder: I18n.t("addColumn.placeholder.defaultValue", "Leave empty for no default"),
             ignoreFocusOut: true
         });
 
         // Step 6: Optional - comment
         const comment = await vscode.window.showInputBox({
-            prompt: "Enter column comment (optional)",
-            placeHolder: "Column description",
+            prompt: I18n.t("addColumn.prompt.comment", "Enter column comment (optional)"),
+            placeHolder: I18n.t("addColumn.placeholder.comment", "Column description"),
             ignoreFocusOut: true
         });
 

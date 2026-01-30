@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { Utility } from "./common/utility";
 
 // Helper function to calculate string length (Chinese characters count as 2)
 function getStringLength(str: string): number {
@@ -24,7 +25,24 @@ function getStringLength(str: string): number {
 export class SqlResultWebView {
     private static currentPanel: vscode.WebviewPanel | undefined = null;
 
-    public static async show(data, title) {
+    public static async show(data, title, sql?: string) {
+        // Always update or create SQL document with the new SQL
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor && activeEditor.document.languageId === 'sql') {
+            // Update existing SQL document (add empty line at beginning for consistency)
+            const editor = vscode.window.activeTextEditor;
+            const fullRange = new vscode.Range(
+                editor.document.positionAt(0),
+                editor.document.positionAt(editor.document.getText().length)
+            );
+            await editor.edit(editBuilder => {
+                editBuilder.replace(fullRange, (sql ? "\n" + sql : "\n"));
+            });
+        } else {
+            // Create new SQL document
+            await Utility.createSQLTextDocument(sql || "");
+        }
+
         // Split editor into two rows (上下分栏)
         await vscode.commands.executeCommand('workbench.action.editorLayoutTwoRows');
 
