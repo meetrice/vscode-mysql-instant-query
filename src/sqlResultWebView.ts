@@ -77,9 +77,6 @@ export class SqlResultWebView {
                 if (message.command === 'refreshData') {
                     // Notify extension to refresh data
                     vscode.commands.executeCommand('mysqlInstantQuery.refreshResults');
-                } else if (message.command === 'commitChanges') {
-                    // Handle commit changes
-                    vscode.commands.executeCommand('mysqlInstantQuery.commitChanges', message.changes);
                 } else if (message.command === 'deleteRows') {
                     // Handle delete rows
                     vscode.commands.executeCommand('mysqlInstantQuery.deleteSelectedRows', message.rows);
@@ -870,16 +867,11 @@ export class SqlResultWebView {
                     });
                 }
 
-                // Track pending changes
-                let pendingChanges = new Map(); // row index -> {column: value}
-                let newRowData = null;
-
                 // Initialize action buttons
                 function initActionButtons() {
                     const selectAllBtn = document.getElementById('selectAllBtn');
                     const deleteBtn = document.getElementById('deleteBtn');
                     const addBtn = document.getElementById('addBtn');
-                    const commitBtn = document.getElementById('commitBtn');
                     const refreshBtn = document.getElementById('refreshBtn');
 
                     console.log('initActionButtons called');
@@ -902,9 +894,6 @@ export class SqlResultWebView {
                     if (addBtn) {
                         addBtn.addEventListener('click', addNewRow);
                         console.log('addBtn event attached');
-                    }
-                    if (commitBtn) {
-                        commitBtn.addEventListener('click', commitChanges);
                     }
                     if (refreshBtn) {
                         refreshBtn.addEventListener('click', refreshData);
@@ -1140,41 +1129,6 @@ export class SqlResultWebView {
                     });
 
                     table.appendChild(newRow);
-
-                    // Mark as pending change
-                    pendingChanges.set('new', { isNew: true, data: {} });
-                    updateCommitButton();
-                }
-
-                function commitChanges() {
-                    if (pendingChanges.size === 0) return;
-
-                    // Collect all changes
-                    const changes = [];
-                    pendingChanges.forEach((value, key) => {
-                        changes.push(value);
-                    });
-
-                    // Send to extension to execute SQL
-                    vscode.postMessage({
-                        command: 'commitChanges',
-                        changes: JSON.stringify(changes)
-                    });
-
-                    // Clear pending changes
-                    pendingChanges.clear();
-                    updateCommitButton();
-                }
-
-                function updateCommitButton() {
-                    const commitBtn = document.getElementById('commitBtn');
-                    if (commitBtn) {
-                        if (pendingChanges.size > 0) {
-                            commitBtn.classList.remove('hidden');
-                        } else {
-                            commitBtn.classList.add('hidden');
-                        }
-                    }
                 }
 
                 function refreshData() {
@@ -1192,22 +1146,7 @@ export class SqlResultWebView {
                         const columnName = cell.getAttribute('data-column-name');
                         const value = e.target.value;
 
-                        if (rowIndex === 'new') {
-                            // New row
-                            if (!pendingChanges.has('new')) {
-                                pendingChanges.set('new', { isNew: true, data: {} });
-                            }
-                            pendingChanges.get('new').data[columnName] = value;
-                        } else {
-                            // Existing row
-                            if (!pendingChanges.has(rowIndex)) {
-                                pendingChanges.set(rowIndex, { isNew: false, rowIndex: rowIndex, data: {} });
-                            }
-                            pendingChanges.get(rowIndex).data[columnName] = value;
-                            row.classList.add('modified');
-                        }
-
-                        updateCommitButton();
+                        // Cell editing tracking removed - no longer needed
                     }
                 });
             <\/script>
@@ -1276,7 +1215,6 @@ export class SqlResultWebView {
                 <button class="action-btn" id="selectAllBtn" title="Select All">☑️</button>
                 <button class="action-btn danger" id="deleteBtn" title="Delete Selected">🗑️</button>
                 <button class="action-btn success" id="addBtn" title="Add Row">➕</button>
-                <button class="action-btn hidden" id="commitBtn" title="Commit Changes">💾</button>
                 <button class="action-btn" id="refreshBtn" title="Refresh">🔄</button>
             </div>
         </th>`;
