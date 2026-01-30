@@ -80,6 +80,12 @@ export class SqlResultWebView {
                 } else if (message.command === 'commitChanges') {
                     // Handle commit changes
                     vscode.commands.executeCommand('mysqlInstantQuery.commitChanges', message.changes);
+                } else if (message.command === 'deleteRows') {
+                    // Handle delete rows
+                    vscode.commands.executeCommand('mysqlInstantQuery.deleteSelectedRows', message.rows);
+                } else if (message.command === 'showWarning') {
+                    // Show warning message
+                    vscode.window.showWarningMessage(message.message);
                 }
             },
             undefined,
@@ -518,6 +524,9 @@ export class SqlResultWebView {
                     updatePagination();
                     initColumnFilter();
                     initResizableColumn();
+                    initFilters();
+                    initActionButtons();
+                    initRowCheckboxes();
                 });
 
                 // Column filter functionality
@@ -811,13 +820,6 @@ export class SqlResultWebView {
                     });
                 }
 
-                // Initialize pagination after DOM is ready
-                setTimeout(function() {
-                    initFilters();
-                    initActionButtons();
-                    initRowCheckboxes();
-                }, 0);
-
                 // Track pending changes
                 let pendingChanges = new Map(); // row index -> {column: value}
                 let newRowData = null;
@@ -830,20 +832,33 @@ export class SqlResultWebView {
                     const commitBtn = document.getElementById('commitBtn');
                     const refreshBtn = document.getElementById('refreshBtn');
 
+                    console.log('initActionButtons called');
+                    console.log('selectAllBtn:', selectAllBtn);
+                    console.log('deleteBtn:', deleteBtn);
+                    console.log('addBtn:', addBtn);
+                    console.log('refreshBtn:', refreshBtn);
+
                     if (selectAllBtn) {
                         selectAllBtn.addEventListener('click', toggleSelectAll);
+                        console.log('selectAllBtn event attached');
                     }
                     if (deleteBtn) {
-                        deleteBtn.addEventListener('click', deleteSelectedRows);
+                        deleteBtn.addEventListener('click', function(e) {
+                            console.log('deleteBtn clicked');
+                            deleteSelectedRows();
+                        });
+                        console.log('deleteBtn event attached');
                     }
                     if (addBtn) {
                         addBtn.addEventListener('click', addNewRow);
+                        console.log('addBtn event attached');
                     }
                     if (commitBtn) {
                         commitBtn.addEventListener('click', commitChanges);
                     }
                     if (refreshBtn) {
                         refreshBtn.addEventListener('click', refreshData);
+                        console.log('refreshBtn event attached');
                     }
                 }
 
@@ -862,22 +877,37 @@ export class SqlResultWebView {
                 }
 
                 function deleteSelectedRows() {
+                    console.log('deleteSelectedRows called');
                     const selectedCheckboxes = document.querySelectorAll('.row-checkbox:checked');
+                    console.log('selectedCheckboxes:', selectedCheckboxes.length);
                     if (selectedCheckboxes.length === 0) {
-                        alert('Please select at least one row to delete');
+                        vscode.postMessage({
+                            command: 'showWarning',
+                            message: 'Please select at least one row to delete'
+                        });
                         return;
                     }
 
-                    if (confirm(\`Are you sure you want to delete \${selectedCheckboxes.length} row(s)?\`)) {
-                        selectedCheckboxes.forEach(checkbox => {
-                            const rowIndex = parseInt(checkbox.getAttribute('data-row-index'));
-                            const row = checkbox.closest('tr');
-                            if (row) {
-                                row.style.display = 'none';
-                                row.classList.add('deleted');
+                    // Collect row data for selected rows
+                    const selectedRows = [];
+                    selectedCheckboxes.forEach(checkbox => {
+                        const row = checkbox.closest('tr');
+                        if (row) {
+                            const rowData = row.getAttribute('data-row-data');
+                            console.log('rowData:', rowData);
+                            if (rowData) {
+                                selectedRows.push(JSON.parse(rowData));
                             }
-                        });
-                    }
+                        }
+                    });
+
+                    console.log('selectedRows:', selectedRows);
+                    console.log('Sending deleteRows command');
+                    // Send to extension for SQL generation and confirmation
+                    vscode.postMessage({
+                        command: 'deleteRows',
+                        rows: JSON.stringify(selectedRows)
+                    });
                 }
 
                 function addNewRow() {
@@ -1058,7 +1088,9 @@ export class SqlResultWebView {
         let body = "<table><thead><tr>" + head + "</tr><tr>" + filterRow + "</tr></thead><tbody>";
 
         rows.forEach((row: any, rowIndex: number) => {
-            body += "<tr>";
+            // Store row data as JSON string for delete functionality
+            const rowDataJson = JSON.stringify(row).replace(/"/g, '&quot;');
+            body += `<tr data-row-data='${rowDataJson}'>`;
             // Add checkbox cell with visible checkbox
             body += `<td class='sticky-column'><input type='checkbox' class='row-checkbox' data-row-index='${rowIndex}'></td>`;
             for (const field in row) {

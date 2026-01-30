@@ -193,6 +193,68 @@ export function activate(context: vscode.ExtensionContext) {
         }
     }));
 
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.deleteSelectedRows", async (rowsJson: string) => {
+        const queryInfo = SqlResultWebView.getLastQueryInfo();
+        if (!queryInfo || !queryInfo.database || !queryInfo.table) {
+            vscode.window.showWarningMessage("Cannot determine database or table for DELETE operation");
+            return;
+        }
+
+        const rows = JSON.parse(rowsJson);
+        if (!rows || rows.length === 0) {
+            return;
+        }
+
+        // Show confirmation dialog
+        const confirm = await vscode.window.showWarningMessage(
+            `Are you sure you want to delete ${rows.length} row(s)?`,
+            { modal: true },
+            "Yes", "No"
+        );
+
+        if (confirm !== "Yes") {
+            return;
+        }
+
+        // Generate DELETE statements for each row
+        const database = queryInfo.database;
+        const table = queryInfo.table;
+
+        // Find primary key column (usually 'id')
+        const columns = Object.keys(rows[0]);
+        const primaryKeyColumn = columns.find(col => col.toLowerCase() === 'id') || columns[0];
+
+        // Build WHERE clauses for each row using only primary key
+        const deleteStatements = [];
+        for (const row of rows) {
+            const value = row[primaryKeyColumn];
+            let whereCondition = '';
+
+            if (value === null || value === undefined) {
+                whereCondition = `\`${primaryKeyColumn}\` IS NULL`;
+            } else {
+                // Check if the value looks like a number
+                const isNumeric = typeof value === 'number' || (typeof value === 'string' && !isNaN(Number(value)) && value !== '');
+                if (isNumeric) {
+                    whereCondition = `\`${primaryKeyColumn}\` = ${value}`;
+                } else {
+                    // Escape single quotes for string values
+                    const escapedValue = String(value).replace(/'/g, "''");
+                    whereCondition = `\`${primaryKeyColumn}\` = '${escapedValue}'`;
+                }
+            }
+
+            const sql = `DELETE FROM \`${database}\`.\`${table}\`\nWHERE ${whereCondition};`;
+            deleteStatements.push(sql);
+        }
+
+        // Create SQL document with all DELETE statements
+        const fullSql = deleteStatements.join('\n\n');
+        await Utility.createSQLTextDocument(fullSql);
+
+        vscode.window.showInformationMessage(`Generated ${deleteStatements.length} DELETE statement(s) in SQL editor`);
+    }));
+
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.viewTableStructureFromEditor", async () => {
         if (!vscode.window.activeTextEditor) {
             vscode.window.showWarningMessage(I18n.t("error.noActiveEditor"));

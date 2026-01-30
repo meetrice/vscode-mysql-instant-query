@@ -191,19 +191,23 @@ export class Utility {
             sql = sql.trim() + ' LIMIT 100';
         }
 
-        // Always try to parse table from SQL first
+        // Use provided database and table, or parse from SQL as fallback
         let parsedDatabase = database;
         let parsedTable = table;
-        const parsed = Utility.parseTableFromSQL(sql);
-        if (parsed.database) {
-            parsedDatabase = parsed.database;
-        }
-        if (parsed.table) {
-            parsedTable = parsed.table;
-        }
-        // If SQL contains only table name (no database), use the passed database as fallback
-        if (parsed.table && !parsed.database && database) {
-            parsedDatabase = database;
+
+        // Only parse from SQL if database/table were not provided
+        if (!parsedDatabase || !parsedTable) {
+            const parsed = Utility.parseTableFromSQL(sql);
+            if (!parsedDatabase && parsed.database) {
+                parsedDatabase = parsed.database;
+            }
+            if (!parsedTable && parsed.table) {
+                parsedTable = parsed.table;
+            }
+            // If SQL contains only table name (no database), use the passed database as fallback
+            if (parsedTable && !parsedDatabase && database) {
+                parsedDatabase = database;
+            }
         }
 
         // Get total row count if database and table are available
