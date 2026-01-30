@@ -128,6 +128,48 @@ export class SqlResultWebView {
                     outline: none;
                     border-color: var(--vscode-focusBorder);
                 }
+                .column-filter-header {
+                    position: sticky;
+                    left: 0;
+                    background-color: #e8e8e8;
+                    z-index: 20;
+                    min-width: 180px;
+                    text-align: center;
+                    border-right: 2px solid #ccc;
+                }
+                .column-filter-input {
+                    width: 95%;
+                    padding: 6px 8px;
+                    font-size: 12px;
+                    border: 1px solid #bbb;
+                    border-radius: 3px;
+                    box-sizing: border-box;
+                    background-color: var(--vscode-input-background);
+                    color: var(--vscode-input-foreground);
+                }
+                .column-filter-input:focus {
+                    outline: none;
+                    border-color: var(--vscode-focusBorder);
+                    box-shadow: 0 0 3px rgba(0, 122, 255, 0.3);
+                }
+                .column-filter-input::placeholder {
+                    color: #999;
+                    font-size: 11px;
+                }
+                .sticky-column {
+                    position: sticky;
+                    left: 0;
+                    background-color: inherit;
+                    border-right: 2px solid #ccc;
+                    z-index: 5;
+                    min-width: 180px;
+                }
+                .data-column.hidden {
+                    display: none;
+                }
+                th.data-column.hidden, td.data-column.hidden {
+                    display: none;
+                }
                 td {
                     border: 1px solid #e0e0e0;
                     padding: 6px 10px;
@@ -327,7 +369,32 @@ export class SqlResultWebView {
                         return rowData;
                     });
                     updatePagination();
+                    initColumnFilter();
                 });
+
+                // Column filter functionality
+                function initColumnFilter() {
+                    const columnFilterInput = document.getElementById('columnFilterInput');
+                    if (columnFilterInput) {
+                        columnFilterInput.addEventListener('input', filterColumns);
+                    }
+                }
+
+                function filterColumns() {
+                    const filterText = document.getElementById('columnFilterInput').value.toLowerCase().trim();
+                    const dataColumns = document.querySelectorAll('th.data-column, td.data-column');
+
+                    dataColumns.forEach(column => {
+                        const columnName = column.getAttribute('data-column-name');
+                        if (columnName) {
+                            if (!filterText || columnName.toLowerCase().includes(filterText)) {
+                                column.classList.remove('hidden');
+                            } else {
+                                column.classList.add('hidden');
+                            }
+                        }
+                    });
+                }
 
                 function showModal(value) {
                     document.getElementById('modalValue').textContent = value;
@@ -602,28 +669,33 @@ export class SqlResultWebView {
             }
         }
 
-        // Generate header row with click-to-copy functionality
-        let head = "";
+        // Generate header row with field filter column at the beginning
+        let head = `<th class="column-filter-header" rowspan="2">
+            <input type="text" id="columnFilterInput" class="column-filter-input" placeholder="🔍 Filter columns...">
+        </th>`;
         fields.forEach((field, index) => {
             const escapedField = this.escapeHtml(field);
-            head += `<th onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}">${escapedField}</th>`;
+            head += `<th class="data-column" data-column-name="${escapedField}" onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}">${escapedField}</th>`;
         });
 
-        // Generate filter row
+        // Generate filter row (no filter in the first column)
         let filterRow = "";
         fields.forEach((field, index) => {
-            filterRow += `<th class="filter-header"><input type="text" class="filter-input" data-column-index="${index}" placeholder="Filter..."></th>`;
+            filterRow += `<th class="filter-header data-column" data-column-name="${this.escapeHtml(field)}"><input type="text" class="filter-input" data-column-index="${index}" placeholder="Filter..."></th>`;
         });
 
         let body = "<table><thead><tr>" + head + "</tr><tr>" + filterRow + "</tr></thead><tbody>";
 
         rows.forEach((row) => {
             body += "<tr>";
+            // Add empty cell in the first column
+            body += "<td class='sticky-column'></td>";
             for (const field in row) {
                 if (row.hasOwnProperty(field)) {
                     const value = row[field];
                     const fullValue = value === null || value === undefined ? 'NULL' : String(value);
                     const displayValue = value === null || value === undefined ? '<span class="empty-cell">NULL</span>' : this.escapeHtml(fullValue);
+                    const escapedFieldName = this.escapeHtml(field);
 
                     // Calculate display length (Chinese counts as 2, English as 1)
                     const displayLength = getStringLength(fullValue);
@@ -652,7 +724,7 @@ export class SqlResultWebView {
                     const escapedFullValue = JSON.stringify(fullValue);
                     const escapedTruncatedValue = this.escapeHtml(truncatedValue);
 
-                    body += "<td>" +
+                    body += "<td class='data-column' data-column-name='" + escapedFieldName + "'>" +
                         "<div class=\"cell-wrapper\">" +
                         "<span class=\"cell-content" + (isTruncated ? " truncated" : "") + "\">" + (isTruncated ? escapedTruncatedValue + "..." : displayValue) + "</span>" +
                         (isTruncated ? "<button class=\"expand-btn\" onclick='showModal(" + escapedFullValue + ")'>...</button>" : "") +
