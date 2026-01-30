@@ -168,8 +168,8 @@ export class TableNode implements INode {
         Global.activeConnection = connection;
 
         // Use runQueryWithTotal to get total row count and pass database/table info
-        // SqlResultWebView.show will handle creating the SQL document
-        Utility.runQueryWithTotal(sql, this.database, this.table);
+        // Append SQL to existing editor instead of replacing
+        Utility.runQueryWithTotal(sql, this.database, this.table, false, true);
     }
 
     public async copyTableName() {

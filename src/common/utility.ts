@@ -53,7 +53,7 @@ export class Utility {
         return result;
     }
 
-    public static async runQuery(sql?: string, connectionOptions?: IConnection, totalRows?: number, updateSQLEditor: boolean = true) {
+    public static async runQuery(sql?: string, connectionOptions?: IConnection, totalRows?: number, updateSQLEditor: boolean = true, appendSQLEditor: boolean = false) {
         AppInsightsClient.sendEvent("runQuery.start");
         if (!sql && !vscode.window.activeTextEditor) {
             vscode.window.showWarningMessage("No SQL file selected");
@@ -93,13 +93,13 @@ export class Utility {
                 if (rows.some(((row) => Array.isArray(row)))) {
                     rows.forEach((row, index) => {
                         if (Array.isArray(row)) {
-                             Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRows, undefined, undefined, false, updateSQLEditor);
+                             Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRows, undefined, undefined, false, updateSQLEditor, appendSQLEditor);
                         } else {
                             OutputChannel.appendLine(JSON.stringify(row));
                         }
                     });
                 } else {
-                    Utility.showQueryResult(rows, "Results", sql, totalRows, undefined, undefined, false, updateSQLEditor);
+                    Utility.showQueryResult(rows, "Results", sql, totalRows, undefined, undefined, false, updateSQLEditor, appendSQLEditor);
                 }
 
             } else {
@@ -151,7 +151,7 @@ export class Utility {
         return { database: undefined, table: tableName };
     }
 
-    public static async runQueryWithTotal(sql?: string, database?: string, table?: string, updatePanel: boolean = false) {
+    public static async runQueryWithTotal(sql?: string, database?: string, table?: string, updatePanel: boolean = false, appendSQLEditor: boolean = false) {
         AppInsightsClient.sendEvent("runQuery.start");
         if (!sql && !vscode.window.activeTextEditor) {
             vscode.window.showWarningMessage("No SQL file selected");
@@ -228,13 +228,13 @@ export class Utility {
                 if (rows.some(((row) => Array.isArray(row)))) {
                     rows.forEach((row, index) => {
                         if (Array.isArray(row)) {
-                             Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRows, parsedDatabase, parsedTable, updatePanel);
+                             Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRows, parsedDatabase, parsedTable, updatePanel, true, appendSQLEditor);
                         } else {
                             OutputChannel.appendLine(JSON.stringify(row));
                         }
                     });
                 } else {
-                    Utility.showQueryResult(rows, "Results", sql, totalRows, parsedDatabase, parsedTable, updatePanel);
+                    Utility.showQueryResult(rows, "Results", sql, totalRows, parsedDatabase, parsedTable, updatePanel, true, appendSQLEditor);
                 }
 
             } else {
@@ -263,6 +263,29 @@ export class Utility {
         return editor;
     }
 
+    public static async appendSQLToEditor(sql: string) {
+        const activeEditor = vscode.window.activeTextEditor;
+
+        if (activeEditor && activeEditor.document.languageId === 'sql') {
+            // Append to existing SQL document
+            const editor = vscode.window.activeTextEditor;
+            const document = editor.document;
+            const lastLine = document.lineCount - 1;
+            const lastLineLength = document.lineAt(lastLine).text.length;
+
+            // Add two newlines (blank line separator) before the new SQL
+            const insertPosition = new vscode.Position(lastLine, lastLineLength);
+            const content = "\n\n" + sql;
+
+            await editor.edit(editBuilder => {
+                editBuilder.insert(insertPosition, content);
+            });
+        } else {
+            // Create new SQL document if no active SQL editor
+            await Utility.createSQLTextDocument(sql);
+        }
+    }
+
     public static createConnection(connectionOptions: IConnection): any {
         const newConnectionOptions: any = Object.assign({}, connectionOptions);
         // Handle SSL certificate path if provided
@@ -286,7 +309,7 @@ export class Utility {
         return uri.with({ query: data });
     }
 
-    private static async showQueryResult(data, title: string, sql?: string, totalRows?: number, database?: string, table?: string, updatePanel: boolean = false, updateSQLEditor: boolean = true) {
+    private static async showQueryResult(data, title: string, sql?: string, totalRows?: number, database?: string, table?: string, updatePanel: boolean = false, updateSQLEditor: boolean = true, appendSQLEditor: boolean = false) {
         // Get column comments if database and table are available
         let columnComments: { [key: string]: string } | undefined = undefined;
         if (database && table && data && data.length > 0) {
@@ -333,7 +356,7 @@ export class Utility {
         if (updatePanel) {
             SqlResultWebView.updatePanel(data, sql, database, table, columnComments);
         } else {
-            SqlResultWebView.show(data, title, sql, database, table, columnComments, updateSQLEditor);
+            SqlResultWebView.show(data, title, sql, database, table, columnComments, updateSQLEditor, appendSQLEditor);
         }
     }
 

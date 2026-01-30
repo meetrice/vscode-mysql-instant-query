@@ -26,23 +26,29 @@ export class SqlResultWebView {
     private static currentPanel: vscode.WebviewPanel | undefined = null;
     private static lastQueryInfo: { sql?: string; database?: string; table?: string; columnComments?: { [key: string]: string } } | undefined = undefined;
 
-    public static async show(data, title, sql?: string, database?: string, table?: string, columnComments?: { [key: string]: string }, updateSQLEditor: boolean = true) {
+    public static async show(data, title, sql?: string, database?: string, table?: string, columnComments?: { [key: string]: string }, updateSQLEditor: boolean = true, appendSQLEditor: boolean = false) {
         // Update or create SQL document with the new SQL (only if updateSQLEditor is true)
         if (updateSQLEditor) {
-            const activeEditor = vscode.window.activeTextEditor;
-            if (activeEditor && activeEditor.document.languageId === 'sql') {
-                // Update existing SQL document (add empty line at beginning for consistency)
-                const editor = vscode.window.activeTextEditor;
-                const fullRange = new vscode.Range(
-                    editor.document.positionAt(0),
-                    editor.document.positionAt(editor.document.getText().length)
-                );
-                await editor.edit(editBuilder => {
-                    editBuilder.replace(fullRange, (sql ? "\n" + sql : "\n"));
-                });
+            if (appendSQLEditor) {
+                // Append to existing SQL editor
+                await Utility.appendSQLToEditor(sql || "");
             } else {
-                // Create new SQL document
-                await Utility.createSQLTextDocument(sql || "");
+                // Replace SQL editor content (original behavior)
+                const activeEditor = vscode.window.activeTextEditor;
+                if (activeEditor && activeEditor.document.languageId === 'sql') {
+                    // Update existing SQL document (add empty line at beginning for consistency)
+                    const editor = vscode.window.activeTextEditor;
+                    const fullRange = new vscode.Range(
+                        editor.document.positionAt(0),
+                        editor.document.positionAt(editor.document.getText().length)
+                    );
+                    await editor.edit(editBuilder => {
+                        editBuilder.replace(fullRange, (sql ? "\n" + sql : "\n"));
+                    });
+                } else {
+                    // Create new SQL document
+                    await Utility.createSQLTextDocument(sql || "");
+                }
             }
         }
 
