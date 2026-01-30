@@ -1,7 +1,7 @@
 {
     "name": "mysql-instant-query",
-    "displayName": "Mysql Instant Query",
-    "description": "MySQL instant query tool",
+    "displayName": "%displayName%",
+    "description": "%description%",
     "version": "0.5.6",
     "publisher": "meetrice",
     "icon": "logo.png",
@@ -39,7 +39,7 @@
             "activitybar": [
                 {
                     "id": "mysqlInstantQuery-sidebar",
-                    "title": "Mysql Instant Query",
+                    "title": "%viewsContainers.activitybar.mysqlInstantQuery-sidebar.title%",
                     "icon": "logo.png"
                 }
             ]
@@ -48,164 +48,164 @@
             "mysqlInstantQuery-sidebar": [
                 {
                     "id": "mysqlInstantQueryFilter",
-                    "name": "Filter & Snippets",
+                    "name": "%views.mysqlInstantQuery-sidebar.mysqlInstantQueryFilter.name%",
                     "type": "webview"
                 },
                 {
                     "id": "mysqlInstantQuery",
-                    "name": "Mysql Instant Query"
+                    "name": "%views.mysqlInstantQuery-sidebar.mysqlInstantQuery.name%"
                 }
             ]
         },
         "commands": [
             {
                 "command": "mysqlInstantQuery.refresh",
-                "title": "Refresh",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.refresh.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.addConnection",
-                "title": "Add Connection",
+                "title": "%commands.mysqlInstantQuery.addConnection.title%",
                 "icon": {
                     "light": "resources/light/add.svg",
                     "dark": "resources/dark/add.svg"
                 },
-                "category": "Mysql Instant Query"
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.deleteConnection",
-                "title": "Delete Connection",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.deleteConnection.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.editDisplayName",
-                "title": "Edit Display Name",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.editDisplayName.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.runQuery",
-                "title": "Run MySQL Query",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.runQuery.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.newQuery",
-                "title": "New Query",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.newQuery.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.selectDatabase",
-                "title": "Select Database",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.selectDatabase.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.selectTop1000",
-                "title": "Select Top 100",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.selectTop1000.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.copyTableName",
-                "title": "Copy Name",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.copyTableName.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.showTableStructure",
-                "title": "View Table Structure",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.showTableStructure.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.viewTableStructureFromEditor",
-                "title": "View Table Structure",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.viewTableStructureFromEditor.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.openTable",
-                "title": "Open Table",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.openTable.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.pinTable",
-                "title": "Pin Table",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.pinTable.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.unpinTable",
-                "title": "Unpin Table",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.unpinTable.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.selectColumn",
-                "title": "Select Column",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.selectColumn.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.selectFilter",
-                "title": "Select Filter",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.selectFilter.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.copyColumnName",
-                "title": "Copy Name",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.copyColumnName.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.insertColumnName",
-                "title": "Insert to Editor",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.insertColumnName.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.dropTable",
-                "title": "Drop Table",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.dropTable.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.backupTable",
-                "title": "Backup Table",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.backupTable.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.countTable",
-                "title": "Count",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.countTable.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.addColumn",
-                "title": "Add Column",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.addColumn.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.dropColumn",
-                "title": "Drop Column",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.dropColumn.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.setTableFilter",
-                "title": "Filter Tables",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.setTableFilter.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.clearTableFilter",
-                "title": "Clear Table Filter",
-                "category": "Mysql Instant Query"
+                "title": "%commands.mysqlInstantQuery.clearTableFilter.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.collapseAll",
-                "title": "Collapse All",
+                "title": "%commands.mysqlInstantQuery.collapseAll.title%",
                 "icon": {
                     "light": "resources/light/collapse.svg",
                     "dark": "resources/dark/collapse.svg"
                 },
-                "tooltip": "在未过滤表格,结果太多时,慎用折叠展开,有可能导致崩溃",
-                "category": "Mysql Instant Query"
+                "tooltip": "%commands.mysqlInstantQuery.collapseAll.tooltip%",
+                "category": "%commands.mysqlInstantQuery.category%"
             },
             {
                 "command": "mysqlInstantQuery.expandAll",
-                "title": "Expand All",
+                "title": "%commands.mysqlInstantQuery.expandAll.title%",
                 "icon": {
                     "light": "resources/light/expand.svg",
                     "dark": "resources/dark/expand.svg"
                 },
-                "tooltip": "在未过滤表格,结果太多时,慎用折叠展开,有可能导致崩溃",
-                "category": "Mysql Instant Query"
+                "tooltip": "%commands.mysqlInstantQuery.expandAll.tooltip%",
+                "category": "%commands.mysqlInstantQuery.category%"
             }
         ],
         "keybindings": [
@@ -411,22 +411,22 @@
         },
         "configuration": {
             "type": "object",
-            "title": "Mysql Instant Query",
+            "title": "%configuration.title%",
             "properties": {
                 "mysql-instant-query.enableTelemetry": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Whether to enable anonymous usage collection."
+                    "description": "%configuration.enableTelemetry.description%"
                 },
                 "mysql-instant-query.maxTableCount": {
                     "type": "integer",
                     "default": 500,
-                    "description": "The maximum table count shown in the tree view"
+                    "description": "%configuration.maxTableCount.description%"
                 },
                 "mysql-instant-query.enableDelimiterOperator": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Enable support for DELIMITER operator."
+                    "description": "%configuration.enableDelimiterOperator.description%"
                 }
             }
         }

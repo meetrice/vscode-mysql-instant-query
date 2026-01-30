@@ -1,0 +1,21 @@
+{
+    "warning.collapseExpand": "在未过滤表格且结果过多时,慎用折叠展开,有可能导致崩溃",
+    "button.continue": "继续",
+    "button.cancel": "取消",
+    "error.noActiveEditor": "没有活动的编辑器",
+    "warning.selectTableName": "请选择表名",
+    "warning.noConnection": "没有 MySQL 连接。请先选择数据库。",
+    "warning.cannotDetermineDatabase": "无法确定数据库。请先选择数据库或使用格式: database.table",
+    "warning.noDatabaseSelected": "未选择 MySQL 数据库。请先选择数据库。",
+    "info.noTablesFound": "当前数据库中没有找到表。",
+    "placeholder.filterTables": "输入以过滤表...",
+    "info.copied": "已复制: {0}",
+    "warning.noActiveEditorToInsert": "没有活动编辑器来插入列名",
+    "confirmation.dropTable": "您确定要删除表 `{0}.{1}` 吗？此操作无法撤销。",
+    "button.yes": "是",
+    "button.no": "否",
+    "info.tableDropped": "表 `{0}` 已成功删除。",
+    "error.errorDroppingTable": "删除表时出错: {0}",
+    "info.tableBackedUp": "表已备份为 `{0}`",
+    "error.errorBackingUpTable": "备份表时出错: {0}"
+}

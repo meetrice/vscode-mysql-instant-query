@@ -10,8 +10,12 @@ import { ColumnNode } from "./model/columnNode";
 import { MySQLTreeDataProvider, TableFilterState } from "./mysqlTreeDataProvider";
 import { FilterInputPanel } from "./filterInputPanel";
 import { Global } from "./common/global";
+import { I18n } from "./common/i18n";
 
 export function activate(context: vscode.ExtensionContext) {
+    // Initialize i18n
+    I18n.init(context);
+
     AppInsightsClient.sendEvent("loadExtension");
 
     const mysqlTreeDataProvider = new MySQLTreeDataProvider(context);
@@ -46,11 +50,12 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(treeView);
 
     // Make treeView accessible for collapse/expand functionality
-    const warningMessage = "在未过滤表格,结果太多时,慎用折叠展开,有可能导致崩溃";
-
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.expandAll", async () => {
-        const confirm = await vscode.window.showWarningMessage(warningMessage, "继续", "取消");
-        if (confirm !== "继续") {
+        const warningMessage = I18n.t("warning.collapseExpand");
+        const continueLabel = I18n.t("button.continue");
+        const cancelLabel = I18n.t("button.cancel");
+        const confirm = await vscode.window.showWarningMessage(warningMessage, continueLabel, cancelLabel);
+        if (confirm !== continueLabel) {
             return;
         }
         TableFilterState.instance.setAllExpanded(true);
@@ -60,8 +65,11 @@ export function activate(context: vscode.ExtensionContext) {
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.collapseAll", async () => {
-        const confirm = await vscode.window.showWarningMessage(warningMessage, "继续", "取消");
-        if (confirm !== "继续") {
+        const warningMessage = I18n.t("warning.collapseExpand");
+        const continueLabel = I18n.t("button.continue");
+        const cancelLabel = I18n.t("button.cancel");
+        const confirm = await vscode.window.showWarningMessage(warningMessage, continueLabel, cancelLabel);
+        if (confirm !== continueLabel) {
             return;
         }
         TableFilterState.instance.setAllExpanded(false);
@@ -178,7 +186,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.viewTableStructureFromEditor", async () => {
         if (!vscode.window.activeTextEditor) {
-            vscode.window.showWarningMessage("No active editor");
+            vscode.window.showWarningMessage(I18n.t("error.noActiveEditor"));
             return;
         }
 
@@ -193,7 +201,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (wordRange) {
                 selectedText = document.getText(wordRange);
             } else {
-                vscode.window.showWarningMessage("Please select a table name");
+                vscode.window.showWarningMessage(I18n.t("warning.selectTableName"));
                 return;
             }
         } else {
@@ -219,7 +227,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Check if we have an active connection
         if (!Global.activeConnection) {
-            vscode.window.showWarningMessage("No MySQL connection. Please select a database first.");
+            vscode.window.showWarningMessage(I18n.t("warning.noConnection"));
             return;
         }
 
@@ -229,7 +237,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         if (!databaseName) {
-            vscode.window.showWarningMessage("Cannot determine database. Please select a database first or use format: database.table");
+            vscode.window.showWarningMessage(I18n.t("warning.cannotDetermineDatabase"));
             return;
         }
 
@@ -249,7 +257,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.openTable", async () => {
         if (!Global.activeConnection || !Global.activeConnection.database) {
-            vscode.window.showWarningMessage("No MySQL database selected. Please select a database first.");
+            vscode.window.showWarningMessage(I18n.t("warning.noDatabaseSelected"));
             return;
         }
 
@@ -272,7 +280,7 @@ export function activate(context: vscode.ExtensionContext) {
                  ORDER BY TABLE_NAME;`);
 
             if (!tables || tables.length === 0) {
-                vscode.window.showInformationMessage("No tables found in current database.");
+                vscode.window.showInformationMessage(I18n.t("info.noTablesFound"));
                 return;
             }
 
@@ -293,7 +301,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             // Create and show QuickPick
             const quickPick = vscode.window.createQuickPick();
-            quickPick.placeholder = 'Type to filter tables...';
+            quickPick.placeholder = I18n.t("placeholder.filterTables");
             quickPick.items = items.slice(0, 10); // Initially show first 10
             quickPick.canSelectMany = false;
 
@@ -364,7 +372,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (columnNode) {
             const columnName = columnNode.getColumnName();
             vscode.env.clipboard.writeText(columnName);
-            vscode.window.showInformationMessage(`Copied: ${columnName}`);
+            vscode.window.showInformationMessage(I18n.format("info.copied", [columnName]));
         }
     }));
 
@@ -372,7 +380,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (columnNode) {
             const columnName = columnNode.getColumnName();
             if (!vscode.window.activeTextEditor) {
-                vscode.window.showWarningMessage("No active editor to insert column name");
+                vscode.window.showWarningMessage(I18n.t("warning.noActiveEditorToInsert"));
                 return;
             }
             const editor = vscode.window.activeTextEditor;
@@ -399,12 +407,12 @@ export function activate(context: vscode.ExtensionContext) {
         const databaseName = tableNode.getDatabase();
 
         const confirm = await vscode.window.showWarningMessage(
-            `Are you sure you want to drop table \`${databaseName}\.\`${tableName}\`? This action cannot be undone.`,
-            "Yes",
-            "No"
+            I18n.format("confirmation.dropTable", [databaseName, tableName]),
+            I18n.t("button.yes"),
+            I18n.t("button.no")
         );
 
-        if (confirm !== "Yes") {
+        if (confirm !== I18n.t("button.yes")) {
             return;
         }
 
@@ -419,10 +427,10 @@ export function activate(context: vscode.ExtensionContext) {
             });
 
             await Utility.queryPromise(connection, `DROP TABLE \`${databaseName}\`.\`${tableName}\`;`);
-            vscode.window.showInformationMessage(`Table \`${tableName}\` dropped successfully.`);
+            vscode.window.showInformationMessage(I18n.format("info.tableDropped", [tableName]));
             mysqlTreeDataProvider.refresh();
         } catch (err) {
-            vscode.window.showErrorMessage(`Error dropping table: ${err}`);
+            vscode.window.showErrorMessage(I18n.format("error.errorDroppingTable", [err]));
         }
     }));
 
@@ -470,10 +478,10 @@ export function activate(context: vscode.ExtensionContext) {
             const conn2 = Utility.createConnection(connectionOptions);
             await Utility.queryPromise(conn2, `INSERT INTO \`${databaseName}\`.\`${backupTableName}\` SELECT * FROM \`${databaseName}\`.\`${tableName}\`;`);
 
-            vscode.window.showInformationMessage(`Table backed up as \`${backupTableName}\``);
+            vscode.window.showInformationMessage(I18n.format("info.tableBackedUp", [backupTableName]));
             mysqlTreeDataProvider.refresh();
         } catch (err) {
-            vscode.window.showErrorMessage(`Error backing up table: ${err}`);
+            vscode.window.showErrorMessage(I18n.format("error.errorBackingUpTable", [err]));
         }
     }));
 }

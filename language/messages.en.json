@@ -1,0 +1,21 @@
+{
+    "warning.collapseExpand": "Use caution when collapsing/expanding with unfiltered tables and excessive results, as this may cause crashes",
+    "button.continue": "Continue",
+    "button.cancel": "Cancel",
+    "error.noActiveEditor": "No active editor",
+    "warning.selectTableName": "Please select a table name",
+    "warning.noConnection": "No MySQL connection. Please select a database first.",
+    "warning.cannotDetermineDatabase": "Cannot determine database. Please select a database first or use format: database.table",
+    "warning.noDatabaseSelected": "No MySQL database selected. Please select a database first.",
+    "info.noTablesFound": "No tables found in current database.",
+    "placeholder.filterTables": "Type to filter tables...",
+    "info.copied": "Copied: {0}",
+    "warning.noActiveEditorToInsert": "No active editor to insert column name",
+    "confirmation.dropTable": "Are you sure you want to drop table `{0}.{1}`? This action cannot be undone.",
+    "button.yes": "Yes",
+    "button.no": "No",
+    "info.tableDropped": "Table `{0}` dropped successfully.",
+    "error.errorDroppingTable": "Error dropping table: {0}",
+    "info.tableBackedUp": "Table backed up as `{0}`",
+    "error.errorBackingUpTable": "Error backing up table: {0}"
+}
