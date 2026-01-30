@@ -133,19 +133,36 @@ export class SqlResultWebView {
                     left: 0;
                     background-color: #e8e8e8;
                     z-index: 20;
-                    min-width: 180px;
+                    width: 180px;
+                    min-width: 100px;
                     text-align: center;
                     border-right: 2px solid #ccc;
+                    position: relative;
+                    padding: 4px;
+                }
+                .resize-handle {
+                    position: absolute;
+                    right: 0;
+                    top: 0;
+                    bottom: 0;
+                    width: 10px;
+                    cursor: col-resize;
+                    background-color: transparent;
+                    z-index: 100;
+                }
+                .resize-handle:hover, .resize-handle.active {
+                    background-color: rgba(0, 122, 204, 0.3);
                 }
                 .column-filter-input {
-                    width: 95%;
-                    padding: 6px 8px;
+                    width: 100%;
+                    padding: 6px 12px 6px 6px;
                     font-size: 12px;
                     border: 1px solid #bbb;
                     border-radius: 3px;
                     box-sizing: border-box;
                     background-color: var(--vscode-input-background);
                     color: var(--vscode-input-foreground);
+                    pointer-events: auto;
                 }
                 .column-filter-input:focus {
                     outline: none;
@@ -162,7 +179,8 @@ export class SqlResultWebView {
                     background-color: inherit;
                     border-right: 2px solid #ccc;
                     z-index: 5;
-                    min-width: 180px;
+                    width: 180px;
+                    min-width: 100px;
                 }
                 .data-column.hidden {
                     display: none;
@@ -370,6 +388,7 @@ export class SqlResultWebView {
                     });
                     updatePagination();
                     initColumnFilter();
+                    initResizableColumn();
                 });
 
                 // Column filter functionality
@@ -378,6 +397,55 @@ export class SqlResultWebView {
                     if (columnFilterInput) {
                         columnFilterInput.addEventListener('input', filterColumns);
                     }
+                }
+
+                // Resizable column functionality
+                function initResizableColumn() {
+                    const filterHeader = document.querySelector('.column-filter-header');
+                    if (!filterHeader) return;
+
+                    // Create resize handle
+                    const resizeHandle = document.createElement('div');
+                    resizeHandle.className = 'resize-handle';
+                    filterHeader.appendChild(resizeHandle);
+
+                    let isResizing = false;
+                    let startX = 0;
+                    let startWidth = 0;
+
+                    resizeHandle.addEventListener('mousedown', function(e) {
+                        isResizing = true;
+                        startX = e.clientX;
+                        startWidth = filterHeader.offsetWidth;
+                        resizeHandle.classList.add('active');
+                        e.preventDefault();
+                        e.stopPropagation();
+                    });
+
+                    document.addEventListener('mousemove', function(e) {
+                        if (!isResizing) return;
+
+                        const diff = e.clientX - startX;
+                        const newWidth = Math.max(100, startWidth + diff); // Minimum 100px
+
+                        // Update filter header width
+                        filterHeader.style.width = newWidth + 'px';
+                        filterHeader.style.minWidth = newWidth + 'px';
+
+                        // Update all sticky columns in tbody
+                        const stickyColumns = document.querySelectorAll('.sticky-column');
+                        stickyColumns.forEach(col => {
+                            col.style.width = newWidth + 'px';
+                            col.style.minWidth = newWidth + 'px';
+                        });
+                    });
+
+                    document.addEventListener('mouseup', function() {
+                        if (isResizing) {
+                            isResizing = false;
+                            resizeHandle.classList.remove('active');
+                        }
+                    });
                 }
 
                 function filterColumns() {
