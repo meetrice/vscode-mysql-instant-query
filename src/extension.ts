@@ -208,7 +208,13 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.window.showWarningMessage("No active connection");
             return;
         }
-        await ErdWebView.showTableErd(tableNode, connection.database);
+        // Use database from tableNode instead of connection.database
+        const database = tableNode.getDatabase();
+        if (!database) {
+            vscode.window.showWarningMessage("Cannot determine database for ERD");
+            return;
+        }
+        await ErdWebView.showTableErd(tableNode, database);
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.refreshResults", async () => {

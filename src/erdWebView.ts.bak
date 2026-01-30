@@ -115,7 +115,7 @@ export class ErdWebView {
             }
 
             // Calculate table dimensions
-            const columnWidth = 220;
+            const columnWidth = 200;
             const rowHeight = 30;
             const headerHeight = 40;
             const padding = 10;
@@ -135,7 +135,7 @@ export class ErdWebView {
             // Also load related tables
             await ErdWebView.loadRelatedTables(database, tableName, columns, connection);
 
-            // Use single global ERD panel
+            // Create or reveal panel - use single panel for all ERDs
             let panel = Array.from(ErdWebView.panels.values())[0];
 
             if (!panel) {
@@ -202,13 +202,13 @@ export class ErdWebView {
                     });
                 }
 
-                const columnWidth = 220;
+                const columnWidth = 200;
                 const rowHeight = 30;
                 const headerHeight = 40;
                 const padding = 10;
 
                 // Position related table to the right
-                const x = 400 + ErdWebView.tableData.size * 240;
+                const x = 500 + ErdWebView.tableData.size * 250;
                 const y = 100;
 
                 ErdWebView.tableData.set(refTableKey, {
@@ -237,7 +237,7 @@ export class ErdWebView {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ERD</title>
+    <title>ERD: ${database}.${mainTable}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -246,17 +246,10 @@ export class ErdWebView {
             color: var(--vscode-editor-foreground);
             overflow: hidden;
         }
-        #canvas {
-            width: 100%;
-            height: 100vh;
-            position: relative;
-            transform-origin: 0 0;
-            transition: transform 0.3s ease;
-        }
+        #canvas { width: 100%; height: 100vh; position: relative; }
         svg {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none;
-            z-index: 1;
         }
         .table-node {
             position: absolute;
@@ -266,17 +259,10 @@ export class ErdWebView {
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             cursor: move;
             user-select: none;
-            transition: box-shadow 0.2s, border-color 0.2s;
-        }
-        .table-node:hover {
-            box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.3);
-        }
-        .table-node.selected {
-            box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.5);
-            border-color: #007acc;
         }
         .table-node.main-table {
             border-color: #007acc;
+            box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.2);
         }
         .table-header {
             background: linear-gradient(135deg, #007acc 0%, #005a9e 100%);
@@ -292,24 +278,6 @@ export class ErdWebView {
         .table-header.related {
             background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
         }
-        .table-header-left {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex: 1;
-        }
-        .toggle-comments-btn {
-            background: rgba(255, 255, 255, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 4px;
-            padding: 2px 8px;
-            font-size: 12px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .toggle-comments-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
         .table-body { padding: 8px; }
         .column-row {
             display: flex;
@@ -317,95 +285,16 @@ export class ErdWebView {
             padding: 6px 8px;
             border-bottom: 1px solid var(--vscode-widget-border);
             font-size: 13px;
-            position: relative;
         }
         .column-row:last-child { border-bottom: none; }
         .column-icon { width: 20px; margin-right: 8px; text-align: center; }
         .pk-icon { color: #ffd700; }
         .fk-icon { color: #4caf50; }
-        .column-name {
-            flex: 1;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
+        .column-name { flex: 1; font-weight: 500; }
         .column-type {
             font-size: 11px;
             color: var(--vscode-descriptionForeground);
-        }
-        .column-comment {
-            display: none;
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
             margin-left: 8px;
-            font-style: italic;
-            opacity: 0.8;
-            flex-shrink: 0;
-        }
-        .table-body.show-comments .column-comment {
-            display: inline-block;
-        }
-        .connection-point {
-            position: absolute;
-            width: 10px;
-            height: 10px;
-            background-color: #007acc;
-            border-radius: 50%;
-            opacity: 0;
-            transition: opacity 0.2s;
-            pointer-events: auto;
-            cursor: crosshair;
-            z-index: 10;
-        }
-        .table-node:hover .connection-point,
-        .table-node.selected .connection-point {
-            opacity: 0.6;
-        }
-        .connection-point:hover {
-            opacity: 1 !important;
-            transform: scale(1.3);
-        }
-        .connection-point.dragging {
-            opacity: 1 !important;
-            background-color: #ff6b6b;
-            transform: scale(1.5);
-        }
-        .table-connector {
-            position: absolute;
-            left: -7px;
-            top: 50%;
-            transform: translateY(-50%);
-        }
-        .column-connector-left {
-            position: absolute;
-            left: 2px;
-            top: 50%;
-            transform: translateY(-50%);
-        }
-        .column-connector-right {
-            position: absolute;
-            right: 2px;
-            top: 50%;
-            transform: translateY(-50%);
-        }
-        /* Resize handle */
-        .resize-handle {
-            position: absolute;
-            right: 0;
-            top: 0;
-            bottom: 0;
-            width: 8px;
-            cursor: ew-resize;
-            background: transparent;
-            z-index: 5;
-        }
-        .resize-handle:hover,
-        .table-node:hover .resize-handle {
-            background: rgba(0, 122, 204, 0.2);
-        }
-        .resize-handle.dragging {
-            background: rgba(0, 122, 204, 0.4);
         }
         .relationship-line {
             stroke: #007acc;
@@ -413,46 +302,6 @@ export class ErdWebView {
             fill: none;
         }
         .relationship-arrow { fill: #007acc; }
-
-        /* Zoom controls */
-        .zoom-controls {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            z-index: 1000;
-        }
-        .zoom-btn {
-            width: 40px;
-            height: 40px;
-            background-color: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-button-border);
-            border-radius: 6px;
-            color: var(--vscode-editor-foreground);
-            font-size: 20px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s;
-        }
-        .zoom-btn:hover {
-            background-color: var(--vscode-toolbar-hoverBackground);
-        }
-        .zoom-level {
-            position: fixed;
-            bottom: 170px;
-            right: 20px;
-            background-color: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 4px;
-            padding: 6px 10px;
-            font-size: 12px;
-            color: var(--vscode-editor-foreground);
-            z-index: 1000;
-        }
     </style>
 </head>
 <body>
@@ -466,68 +315,10 @@ export class ErdWebView {
         }
 
         html += `    </div>
-
-    <!-- Zoom controls -->
-    <div class="zoom-controls">
-        <button class="zoom-btn" id="zoomInBtn" title="Zoom In">+</button>
-        <button class="zoom-btn" id="zoomOutBtn" title="Zoom Out">−</button>
-        <button class="zoom-btn" id="resetZoomBtn" title="Reset">⟲</button>
-    </div>
-    <div class="zoom-level" id="zoomLevel">100%</div>
-
     <script>
         const vscode = acquireVsCodeApi();
         const tables = ${JSON.stringify(tables)};
         const relationships = ${JSON.stringify(relationships)};
-
-        let zoom = 1;
-        let selectedTable = null;
-        let isDraggingConnection = false;
-        let connectionStartPoint = null;
-        let tempLine = null;
-
-        function updateZoom() {
-            const canvas = document.getElementById('canvas');
-            canvas.style.transform = 'scale(' + zoom + ')';
-            document.getElementById('zoomLevel').textContent = Math.round(zoom * 100) + '%';
-        }
-
-        document.getElementById('zoomInBtn').addEventListener('click', function() {
-            zoom = Math.min(zoom + 0.1, 2);
-            updateZoom();
-        });
-
-        document.getElementById('zoomOutBtn').addEventListener('click', function() {
-            zoom = Math.max(zoom - 0.1, 0.3);
-            updateZoom();
-        });
-
-        document.getElementById('resetZoomBtn').addEventListener('click', function() {
-            zoom = 1;
-            updateZoom();
-        });
-
-        function toggleComments(tableNode) {
-            const tableBody = tableNode.querySelector('.table-body');
-            tableBody.classList.toggle('show-comments');
-
-            const btn = tableNode.querySelector('.toggle-comments-btn');
-            if (tableBody.classList.contains('show-comments')) {
-                btn.textContent = '📝';
-            } else {
-                btn.textContent = '📋';
-            }
-            drawRelationships();
-        }
-
-        function selectTable(tableNode) {
-            if (selectedTable && selectedTable !== tableNode) {
-                selectedTable.classList.remove('selected');
-            }
-
-            selectedTable = tableNode;
-            tableNode.classList.add('selected');
-        }
 
         function drawRelationships() {
             const svg = document.getElementById('relationships');
@@ -574,135 +365,27 @@ export class ErdWebView {
             let draggedElement = null;
             let offsetX = 0;
             let offsetY = 0;
-            let isResizing = false;
-            let resizeElement = null;
-            let startX = 0;
-            let startWidth = 0;
 
             document.querySelectorAll('.table-node').forEach(function(table) {
-                // Handle resize
-                const resizeHandle = document.createElement('div');
-                resizeHandle.className = 'resize-handle';
-                table.appendChild(resizeHandle);
-
-                resizeHandle.addEventListener('mousedown', function(e) {
-                    e.stopPropagation();
-                    isResizing = true;
-                    resizeElement = table;
-                    startX = e.clientX;
-                    startWidth = table.offsetWidth;
-                    resizeHandle.classList.add('dragging');
-                    table.style.zIndex = '1000';
-                });
-
                 table.addEventListener('mousedown', function(e) {
-                    if (e.target.classList.contains('toggle-comments-btn')) return;
-                    if (e.target.classList.contains('resize-handle')) return;
-                    if (e.target.classList.contains('connection-point')) return;
-
                     draggedElement = table;
                     const rect = table.getBoundingClientRect();
                     offsetX = e.clientX - rect.left;
                     offsetY = e.clientY - rect.top;
                     table.style.zIndex = '1000';
-                    selectTable(table);
-                });
-
-                // Toggle comments button
-                const toggleBtn = table.querySelector('.toggle-comments-btn');
-                if (toggleBtn) {
-                    toggleBtn.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        toggleComments(table);
-                    });
-                }
-
-                // Connection points mouse handlers
-                table.querySelectorAll('.connection-point').forEach(function(point) {
-                    point.addEventListener('mousedown', function(e) {
-                        e.stopPropagation();
-                        e.preventDefault();
-
-                        const pointRect = point.getBoundingClientRect();
-                        const canvasRect = canvas.getBoundingClientRect();
-
-                        connectionStartPoint = {
-                            table: point.dataset.table,
-                            column: point.dataset.column,
-                            x: (pointRect.left + pointRect.width / 2 - canvasRect.left) / zoom,
-                            y: (pointRect.top + pointRect.height / 2 - canvasRect.top) / zoom
-                        };
-
-                        isDraggingConnection = true;
-                        point.classList.add('dragging');
-
-                        // Create temporary line
-                        tempLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                        tempLine.setAttribute('class', 'relationship-line');
-                        tempLine.style.stroke = '#ff6b6b';
-                        tempLine.style.strokeDasharray = '5,5';
-                        document.getElementById('relationships').appendChild(tempLine);
-                    });
-
-                    point.addEventListener('mouseup', function(e) {
-                        if (isDraggingConnection && connectionStartPoint) {
-                            const endPoint = {
-                                table: point.dataset.table,
-                                column: point.dataset.column
-                            };
-
-                            // Don't connect to same point
-                            if (connectionStartPoint.table !== endPoint.table ||
-                                connectionStartPoint.column !== endPoint.column) {
-
-                                // Add new relationship
-                                const newRel = {
-                                    fromTable: connectionStartPoint.table,
-                                    fromColumn: connectionStartPoint.column || '',
-                                    toTable: endPoint.table,
-                                    toColumn: endPoint.column || '',
-                                    type: 'one-to-many'
-                                };
-
-                                relationships.push(newRel);
-                                drawRelationships();
-                            }
-                        }
-                    });
                 });
             });
 
             document.addEventListener('mousemove', function(e) {
-                // Handle table dragging
-                if (draggedElement) {
-                    const canvasRect = canvas.getBoundingClientRect();
-                    const x = (e.clientX - canvasRect.left - offsetX) / zoom;
-                    const y = (e.clientY - canvasRect.top - offsetY) / zoom;
+                if (!draggedElement) return;
 
-                    draggedElement.style.left = x + 'px';
-                    draggedElement.style.top = y + 'px';
-                    drawRelationships();
-                }
+                const canvasRect = canvas.getBoundingClientRect();
+                const x = e.clientX - canvasRect.left - offsetX;
+                const y = e.clientY - canvasRect.top - offsetY;
 
-                // Handle resizing
-                if (isResizing && resizeElement) {
-                    const deltaX = (e.clientX - startX) / zoom;
-                    const newWidth = Math.max(150, startWidth + deltaX);
-                    resizeElement.style.width = newWidth + 'px';
-                    drawRelationships();
-                }
-
-                // Handle connection dragging
-                if (isDraggingConnection && connectionStartPoint && tempLine) {
-                    const canvasRect = canvas.getBoundingClientRect();
-                    const currentX = (e.clientX - canvasRect.left) / zoom;
-                    const currentY = (e.clientY - canvasRect.top) / zoom;
-
-                    const midX = (connectionStartPoint.x + currentX) / 2;
-                    const path = 'M ' + connectionStartPoint.x + ' ' + connectionStartPoint.y +
-                               ' L ' + currentX + ' ' + currentY;
-                    tempLine.setAttribute('d', path);
-                }
+                draggedElement.style.left = x + 'px';
+                draggedElement.style.top = y + 'px';
+                drawRelationships();
             });
 
             document.addEventListener('mouseup', function() {
@@ -710,44 +393,9 @@ export class ErdWebView {
                     draggedElement.style.zIndex = '';
                     draggedElement = null;
                 }
-
-                if (isResizing) {
-                    const handle = resizeElement?.querySelector('.resize-handle');
-                    if (handle) handle.classList.remove('dragging');
-                    if (resizeElement) resizeElement.style.zIndex = '';
-                    isResizing = false;
-                    resizeElement = null;
-                }
-
-                if (isDraggingConnection) {
-                    // Remove dragging class from all connection points
-                    document.querySelectorAll('.connection-point.dragging').forEach(function(p) {
-                        p.classList.remove('dragging');
-                    });
-
-                    // Remove temp line
-                    if (tempLine) {
-                        tempLine.remove();
-                        tempLine = null;
-                    }
-
-                    isDraggingConnection = false;
-                    connectionStartPoint = null;
-                }
-            });
-
-            // Click outside to deselect
-            document.addEventListener('click', function(e) {
-                if (!e.target.closest('.table-node') && !e.target.closest('.zoom-controls')) {
-                    if (selectedTable) {
-                        selectedTable.classList.remove('selected');
-                        selectedTable = null;
-                    }
-                }
             });
         }
 
-        // Initialize
         window.addEventListener('load', function() {
             drawRelationships();
             initDraggable();
@@ -770,18 +418,11 @@ export class ErdWebView {
             if (col.isPrimaryKey) icon = '<span class="column-icon pk-icon">🔑</span>';
             else if (col.isForeignKey) icon = '<span class="column-icon fk-icon">🔗</span>';
 
-            const comment = col.comment ? `<span class="column-comment">${this.escapeHtml(col.comment)}</span>` : '';
-
             columns += `
-                <div class="column-row" data-column="${this.escapeHtml(col.name)}">
+                <div class="column-row">
                     ${icon}
-                    <span class="column-name">
-                        ${this.escapeHtml(col.name)}
-                        <div class="column-connector-left connection-point" data-table="${this.escapeHtml(table.tableName)}" data-column="${this.escapeHtml(col.name)}" title="${this.escapeHtml(col.name)} connector"></div>
-                        <div class="column-connector-right connection-point" data-table="${this.escapeHtml(table.tableName)}" data-column="${this.escapeHtml(col.name)}" title="${this.escapeHtml(col.name)} connector"></div>
-                    </span>
+                    <span class="column-name">${this.escapeHtml(col.name)}</span>
                     <span class="column-type">${this.escapeHtml(col.type)}</span>
-                    ${comment}
                 </div>
             `;
         }
@@ -791,16 +432,12 @@ export class ErdWebView {
                  data-table="${this.escapeHtml(table.tableName)}"
                  style="left: ${table.x}px; top: ${table.y}px; width: ${table.width}px;">
                 <div class="table-header ${isMainTable ? '' : 'related'}">
-                    <div class="table-header-left">
-                        <span>${this.escapeHtml(table.tableName)}</span>
-                        ${isMainTable ? '<span>⭐</span>' : ''}
-                    </div>
-                    <button class="toggle-comments-btn" title="Toggle comments">📋</button>
+                    <span>${this.escapeHtml(table.tableName)}</span>
+                    ${isMainTable ? '<span>⭐</span>' : ''}
                 </div>
                 <div class="table-body">
                     ${columns}
                 </div>
-                <div class="table-connector connection-point" data-table="${this.escapeHtml(table.tableName)}" title="${this.escapeHtml(table.tableName)} connector"></div>
             </div>
         `;
     }
