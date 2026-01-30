@@ -138,13 +138,21 @@ export class SqlResultWebView {
                     text-align: center;
                     border-right: 2px solid #ccc;
                     position: relative;
-                    padding: 4px;
+                    padding: 8px 4px 8px 4px;
+                }
+                th.filter-header.sticky-column {
+                    position: sticky;
+                    left: 0;
+                    z-index: 9;
+                    width: 180px;
+                    min-width: 100px;
+                    border-right: 2px solid #ccc;
                 }
                 .resize-handle {
                     position: absolute;
                     right: 0;
                     top: 0;
-                    bottom: 0;
+                    height: 100%;
                     width: 10px;
                     cursor: col-resize;
                     background-color: transparent;
@@ -181,6 +189,9 @@ export class SqlResultWebView {
                     z-index: 5;
                     width: 180px;
                     min-width: 100px;
+                }
+                th.filter-header.sticky-column {
+                    background-color: #f5f5f5;
                 }
                 .data-column.hidden {
                     display: none;
@@ -738,7 +749,7 @@ export class SqlResultWebView {
         }
 
         // Generate header row with field filter column at the beginning
-        let head = `<th class="column-filter-header" rowspan="2">
+        let head = `<th class="column-filter-header">
             <input type="text" id="columnFilterInput" class="column-filter-input" placeholder="🔍 Filter columns...">
         </th>`;
         fields.forEach((field, index) => {
@@ -746,8 +757,8 @@ export class SqlResultWebView {
             head += `<th class="data-column" data-column-name="${escapedField}" onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}">${escapedField}</th>`;
         });
 
-        // Generate filter row (no filter in the first column)
-        let filterRow = "";
+        // Generate filter row (first column is empty, second row has filter inputs)
+        let filterRow = `<th class="filter-header sticky-column"></th>`;
         fields.forEach((field, index) => {
             filterRow += `<th class="filter-header data-column" data-column-name="${this.escapeHtml(field)}"><input type="text" class="filter-input" data-column-index="${index}" placeholder="Filter..."></th>`;
         });
