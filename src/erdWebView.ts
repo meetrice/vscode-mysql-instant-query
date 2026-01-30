@@ -145,11 +145,14 @@ export class ErdWebView {
             const headerHeight = 40;
             const padding = 10;
 
+            // Find a non-overlapping position
+            const position = ErdWebView.findNonOverlappingPosition(tableName, database, columnWidth, headerHeight + columns.length * rowHeight + padding * 2);
+
             const tableData: TableData = {
                 tableName: tableName,
                 columns: columns,
-                x: 100,
-                y: 100,
+                x: position.x,
+                y: position.y,
                 width: columnWidth,
                 height: headerHeight + columns.length * rowHeight + padding * 2,
                 database: database,
@@ -257,15 +260,14 @@ export class ErdWebView {
                 const headerHeight = 40;
                 const padding = 10;
 
-                // Position related table to the right
-                const x = 400 + ErdWebView.tableData.size * 240;
-                const y = 100;
+                // Find a non-overlapping position for related table
+                const position = ErdWebView.findNonOverlappingPosition(refTable, database, columnWidth, headerHeight + refColumns.length * rowHeight + padding * 2);
 
                 ErdWebView.tableData.set(refTableKey, {
                     tableName: refTable,
                     columns: refColumns,
-                    x: x,
-                    y: y,
+                    x: position.x,
+                    y: position.y,
                     width: columnWidth,
                     height: headerHeight + refColumns.length * rowHeight + padding * 2,
                     database: database,
@@ -276,6 +278,54 @@ export class ErdWebView {
                 console.error(`Error loading related table ${refTable}:`, error);
             }
         }
+    }
+
+    private static findNonOverlappingPosition(tableName: string, database: string, width: number, height: number): { x: number; y: number } {
+        const existingTables = Array.from(ErdWebView.tableData.values());
+        const startX = 100;
+        const startY = 100;
+        const gap = 50; // Gap between tables
+
+        // If no tables exist, return default position
+        if (existingTables.length === 0) {
+            return { x: startX, y: startY };
+        }
+
+        // Try different positions
+        let x = startX;
+        let y = startY;
+        let attempts = 0;
+        const maxAttempts = 100;
+
+        while (attempts < maxAttempts) {
+            let overlaps = false;
+
+            for (const existing of existingTables) {
+                // Check if this position would overlap with existing table
+                if (!(x + width < existing.x ||
+                      x > existing.x + existing.width ||
+                      y + height < existing.y ||
+                      y > existing.y + existing.height)) {
+                    overlaps = true;
+                    break;
+                }
+            }
+
+            if (!overlaps) {
+                return { x, y };
+            }
+
+            // Try next position in a grid pattern
+            attempts++;
+            const gridCols = 3;
+            const col = attempts % gridCols;
+            const row = Math.floor(attempts / gridCols);
+            x = startX + col * (width + gap);
+            y = startY + row * (height + gap);
+        }
+
+        // If we couldn't find a non-overlapping position, return a position far to the right
+        return { x: startX + existingTables.length * (width + gap), y: startY };
     }
 
     private static getWebviewContent(database: string, mainTable: string): string {
@@ -935,6 +985,36 @@ export class ErdWebView {
                     }
                 }
             });
+
+            // Delete key handler - remove selected table
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                    if (selectedTable) {
+                        const tableName = selectedTable.dataset.table;
+
+                        // Remove relationships involving this table
+                        const initialRelCount = relationships.length;
+                        relationships = relationships.filter(function(rel) {
+                            return rel.fromTable !== tableName && rel.toTable !== tableName;
+                        });
+
+                        // Remove from tables array
+                        const tableIndex = tables.findIndex(function(t) { return t.tableName === tableName; });
+                        if (tableIndex !== -1) {
+                            tables.splice(tableIndex, 1);
+                        }
+
+                        // Remove from DOM
+                        selectedTable.remove();
+                        selectedTable = null;
+
+                        // Redraw relationships
+                        drawRelationships();
+
+                        console.log('[Delete] Removed table:', tableName, 'and', initialRelCount - relationships.length, 'relationships');
+                    }
+                }
+            });
         }
 
         // Initialize
@@ -997,7 +1077,7 @@ export class ErdWebView {
             <div class="table-node ${isMainTable ? 'main-table' : ''}"
                  data-table="${this.escapeHtml(table.tableName)}"
                  style="left: ${table.x}px; top: ${table.y}px; width: ${table.width}px;">
-                <div class="table-header ${isMainTable ? '' : 'related'}">
+                <div class="table-header">
                     <div class="table-header-left">
                         <span>${this.escapeHtml(table.tableName)}</span>
                         ${table.comment ? `<span class="table-comment">${this.escapeHtml(table.comment)}</span>` : ''}
