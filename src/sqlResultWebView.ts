@@ -148,7 +148,7 @@ export class SqlResultWebView {
                 body {
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                     margin: 0;
-                    padding: 16px;
+                    padding: 0;
                     background-color: var(--vscode-editor-background);
                     color: var(--vscode-editor-foreground);
                 }
