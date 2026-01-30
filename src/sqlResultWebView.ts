@@ -255,10 +255,6 @@ export class SqlResultWebView {
                 .action-btn.hidden {
                     display: none;
                 }
-                .checkbox-cell {
-                    width: 40px;
-                    text-align: center;
-                }
                 .row-checkbox {
                     width: 16px;
                     height: 16px;
@@ -822,26 +818,17 @@ export class SqlResultWebView {
 
                 // Initialize row checkboxes
                 function initRowCheckboxes() {
-                    const selectAllCheckbox = document.getElementById('selectAllRows');
-                    if (selectAllCheckbox) {
-                        selectAllCheckbox.addEventListener('change', function(e) {
-                            const checkboxes = document.querySelectorAll('.row-checkbox');
-                            const checked = e.target.checked;
-                            checkboxes.forEach(cb => {
-                                if (cb !== selectAllCheckbox) {
-                                    cb.checked = checked;
-                                }
-                            });
-                        });
-                    }
+                    // No header checkbox anymore
                 }
 
                 function toggleSelectAll() {
-                    const selectAllCheckbox = document.getElementById('selectAllRows');
-                    if (selectAllCheckbox) {
-                        selectAllCheckbox.checked = !selectAllCheckbox.checked;
-                        selectAllCheckbox.dispatchEvent(new Event('change'));
-                    }
+                    const checkboxes = document.querySelectorAll('.row-checkbox');
+                    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+                    checkboxes.forEach(cb => {
+                        cb.checked = !allChecked;
+                        cb.style.display = 'inline-block';
+                        cb.closest('tr').classList.toggle('selected', !allChecked);
+                    });
                 }
 
                 function deleteSelectedRows() {
@@ -874,15 +861,10 @@ export class SqlResultWebView {
                     const newRow = document.createElement('tr');
                     newRow.classList.add('new-row');
 
-                    // Add checkbox
-                    const checkboxCell = document.createElement('td');
-                    checkboxCell.className = 'checkbox-cell';
-                    checkboxCell.innerHTML = '<input type="checkbox" class="row-checkbox" data-row-index="new">';
-                    newRow.appendChild(checkboxCell);
-
-                    // Add empty sticky column
+                    // Add sticky column with checkbox
                     const stickyCell = document.createElement('td');
                     stickyCell.className = 'sticky-column';
+                    stickyCell.innerHTML = '<input type="checkbox" class="row-checkbox" data-row-index="new">';
                     newRow.appendChild(stickyCell);
 
                     // Add editable cells
@@ -1020,8 +1002,8 @@ export class SqlResultWebView {
             }
         }
 
-        // Generate header row with checkbox column and field filter column
-        let head = `<th class="checkbox-cell"><input type="checkbox" id="selectAllRows" class="row-checkbox"></th><th class="column-filter-header">
+        // Generate header row with field filter column
+        let head = `<th class="column-filter-header">
             <input type="text" id="columnFilterInput" class="column-filter-input" placeholder="🔍 Filter columns...">
         </th>`;
         fields.forEach((field, index) => {
@@ -1029,7 +1011,7 @@ export class SqlResultWebView {
             head += `<th class="data-column" data-column-name="${escapedField}" onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}">${escapedField}</th>`;
         });
 
-        // Generate filter row (first column has action buttons, second row has filter inputs)
+        // Generate filter row (first column has action buttons)
         let filterRow = `<th class="filter-header sticky-column">
             <div class="action-buttons">
                 <button class="action-btn" id="selectAllBtn" title="Select All">☑️</button>
@@ -1047,10 +1029,8 @@ export class SqlResultWebView {
 
         rows.forEach((row: any, rowIndex: number) => {
             body += "<tr>";
-            // Add checkbox cell
-            body += `<td class='checkbox-cell'><input type='checkbox' class='row-checkbox' data-row-index='${rowIndex}'></td>`;
             // Add empty cell in the first column
-            body += "<td class='sticky-column'></td>";
+            body += `<td class='sticky-column'><input type='checkbox' class='row-checkbox' data-row-index='${rowIndex}' style='display:none;'></td>`;
             for (const field in row) {
                 if (row.hasOwnProperty(field)) {
                     const value = row[field];
