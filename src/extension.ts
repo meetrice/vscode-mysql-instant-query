@@ -255,6 +255,59 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage(`Generated ${deleteStatements.length} DELETE statement(s) in SQL editor`);
     }));
 
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.generateUpdateSQL", async (message: any) => {
+        const queryInfo = SqlResultWebView.getLastQueryInfo();
+        if (!queryInfo || !queryInfo.database || !queryInfo.table) {
+            vscode.window.showWarningMessage("Cannot determine database or table for UPDATE operation");
+            return;
+        }
+
+        const { rowData, columnName, originalValue, newValue } = message;
+        const database = queryInfo.database;
+        const table = queryInfo.table;
+
+        // Find primary key column (usually 'id')
+        const columns = Object.keys(rowData);
+        const primaryKeyColumn = columns.find(col => col.toLowerCase() === 'id') || columns[0];
+
+        // Build WHERE clause using primary key
+        const pkValue = rowData[primaryKeyColumn];
+        let whereCondition = '';
+        if (pkValue === null || pkValue === undefined) {
+            whereCondition = `\`${primaryKeyColumn}\` IS NULL`;
+        } else {
+            const isNumeric = typeof pkValue === 'number' || (typeof pkValue === 'string' && !isNaN(Number(pkValue)) && pkValue !== '');
+            if (isNumeric) {
+                whereCondition = `\`${primaryKeyColumn}\` = ${pkValue}`;
+            } else {
+                const escapedValue = String(pkValue).replace(/'/g, "''");
+                whereCondition = `\`${primaryKeyColumn}\` = '${escapedValue}'`;
+            }
+        }
+
+        // Build SET clause
+        let setCondition = '';
+        if (newValue === '' || newValue === 'NULL') {
+            setCondition = `\`${columnName}\` = NULL`;
+        } else {
+            const isNumeric = !isNaN(Number(newValue)) && newValue !== '';
+            if (isNumeric) {
+                setCondition = `\`${columnName}\` = ${newValue}`;
+            } else {
+                const escapedValue = String(newValue).replace(/'/g, "''");
+                setCondition = `\`${columnName}\` = '${escapedValue}'`;
+            }
+        }
+
+        // Generate UPDATE SQL
+        const sql = `UPDATE \`${database}\`.\`${table}\`\nSET ${setCondition}\nWHERE ${whereCondition};`;
+
+        // Create SQL document with the UPDATE statement
+        await Utility.createSQLTextDocument(sql);
+
+        vscode.window.showInformationMessage("Generated UPDATE statement in SQL editor");
+    }));
+
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.viewTableStructureFromEditor", async () => {
         if (!vscode.window.activeTextEditor) {
             vscode.window.showWarningMessage(I18n.t("error.noActiveEditor"));

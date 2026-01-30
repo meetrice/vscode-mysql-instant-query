@@ -86,6 +86,9 @@ export class SqlResultWebView {
                 } else if (message.command === 'showWarning') {
                     // Show warning message
                     vscode.window.showWarningMessage(message.message);
+                } else if (message.command === 'generateUpdateSQL') {
+                    // Generate UPDATE SQL
+                    vscode.commands.executeCommand('mysqlInstantQuery.generateUpdateSQL', message);
                 }
             },
             undefined,
@@ -297,8 +300,53 @@ export class SqlResultWebView {
                     height: 16px;
                     cursor: pointer;
                 }
+                .save-row-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 20px;
+                    height: 20px;
+                    margin-left: 4px;
+                    border: 1px solid #4caf50;
+                    border-radius: 3px;
+                    background-color: #4caf50;
+                    color: white;
+                    cursor: pointer;
+                    font-size: 14px;
+                    font-weight: bold;
+                    transition: all 0.2s;
+                }
+                .save-row-btn:hover {
+                    background-color: #45a049;
+                    transform: scale(1.1);
+                }
+                .save-row-btn.hidden {
+                    display: none !important;
+                }
                 tr.selected {
                     background-color: rgba(0, 122, 204, 0.1);
+                }
+                tr.editing {
+                    background-color: rgba(255, 193, 7, 0.1);
+                }
+                td.editing {
+                    padding: 0 !important;
+                }
+                td.editing input {
+                    width: 100%;
+                    height: 100%;
+                    padding: 6px 10px;
+                    border: 2px solid #007acc;
+                    border-radius: 0;
+                    font-size: 13px;
+                    font-family: inherit;
+                    background-color: var(--vscode-input-background);
+                    color: var(--vscode-input-foreground);
+                    box-sizing: border-box;
+                    outline: none;
+                }
+                td.editing input:focus {
+                    box-shadow: 0 0 3px rgba(0, 122, 255, 0.3);
                 }
                 .edit-cell {
                     position: relative;
@@ -869,6 +917,155 @@ export class SqlResultWebView {
                     // No header checkbox anymore
                 }
 
+                // Track editing state
+                let editingCell = null; // { row, cellIndex, originalValue, columnName }
+
+                // Handle double-click on cell to edit
+                document.addEventListener('dblclick', function(e) {
+                    const cell = e.target.closest('td.data-column');
+                    if (!cell) return;
+
+                    const row = cell.closest('tr');
+                    if (!row || row.classList.contains('new-row')) return; // Skip new rows
+
+                    // If already editing another cell, save it first
+                    if (editingCell) {
+                        saveEdit();
+                    }
+
+                    const cellIndex = Array.from(row.querySelectorAll('td')).indexOf(cell);
+                    const columnName = cell.getAttribute('data-column-name');
+                    const cellContent = cell.querySelector('.cell-content');
+
+                    if (!cellContent) return;
+
+                    const originalValue = cellContent.textContent;
+
+                    // Enter edit mode
+                    editingCell = {
+                        row: row,
+                        cellIndex: cellIndex,
+                        originalValue: originalValue,
+                        columnName: columnName
+                    };
+
+                    // Replace cell content with input
+                    cell.classList.add('editing');
+                    cell.innerHTML = '<input type="text" class="edit-input" value="' + originalValue + '" data-column-name="' + columnName + '">';
+
+                    const input = cell.querySelector('input');
+                    input.focus();
+                    input.select();
+
+                    // Show save button for this row
+                    const saveBtn = row.querySelector('.save-row-btn');
+                    if (saveBtn) {
+                        saveBtn.classList.remove('hidden');
+                    }
+
+                    row.classList.add('editing');
+                });
+
+                // Handle Enter key to save, Escape to cancel
+                document.addEventListener('keydown', function(e) {
+                    if (!editingCell) return;
+
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        saveEdit();
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelEdit();
+                    }
+                });
+
+                // Click outside to save
+                document.addEventListener('click', function(e) {
+                    if (!editingCell) return;
+
+                    const cell = e.target.closest('td.editing');
+                    const input = e.target.closest('.edit-input');
+                    const saveBtn = e.target.closest('.save-row-btn');
+
+                    // If clicking outside the editing cell and not on save button
+                    if (!cell && !input && !saveBtn) {
+                        saveEdit();
+                    }
+                });
+
+                // Save button click handler
+                document.addEventListener('click', function(e) {
+                    if (!e.target.classList.contains('save-row-btn')) return;
+
+                    const rowIndex = e.target.getAttribute('data-row-index');
+                    const row = document.querySelector('tr[data-row-index="' + rowIndex + '"]');
+
+                    if (row && row.classList.contains('editing')) {
+                        saveEdit();
+                    }
+                });
+
+                function saveEdit() {
+                    if (!editingCell) return;
+
+                    const { row, cellIndex, originalValue, columnName } = editingCell;
+                    const cell = row.querySelectorAll('td')[cellIndex];
+                    const input = cell.querySelector('input');
+
+                    if (!input) return;
+
+                    const newValue = input.value;
+
+                    // Restore cell display (will be replaced with UPDATE SQL generation)
+                    cell.classList.remove('editing');
+                    cell.innerHTML = '<div class="cell-wrapper"><span class="cell-content">' + newValue + '</span></div>';
+
+                    // Generate UPDATE SQL
+                    const rowData = JSON.parse(row.getAttribute('data-row-data'));
+                    generateUpdateSQL(rowData, columnName, originalValue, newValue);
+
+                    // Hide save button
+                    const saveBtn = row.querySelector('.save-row-btn');
+                    if (saveBtn) {
+                        saveBtn.classList.add('hidden');
+                    }
+
+                    row.classList.remove('editing');
+                    editingCell = null;
+                }
+
+                function cancelEdit() {
+                    if (!editingCell) return;
+
+                    const { row, cellIndex, originalValue } = editingCell;
+                    const cell = row.querySelectorAll('td')[cellIndex];
+
+                    // Restore original value
+                    cell.classList.remove('editing');
+                    cell.innerHTML = '<div class="cell-wrapper"><span class="cell-content">' + originalValue + '</span></div>';
+
+                    // Hide save button
+                    const saveBtn = row.querySelector('.save-row-btn');
+                    if (saveBtn) {
+                        saveBtn.classList.add('hidden');
+                    }
+
+                    row.classList.remove('editing');
+                    editingCell = null;
+                }
+
+                function generateUpdateSQL(rowData, columnName, originalValue, newValue) {
+                    // Collect all data and send to extension for SQL generation
+                    // This avoids complex string escaping issues
+                    vscode.postMessage({
+                        command: 'generateUpdateSQL',
+                        rowData: rowData,
+                        columnName: columnName,
+                        originalValue: originalValue,
+                        newValue: newValue
+                    });
+                }
+
                 function toggleSelectAll() {
                     const checkboxes = document.querySelectorAll('.row-checkbox');
                     const allChecked = Array.from(checkboxes).every(cb => cb.checked);
@@ -1092,9 +1289,12 @@ export class SqlResultWebView {
         rows.forEach((row: any, rowIndex: number) => {
             // Store row data as JSON string for delete functionality
             const rowDataJson = JSON.stringify(row).replace(/"/g, '&quot;');
-            body += `<tr data-row-data='${rowDataJson}'>`;
-            // Add checkbox cell with visible checkbox
-            body += `<td class='sticky-column'><input type='checkbox' class='row-checkbox' data-row-index='${rowIndex}'></td>`;
+            body += `<tr data-row-data='${rowDataJson}' data-row-index='${rowIndex}'>`;
+            // Add checkbox cell with visible checkbox and save button
+            body += `<td class='sticky-column'>
+                <input type='checkbox' class='row-checkbox' data-row-index='${rowIndex}'>
+                <button class='save-row-btn hidden' data-row-index='${rowIndex}' title='Save changes'>✓</button>
+            </td>`;
             for (const field in row) {
                 if (row.hasOwnProperty(field)) {
                     const value = row[field];
