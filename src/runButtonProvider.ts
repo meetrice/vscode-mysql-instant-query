@@ -61,7 +61,6 @@ export class RunNowCodeLensProvider implements vscode.CodeLensProvider {
             'GRANT', 'REVOKE', 'LOCK', 'UNLOCK', 'START', 'WITH'
         ];
 
-        // Split by semicolons to find potential SQL statements
         const lines = text.split('\n');
         let currentStatement: string[] = [];
         let statementStartLine = 0;
@@ -69,6 +68,7 @@ export class RunNowCodeLensProvider implements vscode.CodeLensProvider {
         let inStatement = false;
         let parenCount = 0; // Track parentheses for multi-line statements
         let quoteChar: string | null = null; // Track quotes
+        let lastCharWasEscape = false; // Track escape characters
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
@@ -80,18 +80,64 @@ export class RunNowCodeLensProvider implements vscode.CodeLensProvider {
                 new RegExp(`^${keyword}$`, 'i').test(trimmedLine)
             );
 
-            if (startsWithKeyword && !inStatement) {
-                // Start of a new statement
+            if (startsWithKeyword) {
+                // If we're already in a statement, check if it's complete
+                if (inStatement) {
+                    // Save the previous statement if it has content
+                    if (currentStatement.length > 0) {
+                        const sql = currentStatement.join('\n');
+                        const startPos = new vscode.Position(statementStartLine, statementStartChar);
+                        const endPos = new vscode.Position(i - 1, lines[i - 1].length);
+                        const range = new vscode.Range(startPos, endPos);
+                        statements.push({ range, sql });
+                    }
+                }
+
+                // Start a new statement
                 inStatement = true;
                 statementStartLine = i;
                 statementStartChar = line.indexOf(trimmedLine[0]);
                 currentStatement = [line];
+                parenCount = 0;
+                quoteChar = null;
+                lastCharWasEscape = false;
+
+                // Track parentheses and quotes for this line
+                for (const char of line) {
+                    if (lastCharWasEscape) {
+                        lastCharWasEscape = false;
+                        continue;
+                    }
+                    if (char === '\\') {
+                        lastCharWasEscape = true;
+                        continue;
+                    }
+                    if (quoteChar) {
+                        if (char === quoteChar) {
+                            quoteChar = null;
+                        }
+                    } else if (char === '\'' || char === '"' || char === '`') {
+                        quoteChar = char;
+                    } else if (char === '(') {
+                        parenCount++;
+                    } else if (char === ')') {
+                        parenCount = Math.max(0, parenCount - 1);
+                    }
+                }
             } else if (inStatement) {
                 // Continue building the statement
                 currentStatement.push(line);
 
                 // Track parentheses and quotes
                 for (const char of line) {
+                    if (lastCharWasEscape) {
+                        lastCharWasEscape = false;
+                        continue;
+                    }
+                    if (char === '\\') {
+                        lastCharWasEscape = true;
+                        continue;
+                    }
                     if (quoteChar) {
                         if (char === quoteChar) {
                             quoteChar = null;
@@ -121,6 +167,7 @@ export class RunNowCodeLensProvider implements vscode.CodeLensProvider {
                     inStatement = false;
                     parenCount = 0;
                     quoteChar = null;
+                    lastCharWasEscape = false;
                 }
             }
         }
