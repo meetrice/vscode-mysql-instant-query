@@ -211,6 +211,16 @@
                 "command": "mysqlInstantQuery.openErd",
                 "title": "Open ERD",
                 "category": "%commands.mysqlInstantQuery.category%"
+            },
+            {
+                "command": "mysqlInstantQuery.saveErd",
+                "title": "Save ERD to File",
+                "category": "%commands.mysqlInstantQuery.category%"
+            },
+            {
+                "command": "mysqlInstantQuery.openErdFile",
+                "title": "Open ERD File",
+                "category": "%commands.mysqlInstantQuery.category%"
             }
         ],
         "keybindings": [

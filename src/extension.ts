@@ -217,6 +217,14 @@ export function activate(context: vscode.ExtensionContext) {
         await ErdWebView.showTableErd(tableNode, database);
     }));
 
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.saveErd", async () => {
+        await ErdWebView.saveToFile();
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.openErdFile", async () => {
+        await ErdWebView.openFromFile();
+    }));
+
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.refreshResults", async () => {
         const queryInfo = SqlResultWebView.getLastQueryInfo();
         if (queryInfo && queryInfo.sql) {

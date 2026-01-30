@@ -35,6 +35,19 @@ interface Relationship {
     type: 'one-to-one' | 'one-to-many' | 'many-to-many';
 }
 
+interface MerdFileData {
+    version: string;
+    canvas: {
+        width: number;
+        height: number;
+        zoom: number;
+        panX: number;
+        panY: number;
+    };
+    tables: TableData[];
+    relationships: Relationship[];
+}
+
 export class ErdWebView {
     private static panels: Map<string, vscode.WebviewPanel> = new Map();
     private static tableData: Map<string, TableData> = new Map();
@@ -178,6 +191,22 @@ export class ErdWebView {
                         localResourceRoots: []
                     }
                 );
+
+                // Handle messages from webview
+                panel.webview.onDidReceiveMessage(async (message) => {
+                    switch (message.command) {
+                        case 'save':
+                            // Update relationships from current webview state
+                            if (message.relationships) {
+                                ErdWebView.relationships = message.relationships;
+                            }
+                            await ErdWebView.saveToFile();
+                            break;
+                        case 'open':
+                            await ErdWebView.openFromFile();
+                            break;
+                    }
+                }, undefined);
 
                 panel.onDidDispose(() => {
                     ErdWebView.panels.clear();
@@ -326,6 +355,151 @@ export class ErdWebView {
 
         // If we couldn't find a non-overlapping position, return a position far to the right
         return { x: startX + existingTables.length * (width + gap), y: startY };
+    }
+
+    public static async saveToFile() {
+        if (ErdWebView.tableData.size === 0) {
+            vscode.window.showWarningMessage("No ERD data to save");
+            return;
+        }
+
+        const uri = await vscode.window.showSaveDialog({
+            filters: {
+                'MERD Files': ['merd']
+            },
+            defaultUri: vscode.Uri.file('erd.merd')
+        });
+
+        if (!uri) {
+            return;
+        }
+
+        try {
+            // Get current canvas state from the webview
+            const panel = Array.from(ErdWebView.panels.values())[0];
+            if (!panel) {
+                vscode.window.showWarningMessage("No ERD panel open");
+                return;
+            }
+
+            // Get canvas dimensions from tables
+            const tables = Array.from(ErdWebView.tableData.values());
+            let maxX = 0, maxY = 0;
+            tables.forEach(table => {
+                maxX = Math.max(maxX, table.x + table.width);
+                maxY = Math.max(maxY, table.y + table.height);
+            });
+
+            const merdData: MerdFileData = {
+                version: "1.0",
+                canvas: {
+                    width: maxX + 100,
+                    height: maxY + 100,
+                    zoom: 1,
+                    panX: 0,
+                    panY: 0
+                },
+                tables: tables,
+                relationships: ErdWebView.relationships
+            };
+
+            const json = JSON.stringify(merdData, null, 2);
+            const data = Buffer.from(json, 'utf-8');
+
+            await vscode.workspace.fs.writeFile(uri, data);
+            vscode.window.showInformationMessage(`ERD saved to ${uri.fsPath}`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Error saving ERD: ${error}`);
+        }
+    }
+
+    public static async openFromFile() {
+        const uri = await vscode.window.showOpenDialog({
+            filters: {
+                'MERD Files': ['merd']
+            },
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false
+        });
+
+        if (!uri || uri.length === 0) {
+            return;
+        }
+
+        try {
+            const fileData = await vscode.workspace.fs.readFile(uri[0]);
+            const json = Buffer.from(fileData).toString('utf-8');
+            const merdData: MerdFileData = JSON.parse(json);
+
+            // Validate version
+            if (!merdData.version || merdData.version !== "1.0") {
+                vscode.window.showWarningMessage("Unsupported MERD file version");
+                return;
+            }
+
+            // Clear existing data
+            ErdWebView.tableData.clear();
+            ErdWebView.relationships = [];
+
+            // Load tables
+            merdData.tables.forEach(table => {
+                ErdWebView.tableData.set(`${table.database || ''}.${table.tableName}`, table);
+            });
+
+            // Load relationships
+            ErdWebView.relationships = merdData.relationships || [];
+
+            // Create or reuse panel
+            let panel = Array.from(ErdWebView.panels.values())[0];
+            if (!panel) {
+                panel = vscode.window.createWebviewPanel(
+                    'mysqlErd',
+                    `ERD - ${uri[0].fsPath}`,
+                    vscode.ViewColumn.One,
+                    {
+                        enableScripts: true,
+                        retainContextWhenHidden: true,
+                        localResourceRoots: []
+                    }
+                );
+
+                // Handle messages from webview for open file panel too
+                panel.webview.onDidReceiveMessage(async (message) => {
+                    switch (message.command) {
+                        case 'save':
+                            // Update relationships from current webview state
+                            if (message.relationships) {
+                                ErdWebView.relationships = message.relationships;
+                            }
+                            await ErdWebView.saveToFile();
+                            break;
+                        case 'open':
+                            await ErdWebView.openFromFile();
+                            break;
+                    }
+                }, undefined);
+
+                panel.onDidDispose(() => {
+                    ErdWebView.panels.clear();
+                    ErdWebView.tableData.clear();
+                    ErdWebView.relationships = [];
+                });
+
+                ErdWebView.panels.set('global', panel);
+            } else {
+                panel.reveal();
+            }
+
+            // Render with loaded data, use first table as main table
+            const mainTable = merdData.tables.length > 0 ? merdData.tables[0].tableName : '';
+            const database = merdData.tables.length > 0 ? (merdData.tables[0].database || '') : '';
+
+            panel.webview.html = ErdWebView.getWebviewContent(database, mainTable);
+            vscode.window.showInformationMessage(`ERD loaded from ${uri[0].fsPath}`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Error opening ERD: ${error}`);
+        }
     }
 
     private static getWebviewContent(database: string, mainTable: string): string {
@@ -589,6 +763,32 @@ export class ErdWebView {
             color: var(--vscode-editor-foreground);
             z-index: 1000;
         }
+        /* Action buttons */
+        .action-buttons {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 1000;
+        }
+        .action-btn {
+            padding: 8px 16px;
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-button-border);
+            border-radius: 6px;
+            color: var(--vscode-editor-foreground);
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+        .action-btn:hover {
+            background-color: var(--vscode-toolbar-hoverBackground);
+        }
         /* Context menu */
         .context-menu {
             position: fixed;
@@ -643,6 +843,12 @@ export class ErdWebView {
         <button class="zoom-btn" id="resetZoomBtn" title="Reset">⟲</button>
     </div>
     <div class="zoom-level" id="zoomLevel">100%</div>
+
+    <!-- Action buttons -->
+    <div class="action-buttons">
+        <button class="action-btn" id="saveBtn" title="Save ERD to file">💾 Save</button>
+        <button class="action-btn" id="openBtn" title="Open ERD from file">📂 Open</button>
+    </div>
 
     <!-- Context menu -->
     <div class="context-menu" id="contextMenu">
@@ -718,6 +924,21 @@ export class ErdWebView {
         document.getElementById('resetZoomBtn').addEventListener('click', function() {
             zoom = 1;
             updateZoom();
+        });
+
+        // Save button - send current state to extension
+        document.getElementById('saveBtn').addEventListener('click', function() {
+            vscode.postMessage({
+                command: 'save',
+                relationships: relationships
+            });
+        });
+
+        // Open button - trigger file open dialog
+        document.getElementById('openBtn').addEventListener('click', function() {
+            vscode.postMessage({
+                command: 'open'
+            });
         });
 
         function toggleComments(tableNode) {
