@@ -62,13 +62,6 @@ export class RunNowCodeLensProvider implements vscode.CodeLensProvider {
         ];
 
         const lines = text.split('\n');
-        let currentStatement: string[] = [];
-        let statementStartLine = 0;
-        let statementStartChar = 0;
-        let inStatement = false;
-        let parenCount = 0; // Track parentheses for multi-line statements
-        let quoteChar: string | null = null; // Track quotes
-        let lastCharWasEscape = false; // Track escape characters
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
@@ -81,105 +74,83 @@ export class RunNowCodeLensProvider implements vscode.CodeLensProvider {
             );
 
             if (startsWithKeyword) {
-                // If we're already in a statement, check if it's complete
-                if (inStatement) {
-                    // Save the previous statement if it has content
-                    if (currentStatement.length > 0) {
-                        const sql = currentStatement.join('\n');
-                        const startPos = new vscode.Position(statementStartLine, statementStartChar);
-                        const endPos = new vscode.Position(i - 1, lines[i - 1].length);
-                        const range = new vscode.Range(startPos, endPos);
-                        statements.push({ range, sql });
-                    }
-                }
+                // Find SQL statement: from this line to the next semicolon
+                const startLine = i;
+                const startChar = line.indexOf(trimmedLine[0]);
+                let endLine = i;
+                let endChar = line.length;
+                let foundSemicolon = false;
 
-                // Start a new statement
-                inStatement = true;
-                statementStartLine = i;
-                statementStartChar = line.indexOf(trimmedLine[0]);
-                currentStatement = [line];
-                parenCount = 0;
-                quoteChar = null;
-                lastCharWasEscape = false;
+                // Track state for finding semicolon
+                let parenCount = 0;
+                let quoteChar: string | null = null;
+                let lastCharWasEscape = false;
 
-                // Track parentheses and quotes for this line
-                for (const char of line) {
-                    if (lastCharWasEscape) {
-                        lastCharWasEscape = false;
-                        continue;
-                    }
-                    if (char === '\\') {
-                        lastCharWasEscape = true;
-                        continue;
-                    }
-                    if (quoteChar) {
-                        if (char === quoteChar) {
-                            quoteChar = null;
+                // Search from current line onward
+                for (let j = i; j < lines.length; j++) {
+                    const searchLine = lines[j];
+
+                    for (let k = 0; k < searchLine.length; k++) {
+                        const char = searchLine[k];
+
+                        // Handle escape characters
+                        if (lastCharWasEscape) {
+                            lastCharWasEscape = false;
+                            continue;
                         }
-                    } else if (char === '\'' || char === '"' || char === '`') {
-                        quoteChar = char;
-                    } else if (char === '(') {
-                        parenCount++;
-                    } else if (char === ')') {
-                        parenCount = Math.max(0, parenCount - 1);
-                    }
-                }
-            } else if (inStatement) {
-                // Continue building the statement
-                currentStatement.push(line);
-
-                // Track parentheses and quotes
-                for (const char of line) {
-                    if (lastCharWasEscape) {
-                        lastCharWasEscape = false;
-                        continue;
-                    }
-                    if (char === '\\') {
-                        lastCharWasEscape = true;
-                        continue;
-                    }
-                    if (quoteChar) {
-                        if (char === quoteChar) {
-                            quoteChar = null;
+                        if (char === '\\') {
+                            lastCharWasEscape = true;
+                            continue;
                         }
-                    } else if (char === '\'' || char === '"' || char === '`') {
-                        quoteChar = char;
-                    } else if (char === '(') {
-                        parenCount++;
-                    } else if (char === ')') {
-                        parenCount = Math.max(0, parenCount - 1);
+
+                        // Handle quotes
+                        if (quoteChar) {
+                            if (char === quoteChar) {
+                                quoteChar = null;
+                            }
+                        } else if (char === '\'' || char === '"' || char === '`') {
+                            quoteChar = char;
+                        }
+
+                        // Handle parentheses
+                        else if (char === '(') {
+                            parenCount++;
+                        } else if (char === ')') {
+                            parenCount = Math.max(0, parenCount - 1);
+                        }
+
+                        // Check for semicolon (only when not in quotes or parentheses)
+                        else if (char === ';' && parenCount === 0 && !quoteChar) {
+                            endLine = j;
+                            endChar = k;
+                            foundSemicolon = true;
+                            break;
+                        }
+                    }
+
+                    if (foundSemicolon) {
+                        break;
                     }
                 }
 
-                // Check if statement ends with semicolon (and not in parentheses or quotes)
-                const trimmedEnd = trimmedLine.endsWith(';');
-                if (trimmedEnd && parenCount === 0 && !quoteChar) {
-                    // End of statement
-                    const sql = currentStatement.join('\n');
-                    const startPos = new vscode.Position(statementStartLine, statementStartChar);
-                    const endPos = new vscode.Position(i, line.length);
-                    const range = new vscode.Range(startPos, endPos);
+                // Extract SQL from start to semicolon (inclusive)
+                const startPos = new vscode.Position(startLine, startChar);
+                const endPos = new vscode.Position(endLine, endChar + 1); // Include semicolon
 
+                // Use document.getText to get exact text from document
+                const range = new vscode.Range(startPos, endPos);
+                const sql = document.getText(range);
+
+                console.log(`[RunButtonProvider] Found SQL at line ${i}:`);
+                console.log(`  Start: line ${startLine}, char ${startChar}`);
+                console.log(`  End: line ${endLine}, char ${endChar}`);
+                console.log(`  SQL:`, sql);
+                console.log(`  SQL length: ${sql.length}`);
+
+                if (sql && sql.trim()) {
                     statements.push({ range, sql });
-
-                    // Reset for next statement
-                    currentStatement = [];
-                    inStatement = false;
-                    parenCount = 0;
-                    quoteChar = null;
-                    lastCharWasEscape = false;
                 }
             }
-        }
-
-        // Handle last statement if it doesn't end with semicolon
-        if (inStatement && currentStatement.length > 0) {
-            const sql = currentStatement.join('\n');
-            const startPos = new vscode.Position(statementStartLine, statementStartChar);
-            const endPos = new vscode.Position(lines.length - 1, lines[lines.length - 1].length);
-            const range = new vscode.Range(startPos, endPos);
-
-            statements.push({ range, sql });
         }
 
         return statements;
