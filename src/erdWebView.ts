@@ -774,6 +774,10 @@ export class ErdWebView {
             const svg = document.getElementById('relationships');
             svg.innerHTML = '';
 
+            // Get canvas container to transform coordinates
+            const canvasContainer = document.getElementById('canvas-container');
+            const containerRect = canvasContainer.getBoundingClientRect();
+
             relationships.forEach(function(rel) {
                 const fromTable = tables.find(function(t) { return t.tableName === rel.fromTable; });
                 const toTable = tables.find(function(t) { return t.tableName === rel.toTable; });
@@ -786,8 +790,6 @@ export class ErdWebView {
                 if (!fromEl || !toEl) return;
 
                 let fromX, fromY, toX, toY;
-                const fromRect = fromEl.getBoundingClientRect();
-                const toRect = toEl.getBoundingClientRect();
 
                 // Check if this is a column-to-column relationship
                 if (rel.fromColumn && rel.toColumn) {
@@ -799,23 +801,30 @@ export class ErdWebView {
                         const fromPointRect = fromColumnPoint.getBoundingClientRect();
                         const toPointRect = toColumnPoint.getBoundingClientRect();
 
-                        fromX = fromPointRect.left + fromPointRect.width / 2;
-                        fromY = fromPointRect.top + fromPointRect.height / 2;
-                        toX = toPointRect.left + toPointRect.width / 2;
-                        toY = toPointRect.top + toPointRect.height / 2;
+                        // Transform screen coordinates to canvas coordinates
+                        fromX = (fromPointRect.left + fromPointRect.width / 2 - containerRect.left - panX) / zoom;
+                        fromY = (fromPointRect.top + fromPointRect.height / 2 - containerRect.top - panY) / zoom;
+                        toX = (toPointRect.left + toPointRect.width / 2 - containerRect.left - panX) / zoom;
+                        toY = (toPointRect.top + toPointRect.height / 2 - containerRect.top - panY) / zoom;
                     } else {
                         // Fallback to table-level connection
-                        fromX = fromRect.right;
-                        fromY = fromRect.top + fromRect.height / 2;
-                        toX = toRect.left;
-                        toY = toRect.top + toRect.height / 2;
+                        const fromRect = fromEl.getBoundingClientRect();
+                        const toRect = toEl.getBoundingClientRect();
+
+                        fromX = (fromRect.right - containerRect.left - panX) / zoom;
+                        fromY = (fromRect.top + fromRect.height / 2 - containerRect.top - panY) / zoom;
+                        toX = (toRect.left - containerRect.left - panX) / zoom;
+                        toY = (toRect.top + toRect.height / 2 - containerRect.top - panY) / zoom;
                     }
                 } else {
                     // Table-level connection (no specific columns)
-                    fromX = fromRect.right;
-                    fromY = fromRect.top + fromRect.height / 2;
-                    toX = toRect.left;
-                    toY = toRect.top + toRect.height / 2;
+                    const fromRect = fromEl.getBoundingClientRect();
+                    const toRect = toEl.getBoundingClientRect();
+
+                    fromX = (fromRect.right - containerRect.left - panX) / zoom;
+                    fromY = (fromRect.top + fromRect.height / 2 - containerRect.top - panY) / zoom;
+                    toX = (toRect.left - containerRect.left - panX) / zoom;
+                    toY = (toRect.top + toRect.height / 2 - containerRect.top - panY) / zoom;
                 }
 
                 const midX = (fromX + toX) / 2;
