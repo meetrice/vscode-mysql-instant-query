@@ -427,6 +427,11 @@
                     "type": "boolean",
                     "default": true,
                     "description": "%configuration.enableDelimiterOperator.description%"
+                },
+                "mysql-instant-query.enableRunNowCodeLens": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable 'Run Now' button in SQL editor"
                 }
             }
         }

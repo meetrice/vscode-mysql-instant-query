@@ -12,6 +12,7 @@ import { FilterInputPanel } from "./filterInputPanel";
 import { Global } from "./common/global";
 import { I18n } from "./common/i18n";
 import { SqlResultWebView } from "./sqlResultWebView";
+import { RunNowCodeLensProvider } from "./runButtonProvider";
 
 export function activate(context: vscode.ExtensionContext) {
     // Initialize i18n
@@ -40,6 +41,21 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Initialize filter input panel FIRST (before tree view) so it appears above
     FilterInputPanel.initialize(context);
+
+    // Register CodeLens provider for SQL editor
+    const runNowCodeLensProvider = new RunNowCodeLensProvider();
+    context.subscriptions.push(
+        vscode.languages.registerCodeLensProvider(
+            { language: 'sql', scheme: 'file' },
+            runNowCodeLensProvider
+        )
+    );
+    context.subscriptions.push(
+        vscode.languages.registerCodeLensProvider(
+            { language: 'sql', scheme: 'untitled' },
+            runNowCodeLensProvider
+        )
+    );
 
     // Track last clicked node and time for double-click detection
     let lastClickedNode: { node: INode, timestamp: number } | undefined = undefined;
