@@ -260,7 +260,7 @@ export function activate(context: vscode.ExtensionContext) {
                 }
             }
 
-            const sql = `DELETE FROM \`${database}\`.\`${table}\`\nWHERE ${whereCondition};`;
+            const sql = `DELETE FROM \`${database}\`.\`${table}\` WHERE ${whereCondition};`;
             deleteStatements.push(sql);
         }
 
@@ -333,8 +333,8 @@ export function activate(context: vscode.ExtensionContext) {
             }
         }
 
-        // Generate UPDATE SQL
-        const sql = `UPDATE \`${database}\`.\`${table}\`\nSET ${setCondition}\nWHERE ${whereCondition};`;
+        // Generate UPDATE SQL (single line)
+        const sql = `UPDATE \`${database}\`.\`${table}\` SET ${setCondition} WHERE ${whereCondition};`;
 
         // Create SQL document with the UPDATE statement
         await Utility.createSQLTextDocument(sql);
@@ -409,10 +409,10 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        // Generate INSERT SQL with only fields that have values
+        // Generate INSERT SQL with only fields that have values (single line)
         const columns = fieldsWithValues.join(', ');
         const valuesStr = values.join(', ');
-        const sql = `INSERT INTO \`${database}\`.\`${table}\`\n(\n  ${columns}\n)\nVALUES\n(\n  ${valuesStr}\n);`;
+        const sql = `INSERT INTO \`${database}\`.\`${table}\` (${columns}) VALUES (${valuesStr});`;
 
         console.log('Generated SQL:', sql);
 
