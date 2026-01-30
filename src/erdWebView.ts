@@ -1,0 +1,448 @@
+import * as vscode from "vscode";
+import { Utility } from "./common/utility";
+import { TableNode } from "./model/tableNode";
+import { Global } from "./common/global";
+import * as mysql from "mysql2";
+
+interface TableData {
+    tableName: string;
+    columns: ColumnData[];
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+interface ColumnData {
+    name: string;
+    type: string;
+    isPrimaryKey: boolean;
+    isForeignKey: boolean;
+    references?: {
+        table: string;
+        column: string;
+    };
+}
+
+interface Relationship {
+    fromTable: string;
+    fromColumn: string;
+    toTable: string;
+    toColumn: string;
+    type: 'one-to-one' | 'one-to-many' | 'many-to-many';
+}
+
+export class ErdWebView {
+    private static panels: Map<string, vscode.WebviewPanel> = new Map();
+    private static tableData: Map<string, TableData> = new Map();
+    private static relationships: Relationship[] = [];
+
+    public static async showTableErd(tableNode: TableNode, currentDatabase: string) {
+        const tableName = tableNode.table;
+        const database = currentDatabase;
+
+        const connection = Global.activeConnection;
+        if (!connection) {
+            vscode.window.showWarningMessage("No active connection");
+            return;
+        }
+
+        const conn = Utility.createConnection(connection);
+
+        try {
+            // Get table structure
+            const results: any[] = await Utility.queryPromise(conn, `DESCRIBE \`${database}\`.\`${tableName}\`;`);
+
+            if (!results || results.length === 0) {
+                vscode.window.showWarningMessage(`Failed to get table structure for ${tableName}`);
+                return;
+            }
+
+            // Parse table structure
+            const columns: ColumnData[] = [];
+            for (const row of results) {
+                const field = row.Field;
+                const type = row.Type;
+                const key = row.Key || '';
+
+                columns.push({
+                    name: field,
+                    type: type,
+                    isPrimaryKey: key === 'PRI',
+                    isForeignKey: key === 'MUL' || key === 'FOR'
+                });
+            }
+
+            // Get foreign keys
+            const fkQuery = `
+                SELECT
+                    COLUMN_NAME,
+                    REFERENCED_TABLE_NAME,
+                    REFERENCED_COLUMN_NAME
+                FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                WHERE TABLE_SCHEMA = '${database}'
+                AND TABLE_NAME = '${tableName}'
+                AND REFERENCED_TABLE_NAME IS NOT NULL;
+            `;
+
+            const conn2 = Utility.createConnection(connection);
+            const fkResults: any[] = await Utility.queryPromise(conn2, fkQuery);
+
+            if (fkResults && fkResults.length > 0) {
+                for (const row of fkResults) {
+                    const col = columns.find(c => c.name === row.COLUMN_NAME);
+                    if (col) {
+                        col.isForeignKey = true;
+                        col.references = {
+                            table: row.REFERENCED_TABLE_NAME,
+                            column: row.REFERENCED_COLUMN_NAME
+                        };
+
+                        // Add relationship
+                        ErdWebView.relationships.push({
+                            fromTable: tableName,
+                            fromColumn: row.COLUMN_NAME,
+                            toTable: row.REFERENCED_TABLE_NAME,
+                            toColumn: row.REFERENCED_COLUMN_NAME,
+                            type: 'one-to-many'
+                        });
+                    }
+                }
+            }
+
+            // Calculate table dimensions
+            const columnWidth = 200;
+            const rowHeight = 30;
+            const headerHeight = 40;
+            const padding = 10;
+
+            const tableData: TableData = {
+                tableName: tableName,
+                columns: columns,
+                x: 100,
+                y: 100,
+                width: columnWidth,
+                height: headerHeight + columns.length * rowHeight + padding * 2
+            };
+
+            ErdWebView.tableData.set(`${database}.${tableName}`, tableData);
+
+            // Also load related tables
+            await ErdWebView.loadRelatedTables(database, tableName, columns, connection);
+
+            // Create or reveal panel
+            const panelKey = `${database}.${tableName}`;
+            let panel = ErdWebView.panels.get(panelKey);
+
+            if (!panel) {
+                panel = vscode.window.createWebviewPanel(
+                    'mysqlErd',
+                    `ERD: \`${database}\`.\`${tableName}\``,
+                    vscode.ViewColumn.One,
+                    {
+                        enableScripts: true,
+                        retainContextWhenHidden: true,
+                        localResourceRoots: []
+                    }
+                );
+
+                panel.onDidDispose(() => {
+                    ErdWebView.panels.delete(panelKey);
+                    ErdWebView.tableData.clear();
+                    ErdWebView.relationships = [];
+                });
+
+                ErdWebView.panels.set(panelKey, panel);
+            } else {
+                panel.reveal();
+            }
+
+            panel.webview.html = ErdWebView.getWebviewContent(database, tableName);
+
+        } catch (error) {
+            vscode.window.showErrorMessage(`Error loading ERD: ${error}`);
+        }
+    }
+
+    private static async loadRelatedTables(database: string, tableName: string, columns: ColumnData[], connection: any) {
+        // Get foreign key tables
+        const foreignKeys = columns.filter(c => c.isForeignKey && c.references);
+
+        for (const fk of foreignKeys) {
+            if (!fk.references) continue;
+
+            const refTable = fk.references.table;
+            const refTableKey = `${database}.${refTable}`;
+
+            if (ErdWebView.tableData.has(refTableKey)) continue;
+
+            try {
+                const conn = Utility.createConnection(connection);
+                const results: any[] = await Utility.queryPromise(conn, `DESCRIBE \`${database}\`.\`${refTable}\`;`);
+
+                if (!results || results.length === 0) continue;
+
+                const refColumns: ColumnData[] = [];
+                for (const row of results) {
+                    const field = row.Field;
+                    const type = row.Type;
+                    const key = row.Key || '';
+
+                    refColumns.push({
+                        name: field,
+                        type: type,
+                        isPrimaryKey: key === 'PRI',
+                        isForeignKey: key === 'MUL' || key === 'FOR'
+                    });
+                }
+
+                const columnWidth = 200;
+                const rowHeight = 30;
+                const headerHeight = 40;
+                const padding = 10;
+
+                // Position related table to the right
+                const x = 500 + ErdWebView.tableData.size * 250;
+                const y = 100;
+
+                ErdWebView.tableData.set(refTableKey, {
+                    tableName: refTable,
+                    columns: refColumns,
+                    x: x,
+                    y: y,
+                    width: columnWidth,
+                    height: headerHeight + refColumns.length * rowHeight + padding * 2
+                });
+
+            } catch (error) {
+                console.error(`Error loading related table ${refTable}:`, error);
+            }
+        }
+    }
+
+    private static getWebviewContent(database: string, mainTable: string): string {
+        const tables = Array.from(ErdWebView.tableData.values());
+        const relationships = ErdWebView.relationships;
+
+        // Build HTML
+        let html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ERD: ${database}.${mainTable}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--vscode-editor-background);
+            color: var(--vscode-editor-foreground);
+            overflow: hidden;
+        }
+        #canvas { width: 100%; height: 100vh; position: relative; }
+        svg {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+        }
+        .table-node {
+            position: absolute;
+            background-color: var(--vscode-editor-background);
+            border: 2px solid var(--vscode-panel-border);
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            cursor: move;
+            user-select: none;
+        }
+        .table-node.main-table {
+            border-color: #007acc;
+            box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.2);
+        }
+        .table-header {
+            background: linear-gradient(135deg, #007acc 0%, #005a9e 100%);
+            color: white;
+            padding: 12px;
+            font-weight: 600;
+            font-size: 14px;
+            border-radius: 6px 6px 0 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .table-header.related {
+            background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
+        }
+        .table-body { padding: 8px; }
+        .column-row {
+            display: flex;
+            align-items: center;
+            padding: 6px 8px;
+            border-bottom: 1px solid var(--vscode-widget-border);
+            font-size: 13px;
+        }
+        .column-row:last-child { border-bottom: none; }
+        .column-icon { width: 20px; margin-right: 8px; text-align: center; }
+        .pk-icon { color: #ffd700; }
+        .fk-icon { color: #4caf50; }
+        .column-name { flex: 1; font-weight: 500; }
+        .column-type {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            margin-left: 8px;
+        }
+        .relationship-line {
+            stroke: #007acc;
+            stroke-width: 2;
+            fill: none;
+        }
+        .relationship-arrow { fill: #007acc; }
+    </style>
+</head>
+<body>
+    <div id="canvas">
+        <svg id="relationships"></svg>
+`;
+
+        // Add table nodes
+        for (const table of tables) {
+            html += ErdWebView.renderTableNode(table, table.tableName === mainTable);
+        }
+
+        html += `    </div>
+    <script>
+        const vscode = acquireVsCodeApi();
+        const tables = ${JSON.stringify(tables)};
+        const relationships = ${JSON.stringify(relationships)};
+
+        function drawRelationships() {
+            const svg = document.getElementById('relationships');
+            svg.innerHTML = '';
+
+            relationships.forEach(function(rel) {
+                const fromTable = tables.find(function(t) { return t.tableName === rel.fromTable; });
+                const toTable = tables.find(function(t) { return t.tableName === rel.toTable; });
+
+                if (!fromTable || !toTable) return;
+
+                const fromEl = document.querySelector('[data-table="' + rel.fromTable + '"]');
+                const toEl = document.querySelector('[data-table="' + rel.toTable + '"]');
+
+                if (!fromEl || !toEl) return;
+
+                const fromRect = fromEl.getBoundingClientRect();
+                const toRect = toEl.getBoundingClientRect();
+
+                const fromX = fromRect.right;
+                const fromY = fromRect.top + fromRect.height / 2;
+                const toX = toRect.left;
+                const toY = toRect.top + toRect.height / 2;
+
+                const midX = (fromX + toX) / 2;
+                const path = 'M ' + fromX + ' ' + fromY + ' C ' + midX + ' ' + fromY + ', ' + midX + ' ' + toY + ', ' + toX + ' ' + toY;
+
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                line.setAttribute('d', path);
+                line.setAttribute('class', 'relationship-line');
+                svg.appendChild(line);
+
+                const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                const arrowSize = 8;
+                const points = toX + ',' + toY + ' ' + (toX - arrowSize) + ',' + (toY - arrowSize/2) + ' ' + (toX - arrowSize) + ',' + (toY + arrowSize/2);
+                arrow.setAttribute('points', points);
+                arrow.setAttribute('class', 'relationship-arrow');
+                svg.appendChild(arrow);
+            });
+        }
+
+        function initDraggable() {
+            const canvas = document.getElementById('canvas');
+            let draggedElement = null;
+            let offsetX = 0;
+            let offsetY = 0;
+
+            document.querySelectorAll('.table-node').forEach(function(table) {
+                table.addEventListener('mousedown', function(e) {
+                    draggedElement = table;
+                    const rect = table.getBoundingClientRect();
+                    offsetX = e.clientX - rect.left;
+                    offsetY = e.clientY - rect.top;
+                    table.style.zIndex = '1000';
+                });
+            });
+
+            document.addEventListener('mousemove', function(e) {
+                if (!draggedElement) return;
+
+                const canvasRect = canvas.getBoundingClientRect();
+                const x = e.clientX - canvasRect.left - offsetX;
+                const y = e.clientY - canvasRect.top - offsetY;
+
+                draggedElement.style.left = x + 'px';
+                draggedElement.style.top = y + 'px';
+                drawRelationships();
+            });
+
+            document.addEventListener('mouseup', function() {
+                if (draggedElement) {
+                    draggedElement.style.zIndex = '';
+                    draggedElement = null;
+                }
+            });
+        }
+
+        window.addEventListener('load', function() {
+            drawRelationships();
+            initDraggable();
+        });
+
+        window.addEventListener('resize', function() {
+            drawRelationships();
+        });
+    </script>
+</body>
+</html>`;
+
+        return html;
+    }
+
+    private static renderTableNode(table: TableData, isMainTable: boolean): string {
+        let columns = '';
+        for (const col of table.columns) {
+            let icon = '';
+            if (col.isPrimaryKey) icon = '<span class="column-icon pk-icon">🔑</span>';
+            else if (col.isForeignKey) icon = '<span class="column-icon fk-icon">🔗</span>';
+
+            columns += `
+                <div class="column-row">
+                    ${icon}
+                    <span class="column-name">${this.escapeHtml(col.name)}</span>
+                    <span class="column-type">${this.escapeHtml(col.type)}</span>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="table-node ${isMainTable ? 'main-table' : ''}"
+                 data-table="${this.escapeHtml(table.tableName)}"
+                 style="left: ${table.x}px; top: ${table.y}px; width: ${table.width}px;">
+                <div class="table-header ${isMainTable ? '' : 'related'}">
+                    <span>${this.escapeHtml(table.tableName)}</span>
+                    ${isMainTable ? '<span>⭐</span>' : ''}
+                </div>
+                <div class="table-body">
+                    ${columns}
+                </div>
+            </div>
+        `;
+    }
+
+    private static escapeHtml(text: string): string {
+        const map: { [key: string]: string } = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, (m) => map[m]);
+    }
+}

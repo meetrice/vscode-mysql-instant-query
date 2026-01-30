@@ -206,6 +206,11 @@
                 },
                 "tooltip": "%commands.mysqlInstantQuery.expandAll.tooltip%",
                 "category": "%commands.mysqlInstantQuery.category%"
+            },
+            {
+                "command": "mysqlInstantQuery.openErd",
+                "title": "Open ERD",
+                "category": "%commands.mysqlInstantQuery.category%"
             }
         ],
         "keybindings": [
@@ -381,6 +386,16 @@
                     "command": "mysqlInstantQuery.addColumn",
                     "when": "view == mysqlInstantQuery && viewItem == pinnedTable",
                     "group": "mysqlInstantQuery@7"
+                },
+                {
+                    "command": "mysqlInstantQuery.openErd",
+                    "when": "view == mysqlInstantQuery && viewItem == table",
+                    "group": "mysqlInstantQuery@8"
+                },
+                {
+                    "command": "mysqlInstantQuery.openErd",
+                    "when": "view == mysqlInstantQuery && viewItem == pinnedTable",
+                    "group": "mysqlInstantQuery@8"
                 },
                 {
                     "command": "mysqlInstantQuery.selectColumn",

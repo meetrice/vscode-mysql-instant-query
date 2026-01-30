@@ -13,6 +13,7 @@ import { Global } from "./common/global";
 import { I18n } from "./common/i18n";
 import { SqlResultWebView } from "./sqlResultWebView";
 import { RunNowCodeLensProvider } from "./runButtonProvider";
+import { ErdWebView } from "./erdWebView";
 
 export function activate(context: vscode.ExtensionContext) {
     // Initialize i18n
@@ -199,6 +200,15 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.addColumn", async (tableNode: TableNode) => {
         await tableNode.addColumn();
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.openErd", async (tableNode: TableNode) => {
+        const connection = Global.activeConnection;
+        if (!connection) {
+            vscode.window.showWarningMessage("No active connection");
+            return;
+        }
+        await ErdWebView.showTableErd(tableNode, connection.database);
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.refreshResults", async () => {
