@@ -53,7 +53,7 @@ export class Utility {
         return result;
     }
 
-    public static async runQuery(sql?: string, connectionOptions?: IConnection, totalRows?: number, updateSQLEditor: boolean = true, appendSQLEditor: boolean = false) {
+    public static async runQuery(sql?: string, connectionOptions?: IConnection, totalRows?: number, updateSQLEditor: boolean = true, appendSQLEditor: boolean = true) {
         AppInsightsClient.sendEvent("runQuery.start");
         if (!sql && !vscode.window.activeTextEditor) {
             vscode.window.showWarningMessage("No SQL file selected");

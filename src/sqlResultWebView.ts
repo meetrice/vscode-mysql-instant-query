@@ -26,7 +26,7 @@ export class SqlResultWebView {
     private static currentPanel: vscode.WebviewPanel | undefined = null;
     private static lastQueryInfo: { sql?: string; database?: string; table?: string; columnComments?: { [key: string]: string } } | undefined = undefined;
 
-    public static async show(data, title, sql?: string, database?: string, table?: string, columnComments?: { [key: string]: string }, updateSQLEditor: boolean = true, appendSQLEditor: boolean = false) {
+    public static async show(data, title, sql?: string, database?: string, table?: string, columnComments?: { [key: string]: string }, updateSQLEditor: boolean = true, appendSQLEditor: boolean = true) {
         // Update or create SQL document with the new SQL (only if updateSQLEditor is true)
         if (updateSQLEditor) {
             if (appendSQLEditor) {
