@@ -73,7 +73,13 @@ export class Utility {
             const activeTextEditor = vscode.window.activeTextEditor;
             const selection = activeTextEditor.selection;
             if (selection.isEmpty) {
-                sql = activeTextEditor.document.getText();
+                // No selection: get all text and find the first SQL statement
+                const allText = activeTextEditor.document.getText();
+                sql = Utility.getFirstSQLStatement(allText);
+                if (!sql) {
+                    // If no SQL statement found, use all text as fallback
+                    sql = allText;
+                }
             } else {
                 sql = activeTextEditor.document.getText(selection);
             }
@@ -125,30 +131,141 @@ export class Utility {
         // Find FROM keyword (case-insensitive)
         const fromIndex = trimmedSql.toUpperCase().indexOf('FROM');
         if (fromIndex === -1) {
+            console.log('[parseTableFromSQL] No FROM keyword found in SQL:', trimmedSql);
             return { database: undefined, table: undefined };
         }
 
         // Get everything after FROM
         const afterFrom = trimmedSql.substring(fromIndex + 4).trim();
 
-        // Remove leading quotes (backticks, single quotes, double quotes)
-        let tableName = afterFrom.replace(/^[`'"`]*/, '');
+        console.log('[parseTableFromSQL] SQL after FROM:', afterFrom);
 
-        // Find the end of the table name (stop at space, comma, semicolon, parenthesis, or quote)
-        const endMatch = tableName.match(/[\s,;)`'"`]/);
-        if (endMatch) {
-            tableName = tableName.substring(0, endMatch.index);
-        }
+        // Handle backtick-quoted identifiers: `database`.`table` or `database`.`table`
+        // Match pattern: `database`.`table` or database.table or `database`.table or database.`table`
+        let database: string | undefined = undefined;
+        let table: string | undefined = undefined;
 
-        // Check if it contains a dot (database.table format)
-        const dotIndex = tableName.indexOf('.');
-        if (dotIndex !== -1) {
-            const database = tableName.substring(0, dotIndex);
-            const table = tableName.substring(dotIndex + 1);
+        // Try to match `database`.`table` pattern first
+        const backtickDotBacktickPattern = /^`([^`]+)`\.`([^`]+)`/;
+        const match1 = afterFrom.match(backtickDotBacktickPattern);
+        if (match1) {
+            database = match1[1];
+            table = match1[2];
+            console.log('[parseTableFromSQL] Matched `database`.`table` pattern:', { database, table });
             return { database, table };
         }
 
-        return { database: undefined, table: tableName };
+        // Try to match `database`.table pattern
+        const backtickDotPattern = /^`([^`]+)`\.(\w+)/;
+        const match2 = afterFrom.match(backtickDotPattern);
+        if (match2) {
+            database = match2[1];
+            table = match2[2];
+            console.log('[parseTableFromSQL] Matched `database`.table pattern:', { database, table });
+            return { database, table };
+        }
+
+        // Try to match database.`table` pattern
+        const dotBacktickPattern = /^(\w+)\.`([^`]+)`/;
+        const match3 = afterFrom.match(dotBacktickPattern);
+        if (match3) {
+            database = match3[1];
+            table = match3[2];
+            console.log('[parseTableFromSQL] Matched database.`table` pattern:', { database, table });
+            return { database, table };
+        }
+
+        // Try to match database.table pattern (without backticks)
+        const dotPattern = /^(\w+)\.(\w+)/;
+        const match4 = afterFrom.match(dotPattern);
+        if (match4) {
+            database = match4[1];
+            table = match4[2];
+            console.log('[parseTableFromSQL] Matched database.table pattern:', { database, table });
+            return { database, table };
+        }
+
+        // Try to match `table` pattern (just table name with backticks)
+        const backtickPattern = /^`([^`]+)`/;
+        const match5 = afterFrom.match(backtickPattern);
+        if (match5) {
+            table = match5[1];
+            console.log('[parseTableFromSQL] Matched `table` pattern:', { table });
+            return { database: undefined, table };
+        }
+
+        // Fallback: just get the first word
+        const words = afterFrom.split(/[\s,;)]/);
+        if (words.length > 0) {
+            table = words[0].replace(/[`'"`]/g, '');
+            console.log('[parseTableFromSQL] Fallback pattern:', { table });
+            return { database: undefined, table };
+        }
+
+        console.log('[parseTableFromSQL] No table name found');
+        return { database: undefined, table: undefined };
+    }
+
+    // Get the first SQL statement from text that may contain multiple statements
+    private static getFirstSQLStatement(text: string): string | null {
+        // SQL keywords that start a statement
+        const sqlKeywords = [
+            'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP',
+            'ALTER', 'TRUNCATE', 'REPLACE', 'CALL', 'EXPLAIN', 'SHOW',
+            'DESC', 'DESCRIBE', 'USE', 'SET', 'BEGIN', 'COMMIT', 'ROLLBACK',
+            'GRANT', 'REVOKE', 'LOCK', 'UNLOCK', 'START', 'WITH'
+        ];
+
+        const lines = text.split('\n');
+        let statement: string[] = [];
+        let inStatement = false;
+        let parenCount = 0;
+        let quoteChar: string | null = null;
+
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+
+            // Check if line starts a SQL statement
+            const startsWithKeyword = sqlKeywords.some(keyword =>
+                new RegExp(`^${keyword}\\s`, 'i').test(trimmedLine) ||
+                new RegExp(`^${keyword}$`, 'i').test(trimmedLine)
+            );
+
+            if (startsWithKeyword && !inStatement) {
+                // Start of a new statement
+                inStatement = true;
+                statement = [line];
+                parenCount = 0;
+                quoteChar = null;
+            } else if (inStatement) {
+                // Continue building the statement
+                statement.push(line);
+
+                // Track parentheses and quotes
+                for (const char of line) {
+                    if (quoteChar) {
+                        if (char === quoteChar) {
+                            quoteChar = null;
+                        }
+                    } else if (char === '\'' || char === '"' || char === '`') {
+                        quoteChar = char;
+                    } else if (char === '(') {
+                        parenCount++;
+                    } else if (char === ')') {
+                        parenCount = Math.max(0, parenCount - 1);
+                    }
+                }
+
+                // Check if statement ends with semicolon
+                if (trimmedLine.endsWith(';') && parenCount === 0 && !quoteChar) {
+                    // End of statement
+                    return statement.join('\n');
+                }
+            }
+        }
+
+        // If no complete statement found, return null
+        return null;
     }
 
     public static async runQueryWithTotal(sql?: string, database?: string, table?: string, updatePanel: boolean = false, appendSQLEditor: boolean = false) {
@@ -171,7 +288,13 @@ export class Utility {
             const activeTextEditor = vscode.window.activeTextEditor;
             const selection = activeTextEditor.selection;
             if (selection.isEmpty) {
-                sql = activeTextEditor.document.getText();
+                // No selection: get all text and find the first SQL statement
+                const allText = activeTextEditor.document.getText();
+                sql = Utility.getFirstSQLStatement(allText);
+                if (!sql) {
+                    // If no SQL statement found, use all text as fallback
+                    sql = allText;
+                }
             } else {
                 sql = activeTextEditor.document.getText(selection);
             }
@@ -320,6 +443,31 @@ export class Utility {
     }
 
     private static async showQueryResult(data, title: string, sql?: string, totalRows?: number, database?: string, table?: string, updatePanel: boolean = false, updateSQLEditor: boolean = true, appendSQLEditor: boolean = false) {
+        console.log('[showQueryResult] Called with params:', { database, table, hasSQL: !!sql });
+
+        // If database and table are not provided, try to parse from SQL
+        if ((!database || !table) && sql) {
+            console.log('[showQueryResult] Parsing table from SQL...');
+            const parsed = Utility.parseTableFromSQL(sql);
+            console.log('[showQueryResult] Parsed result:', parsed);
+
+            if (!database && parsed.database) {
+                database = parsed.database;
+                console.log('[showQueryResult] Using parsed database:', database);
+            }
+            if (!database && Global.activeConnection && Global.activeConnection.database) {
+                // Use active connection database as fallback
+                database = Global.activeConnection.database;
+                console.log('[showQueryResult] Using active connection database as fallback:', database);
+            }
+            if (!table && parsed.table) {
+                table = parsed.table;
+                console.log('[showQueryResult] Using parsed table:', table);
+            }
+        }
+
+        console.log('[showQueryResult] Final database and table:', { database, table });
+
         // Get column comments if database and table are available
         let columnComments: { [key: string]: string } | undefined = undefined;
         if (database && table && data && data.length > 0) {

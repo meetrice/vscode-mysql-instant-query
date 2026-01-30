@@ -272,15 +272,33 @@ export function activate(context: vscode.ExtensionContext) {
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.generateUpdateSQL", async (message: any) => {
+        console.log('[generateUpdateSQL] Called with message:', message);
         const queryInfo = SqlResultWebView.getLastQueryInfo();
-        if (!queryInfo || !queryInfo.database || !queryInfo.table) {
-            vscode.window.showWarningMessage("Cannot determine database or table for UPDATE operation");
+        console.log('[generateUpdateSQL] Retrieved queryInfo:', queryInfo);
+
+        if (!queryInfo) {
+            console.error('[generateUpdateSQL] No queryInfo found');
+            vscode.window.showWarningMessage("Cannot determine database or table for UPDATE operation (no query info)");
+            return;
+        }
+
+        if (!queryInfo.database) {
+            console.error('[generateUpdateSQL] No database in queryInfo:', queryInfo);
+            vscode.window.showWarningMessage("Cannot determine database for UPDATE operation");
+            return;
+        }
+
+        if (!queryInfo.table) {
+            console.error('[generateUpdateSQL] No table in queryInfo:', queryInfo);
+            vscode.window.showWarningMessage("Cannot determine table for UPDATE operation");
             return;
         }
 
         const { rowData, columnName, originalValue, newValue } = message;
         const database = queryInfo.database;
         const table = queryInfo.table;
+
+        console.log('[generateUpdateSQL] Using database:', database, 'table:', table);
 
         // Find primary key column (usually 'id')
         const columns = Object.keys(rowData);
@@ -325,11 +343,26 @@ export function activate(context: vscode.ExtensionContext) {
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.generateInsertSQL", async (message: any) => {
-        console.log('generateInsertSQL received message:', JSON.stringify(message));
+        console.log('[generateInsertSQL] Called with message:', JSON.stringify(message));
 
         const queryInfo = SqlResultWebView.getLastQueryInfo();
-        if (!queryInfo || !queryInfo.database || !queryInfo.table) {
-            vscode.window.showWarningMessage("Cannot determine database or table for INSERT operation");
+        console.log('[generateInsertSQL] Retrieved queryInfo:', queryInfo);
+
+        if (!queryInfo) {
+            console.error('[generateInsertSQL] No queryInfo found');
+            vscode.window.showWarningMessage("Cannot determine database or table for INSERT operation (no query info)");
+            return;
+        }
+
+        if (!queryInfo.database) {
+            console.error('[generateInsertSQL] No database in queryInfo:', queryInfo);
+            vscode.window.showWarningMessage("Cannot determine database for INSERT operation");
+            return;
+        }
+
+        if (!queryInfo.table) {
+            console.error('[generateInsertSQL] No table in queryInfo:', queryInfo);
+            vscode.window.showWarningMessage("Cannot determine table for INSERT operation");
             return;
         }
 

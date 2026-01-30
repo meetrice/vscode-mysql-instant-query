@@ -149,6 +149,16 @@ export class SqlResultWebView {
                     background-color: var(--vscode-editor-background);
                     color: var(--vscode-editor-foreground);
                 }
+                .table-info {
+                    padding: 10px 16px;
+                    margin-bottom: 16px;
+                    background-color: var(--vscode-editor-selectionBackground);
+                    border-left: 4px solid #007acc;
+                    border-radius: 4px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: var(--vscode-editor-foreground);
+                }
                 table {
                     border-collapse: collapse;
                     width: 100%;
@@ -1364,6 +1374,15 @@ export class SqlResultWebView {
         });
 
         let body = "<table><thead><tr>" + head + "</tr><tr>" + filterRow + "</tr></thead><tbody>";
+
+        // Add table name display before the table
+        const queryInfo = SqlResultWebView.lastQueryInfo;
+        if (queryInfo && queryInfo.table) {
+            const tableName = queryInfo.database ?
+                `\`${queryInfo.database}\`.\`${queryInfo.table}\`` :
+                `\`${queryInfo.table}\``;
+            body = `<div class="table-info">📊 Table: ${this.escapeHtml(tableName)}</div>` + body;
+        }
 
         rows.forEach((row: any, rowIndex: number) => {
             // Store row data as JSON string for delete functionality
