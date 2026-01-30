@@ -291,9 +291,9 @@ export class Utility {
         //         OutputChannel.appendLine(e);
         //     });
         if (updatePanel) {
-            SqlResultWebView.updatePanel(data, sql, totalRows, database, table);
+            SqlResultWebView.updatePanel(data);
         } else {
-            SqlResultWebView.show(data, title, sql, totalRows, database, table);
+            SqlResultWebView.show(data, title);
         }
     }
 

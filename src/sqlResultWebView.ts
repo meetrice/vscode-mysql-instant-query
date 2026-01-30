@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import { Utility } from "./common/utility";
 
 // Helper function to calculate string length (Chinese characters count as 2)
 function getStringLength(str: string): number {
@@ -24,20 +23,8 @@ function getStringLength(str: string): number {
 
 export class SqlResultWebView {
     private static currentPanel: vscode.WebviewPanel | undefined = null;
-    private static currentDatabase: string | undefined = undefined;
-    private static currentTable: string | undefined = undefined;
 
-    public static async show(data, title, sql?: string, totalRows?: number, database?: string, table?: string) {
-        // Store current database and table for subsequent queries
-        SqlResultWebView.currentDatabase = database;
-        SqlResultWebView.currentTable = table;
-
-        // Only create new SQL document if there's no active SQL editor
-        if (!vscode.window.activeTextEditor ||
-            vscode.window.activeTextEditor.document.languageId !== 'sql') {
-            await Utility.createSQLTextDocument(sql || "");
-        }
-        
+    public static async show(data, title) {
         // Split editor into two rows (上下分栏)
         await vscode.commands.executeCommand('workbench.action.editorLayoutTwoRows');
 
@@ -48,7 +35,7 @@ export class SqlResultWebView {
         });
 
         SqlResultWebView.currentPanel = panel;
-        panel.webview.html = SqlResultWebView.getWebviewContent(data, sql, totalRows);
+        panel.webview.html = SqlResultWebView.getWebviewContent(data);
 
         // Focus the top editor (SQL) group and resize to ~40%
         await vscode.commands.executeCommand('workbench.action.focusFirstEditorGroup');
@@ -62,30 +49,15 @@ export class SqlResultWebView {
             SqlResultWebView.currentPanel = undefined;
         });
 
-        // Handle messages from webview
-        panel.webview.onDidReceiveMessage(
-            message => {
-                if (message.command === 'runQuery') {
-                    // Run the new SQL query and update current panel
-                    Utility.runQueryWithTotal(message.sql, SqlResultWebView.currentDatabase, SqlResultWebView.currentTable, true);
-                }
-            },
-            undefined,
-            undefined
-        );
     }
 
-    public static updatePanel(data: any, sql?: string, totalRows?: number, database?: string, table?: string) {
-        // Update the stored database and table
-        if (database !== undefined) SqlResultWebView.currentDatabase = database;
-        if (table !== undefined) SqlResultWebView.currentTable = table;
-
+    public static updatePanel(data: any) {
         if (SqlResultWebView.currentPanel) {
-            SqlResultWebView.currentPanel.webview.html = SqlResultWebView.getWebviewContent(data, sql, totalRows);
+            SqlResultWebView.currentPanel.webview.html = SqlResultWebView.getWebviewContent(data);
         }
     }
 
-    public static getWebviewContent(data, sql?: string, totalRows?: number): string {
+    public static getWebviewContent(data): string {
         const style = `
             <style>
                 body {
@@ -247,47 +219,6 @@ export class SqlResultWebView {
                     color: var(--vscode-descriptionForeground);
                     font-size: 12px;
                 }
-                .query-bar {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    margin-bottom: 12px;
-                    padding: 8px;
-                    background-color: var(--vscode-editor-selectionBackground);
-                    border-radius: 4px;
-                }
-                .query-input {
-                    flex: 1;
-                    padding: 6px 10px;
-                    font-family: Consolas, Monaco, 'Courier New', monospace;
-                    font-size: 13px;
-                    background-color: var(--vscode-input-background);
-                    color: var(--vscode-input-foreground);
-                    border: 1px solid var(--vscode-input-border);
-                    border-radius: 2px;
-                    outline: none;
-                }
-                .query-input:focus {
-                    border-color: var(--vscode-focusBorder);
-                }
-                .run-btn {
-                    padding: 6px 16px;
-                    font-size: 13px;
-                    background-color: var(--vscode-button-background);
-                    color: var(--vscode-button-foreground);
-                    border: none;
-                    border-radius: 2px;
-                    cursor: pointer;
-                    white-space: nowrap;
-                }
-                .run-btn:hover {
-                    background-color: var(--vscode-button-hoverBackground);
-                }
-                .total-info {
-                    color: var(--vscode-textLink-foreground);
-                    font-size: 12px;
-                    white-space: nowrap;
-                }
                 .pagination-container {
                     display: flex;
                     align-items: center;
@@ -398,25 +329,7 @@ export class SqlResultWebView {
                     }
                 });
 
-                function runQuery() {
-                    const sqlInput = document.getElementById('sqlInput');
-                    if (sqlInput) {
-                        vscode.postMessage({
-                            command: 'runQuery',
-                            sql: sqlInput.value
-                        });
-                    }
-                }
-
-                // Listen for Enter key in SQL input
-                document.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter' && e.target.id === 'sqlInput' && !e.shiftKey) {
-                        e.preventDefault();
-                        runQuery();
-                    }
-                });
-
-                // Copy header text to clipboard
+// Copy header text to clipboard
                 function copyHeader(headerText, element) {
                     navigator.clipboard.writeText(headerText).then(() => {
                         // Show a brief visual feedback
@@ -646,7 +559,7 @@ export class SqlResultWebView {
             "<body>",
         ).join("\n");
 
-        const body = SqlResultWebView.render(data, sql, totalRows);
+        const body = SqlResultWebView.render(data);
 
         const tail = [
             modal,
@@ -658,7 +571,7 @@ export class SqlResultWebView {
         return head + body + tail;
     }
 
-    private static render(rows, sql?: string, totalRows?: number) {
+    private static render(rows) {
         if (rows.length === 0) {
             return '<div class="no-data">No data</div>';
         }
@@ -684,18 +597,7 @@ export class SqlResultWebView {
             filterRow += `<th class="filter-header"><input type="text" class="filter-input" data-column-index="${index}" placeholder="Filter..."></th>`;
         });
 
-        // Display SQL input bar and row count at the top
-        const sqlValue = sql ? this.escapeHtml(sql.trim()) : "";
-        const sqlDisplay = sql ? this.escapeHtml(sql.trim()) : "Query";
-        const totalInfo = totalRows !== undefined
-            ? `<span class="total-info">(total ${totalRows} rows)</span>`
-            : "";
-        const headerInfo = `<div class="query-bar">
-            <input type="text" id="sqlInput" class="query-input" value="${sqlValue}" placeholder="Enter SQL query...">
-            <button class="run-btn" onclick="runQuery()">RUN</button>
-            ${totalInfo}
-        </div>`;
-        let body = headerInfo + "<table><thead><tr>" + head + "</tr><tr>" + filterRow + "</tr></thead><tbody>";
+        let body = "<table><thead><tr>" + head + "</tr><tr>" + filterRow + "</tr></thead><tbody>";
 
         rows.forEach((row) => {
             body += "<tr>";
