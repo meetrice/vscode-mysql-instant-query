@@ -24,9 +24,9 @@ function getStringLength(str: string): number {
 
 export class SqlResultWebView {
     private static currentPanel: vscode.WebviewPanel | undefined = null;
-    private static lastQueryInfo: { sql?: string; database?: string; table?: string } | undefined = undefined;
+    private static lastQueryInfo: { sql?: string; database?: string; table?: string; columnComments?: { [key: string]: string } } | undefined = undefined;
 
-    public static async show(data, title, sql?: string, database?: string, table?: string) {
+    public static async show(data, title, sql?: string, database?: string, table?: string, columnComments?: { [key: string]: string }) {
         // Always update or create SQL document with the new SQL
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor && activeEditor.document.languageId === 'sql') {
@@ -54,10 +54,10 @@ export class SqlResultWebView {
         });
 
         // Store query info for refresh functionality
-        SqlResultWebView.lastQueryInfo = { sql, database, table };
+        SqlResultWebView.lastQueryInfo = { sql, database, table, columnComments };
 
         SqlResultWebView.currentPanel = panel;
-        panel.webview.html = SqlResultWebView.getWebviewContent(data);
+        panel.webview.html = SqlResultWebView.getWebviewContent(data, columnComments);
 
         // Focus the top editor (SQL) group and resize to ~40%
         await vscode.commands.executeCommand('workbench.action.focusFirstEditorGroup');
@@ -97,7 +97,7 @@ export class SqlResultWebView {
 
     }
 
-    public static updatePanel(data: any, sql?: string, database?: string, table?: string) {
+    public static updatePanel(data: any, sql?: string, database?: string, table?: string, columnComments?: { [key: string]: string }) {
         if (SqlResultWebView.currentPanel) {
             // Update SQL editor if SQL is provided
             if (sql) {
@@ -114,15 +114,16 @@ export class SqlResultWebView {
                 }
             }
             // Update stored query info
-            if (sql || database || table) {
+            if (sql || database || table || columnComments) {
                 SqlResultWebView.lastQueryInfo = {
                     sql: sql || SqlResultWebView.lastQueryInfo?.sql,
                     database: database || SqlResultWebView.lastQueryInfo?.database,
-                    table: table || SqlResultWebView.lastQueryInfo?.table
+                    table: table || SqlResultWebView.lastQueryInfo?.table,
+                    columnComments: columnComments || SqlResultWebView.lastQueryInfo?.columnComments
                 };
             }
             // Update webview content
-            SqlResultWebView.currentPanel.webview.html = SqlResultWebView.getWebviewContent(data);
+            SqlResultWebView.currentPanel.webview.html = SqlResultWebView.getWebviewContent(data, columnComments);
         }
     }
 
@@ -130,7 +131,7 @@ export class SqlResultWebView {
         return SqlResultWebView.lastQueryInfo;
     }
 
-    public static getWebviewContent(data): string {
+    public static getWebviewContent(data, columnComments?: { [key: string]: string }): string {
         const style = `
             <style>
                 body {
@@ -153,6 +154,18 @@ export class SqlResultWebView {
                     font-weight: 600;
                     cursor: pointer;
                     user-select: none;
+                    vertical-align: top;
+                }
+                .column-name {
+                    display: block;
+                    font-weight: 600;
+                }
+                .column-comment {
+                    display: block;
+                    font-size: 11px;
+                    color: #666;
+                    font-weight: normal;
+                    margin-top: 2px;
                 }
                 thead tr:first-child th {
                     position: sticky;
@@ -1293,7 +1306,7 @@ export class SqlResultWebView {
             "<body>",
         ).join("\n");
 
-        const body = SqlResultWebView.render(data);
+        const body = SqlResultWebView.render(data, columnComments);
 
         const tail = [
             modal,
@@ -1305,7 +1318,7 @@ export class SqlResultWebView {
         return head + body + tail;
     }
 
-    private static render(rows) {
+    private static render(rows, columnComments?: { [key: string]: string }) {
         if (rows.length === 0) {
             return '<div class="no-data">No data</div>';
         }
@@ -1324,7 +1337,9 @@ export class SqlResultWebView {
         </th>`;
         fields.forEach((field, index) => {
             const escapedField = this.escapeHtml(field);
-            head += `<th class="data-column" data-column-name="${escapedField}" onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}">${escapedField}</th>`;
+            const comment = columnComments && columnComments[field] ? this.escapeHtml(columnComments[field]) : '';
+            const commentHtml = comment ? `<span class="column-comment">${comment}</span>` : '';
+            head += `<th class="data-column" data-column-name="${escapedField}" onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}"><span class="column-name">${escapedField}</span>${commentHtml}</th>`;
         });
 
         // Generate filter row (first column has action buttons)

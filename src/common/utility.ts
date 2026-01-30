@@ -286,7 +286,43 @@ export class Utility {
         return uri.with({ query: data });
     }
 
-    private static showQueryResult(data, title: string, sql?: string, totalRows?: number, database?: string, table?: string, updatePanel: boolean = false) {
+    private static async showQueryResult(data, title: string, sql?: string, totalRows?: number, database?: string, table?: string, updatePanel: boolean = false) {
+        // Get column comments if database and table are available
+        let columnComments: { [key: string]: string } | undefined = undefined;
+        if (database && table && data && data.length > 0) {
+            try {
+                // Get connection options from global active connection
+                if (Global.activeConnection) {
+                    const connectionOptions = {
+                        host: Global.activeConnection.host,
+                        user: Global.activeConnection.user,
+                        password: Global.activeConnection.password,
+                        port: Global.activeConnection.port,
+                        database: database,
+                        certPath: Global.activeConnection.certPath,
+                    };
+
+                    const connection = Utility.createConnection(connectionOptions);
+                    const columns = await Utility.queryPromise<any[]>(connection,
+                        `SELECT COLUMN_NAME, COLUMN_COMMENT
+                         FROM information_schema.COLUMNS
+                         WHERE TABLE_SCHEMA = '${database}' AND TABLE_NAME = '${table}';`);
+
+                    if (columns && columns.length > 0) {
+                        columnComments = {};
+                        columns.forEach(col => {
+                            if (col.COLUMN_COMMENT) {
+                                columnComments[col.COLUMN_NAME] = col.COLUMN_COMMENT;
+                            }
+                        });
+                    }
+                }
+            } catch (err) {
+                // Ignore errors fetching column comments
+                console.error('Error fetching column comments:', err);
+            }
+        }
+
         // vscode.commands.executeCommand(
         //     "vscode.previewHtml",
         //     Utility.getPreviewUri(JSON.stringify(data)),
@@ -295,9 +331,9 @@ export class Utility {
         //         OutputChannel.appendLine(e);
         //     });
         if (updatePanel) {
-            SqlResultWebView.updatePanel(data, sql, database, table);
+            SqlResultWebView.updatePanel(data, sql, database, table, columnComments);
         } else {
-            SqlResultWebView.show(data, title, sql, database, table);
+            SqlResultWebView.show(data, title, sql, database, table, columnComments);
         }
     }
 
