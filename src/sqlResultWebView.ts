@@ -67,6 +67,21 @@ export class SqlResultWebView {
             SqlResultWebView.currentPanel = undefined;
         });
 
+        // Handle messages from webview
+        panel.webview.onDidReceiveMessage(
+            message => {
+                if (message.command === 'refreshData') {
+                    // Notify extension to refresh data
+                    vscode.commands.executeCommand('mysqlInstantQuery.refreshResults');
+                } else if (message.command === 'commitChanges') {
+                    // Handle commit changes
+                    vscode.commands.executeCommand('mysqlInstantQuery.commitChanges', message.changes);
+                }
+            },
+            undefined,
+            undefined
+        );
+
     }
 
     public static updatePanel(data: any) {
@@ -192,6 +207,82 @@ export class SqlResultWebView {
                 }
                 th.filter-header.sticky-column {
                     background-color: #f5f5f5;
+                }
+                .action-buttons {
+                    display: flex;
+                    gap: 6px;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100%;
+                }
+                .action-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 28px;
+                    height: 28px;
+                    border: 1px solid #bbb;
+                    border-radius: 4px;
+                    background-color: var(--vscode-button-secondaryBackground);
+                    color: var(--vscode-button-secondaryForeground);
+                    cursor: pointer;
+                    font-size: 16px;
+                    transition: all 0.2s;
+                }
+                .action-btn:hover {
+                    background-color: var(--vscode-button-hoverBackground);
+                    border-color: var(--vscode-button-border);
+                }
+                .action-btn:active {
+                    transform: scale(0.95);
+                }
+                .action-btn.danger {
+                    background-color: #f44336;
+                    color: white;
+                    border-color: #d32f2f;
+                }
+                .action-btn.danger:hover {
+                    background-color: #d32f2f;
+                }
+                .action-btn.success {
+                    background-color: #4caf50;
+                    color: white;
+                    border-color: #388e3c;
+                }
+                .action-btn.success:hover {
+                    background-color: #388e3c;
+                }
+                .action-btn.hidden {
+                    display: none;
+                }
+                .checkbox-cell {
+                    width: 40px;
+                    text-align: center;
+                }
+                .row-checkbox {
+                    width: 16px;
+                    height: 16px;
+                    cursor: pointer;
+                }
+                tr.selected {
+                    background-color: rgba(0, 122, 204, 0.1);
+                }
+                .edit-cell {
+                    position: relative;
+                }
+                .edit-cell input {
+                    width: 100%;
+                    padding: 4px 6px;
+                    border: 1px solid #007acc;
+                    border-radius: 2px;
+                    font-size: 13px;
+                    font-family: inherit;
+                    background-color: var(--vscode-input-background);
+                    color: var(--vscode-input-foreground);
+                }
+                .edit-cell input:focus {
+                    outline: none;
+                    box-shadow: 0 0 3px rgba(0, 122, 255, 0.3);
                 }
                 .data-column.hidden {
                     display: none;
@@ -696,7 +787,188 @@ export class SqlResultWebView {
                 // Initialize pagination after DOM is ready
                 setTimeout(function() {
                     initFilters();
+                    initActionButtons();
+                    initRowCheckboxes();
                 }, 0);
+
+                // Track pending changes
+                let pendingChanges = new Map(); // row index -> {column: value}
+                let newRowData = null;
+
+                // Initialize action buttons
+                function initActionButtons() {
+                    const selectAllBtn = document.getElementById('selectAllBtn');
+                    const deleteBtn = document.getElementById('deleteBtn');
+                    const addBtn = document.getElementById('addBtn');
+                    const commitBtn = document.getElementById('commitBtn');
+                    const refreshBtn = document.getElementById('refreshBtn');
+
+                    if (selectAllBtn) {
+                        selectAllBtn.addEventListener('click', toggleSelectAll);
+                    }
+                    if (deleteBtn) {
+                        deleteBtn.addEventListener('click', deleteSelectedRows);
+                    }
+                    if (addBtn) {
+                        addBtn.addEventListener('click', addNewRow);
+                    }
+                    if (commitBtn) {
+                        commitBtn.addEventListener('click', commitChanges);
+                    }
+                    if (refreshBtn) {
+                        refreshBtn.addEventListener('click', refreshData);
+                    }
+                }
+
+                // Initialize row checkboxes
+                function initRowCheckboxes() {
+                    const selectAllCheckbox = document.getElementById('selectAllRows');
+                    if (selectAllCheckbox) {
+                        selectAllCheckbox.addEventListener('change', function(e) {
+                            const checkboxes = document.querySelectorAll('.row-checkbox');
+                            const checked = e.target.checked;
+                            checkboxes.forEach(cb => {
+                                if (cb !== selectAllCheckbox) {
+                                    cb.checked = checked;
+                                }
+                            });
+                        });
+                    }
+                }
+
+                function toggleSelectAll() {
+                    const selectAllCheckbox = document.getElementById('selectAllRows');
+                    if (selectAllCheckbox) {
+                        selectAllCheckbox.checked = !selectAllCheckbox.checked;
+                        selectAllCheckbox.dispatchEvent(new Event('change'));
+                    }
+                }
+
+                function deleteSelectedRows() {
+                    const selectedCheckboxes = document.querySelectorAll('.row-checkbox:checked');
+                    if (selectedCheckboxes.length === 0) {
+                        alert('Please select at least one row to delete');
+                        return;
+                    }
+
+                    if (confirm(\`Are you sure you want to delete \${selectedCheckboxes.length} row(s)?\`)) {
+                        selectedCheckboxes.forEach(checkbox => {
+                            const rowIndex = parseInt(checkbox.getAttribute('data-row-index'));
+                            const row = checkbox.closest('tr');
+                            if (row) {
+                                row.style.display = 'none';
+                                row.classList.add('deleted');
+                            }
+                        });
+                    }
+                }
+
+                function addNewRow() {
+                    const table = document.querySelector('table tbody');
+                    if (!table) return;
+
+                    const fields = Array.from(document.querySelectorAll('th.data-column'))
+                        .map(th => th.getAttribute('data-column-name'))
+                        .filter(name => name);
+
+                    const newRow = document.createElement('tr');
+                    newRow.classList.add('new-row');
+
+                    // Add checkbox
+                    const checkboxCell = document.createElement('td');
+                    checkboxCell.className = 'checkbox-cell';
+                    checkboxCell.innerHTML = '<input type="checkbox" class="row-checkbox" data-row-index="new">';
+                    newRow.appendChild(checkboxCell);
+
+                    // Add empty sticky column
+                    const stickyCell = document.createElement('td');
+                    stickyCell.className = 'sticky-column';
+                    newRow.appendChild(stickyCell);
+
+                    // Add editable cells
+                    fields.forEach(fieldName => {
+                        const cell = document.createElement('td');
+                        cell.className = 'data-column edit-cell';
+                        cell.setAttribute('data-column-name', fieldName);
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.placeholder = 'Enter value';
+                        input.className = 'edit-input';
+                        cell.appendChild(input);
+                        newRow.appendChild(cell);
+                    });
+
+                    table.appendChild(newRow);
+
+                    // Mark as pending change
+                    pendingChanges.set('new', { isNew: true, data: {} });
+                    updateCommitButton();
+                }
+
+                function commitChanges() {
+                    if (pendingChanges.size === 0) return;
+
+                    // Collect all changes
+                    const changes = [];
+                    pendingChanges.forEach((value, key) => {
+                        changes.push(value);
+                    });
+
+                    // Send to extension to execute SQL
+                    vscode.postMessage({
+                        command: 'commitChanges',
+                        changes: JSON.stringify(changes)
+                    });
+
+                    // Clear pending changes
+                    pendingChanges.clear();
+                    updateCommitButton();
+                }
+
+                function updateCommitButton() {
+                    const commitBtn = document.getElementById('commitBtn');
+                    if (commitBtn) {
+                        if (pendingChanges.size > 0) {
+                            commitBtn.classList.remove('hidden');
+                        } else {
+                            commitBtn.classList.add('hidden');
+                        }
+                    }
+                }
+
+                function refreshData() {
+                    vscode.postMessage({
+                        command: 'refreshData'
+                    });
+                }
+
+                // Handle cell editing
+                document.addEventListener('change', function(e) {
+                    if (e.target.classList.contains('edit-input')) {
+                        const cell = e.target.closest('td');
+                        const row = cell.closest('tr');
+                        const rowIndex = row.querySelector('.row-checkbox')?.getAttribute('data-row-index');
+                        const columnName = cell.getAttribute('data-column-name');
+                        const value = e.target.value;
+
+                        if (rowIndex === 'new') {
+                            // New row
+                            if (!pendingChanges.has('new')) {
+                                pendingChanges.set('new', { isNew: true, data: {} });
+                            }
+                            pendingChanges.get('new').data[columnName] = value;
+                        } else {
+                            // Existing row
+                            if (!pendingChanges.has(rowIndex)) {
+                                pendingChanges.set(rowIndex, { isNew: false, rowIndex: rowIndex, data: {} });
+                            }
+                            pendingChanges.get(rowIndex).data[columnName] = value;
+                            row.classList.add('modified');
+                        }
+
+                        updateCommitButton();
+                    }
+                });
             <\/script>
         `;
 
@@ -748,8 +1020,8 @@ export class SqlResultWebView {
             }
         }
 
-        // Generate header row with field filter column at the beginning
-        let head = `<th class="column-filter-header">
+        // Generate header row with checkbox column and field filter column
+        let head = `<th class="checkbox-cell"><input type="checkbox" id="selectAllRows" class="row-checkbox"></th><th class="column-filter-header">
             <input type="text" id="columnFilterInput" class="column-filter-input" placeholder="🔍 Filter columns...">
         </th>`;
         fields.forEach((field, index) => {
@@ -757,16 +1029,26 @@ export class SqlResultWebView {
             head += `<th class="data-column" data-column-name="${escapedField}" onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}">${escapedField}</th>`;
         });
 
-        // Generate filter row (first column is empty, second row has filter inputs)
-        let filterRow = `<th class="filter-header sticky-column"></th>`;
+        // Generate filter row (first column has action buttons, second row has filter inputs)
+        let filterRow = `<th class="filter-header sticky-column">
+            <div class="action-buttons">
+                <button class="action-btn" id="selectAllBtn" title="Select All">☑️</button>
+                <button class="action-btn danger" id="deleteBtn" title="Delete Selected">🗑️</button>
+                <button class="action-btn success" id="addBtn" title="Add Row">➕</button>
+                <button class="action-btn hidden" id="commitBtn" title="Commit Changes">💾</button>
+                <button class="action-btn" id="refreshBtn" title="Refresh">🔄</button>
+            </div>
+        </th>`;
         fields.forEach((field, index) => {
             filterRow += `<th class="filter-header data-column" data-column-name="${this.escapeHtml(field)}"><input type="text" class="filter-input" data-column-index="${index}" placeholder="Filter..."></th>`;
         });
 
         let body = "<table><thead><tr>" + head + "</tr><tr>" + filterRow + "</tr></thead><tbody>";
 
-        rows.forEach((row) => {
+        rows.forEach((row: any, rowIndex: number) => {
             body += "<tr>";
+            // Add checkbox cell
+            body += `<td class='checkbox-cell'><input type='checkbox' class='row-checkbox' data-row-index='${rowIndex}'></td>`;
             // Add empty cell in the first column
             body += "<td class='sticky-column'></td>";
             for (const field in row) {
