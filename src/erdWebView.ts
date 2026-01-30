@@ -440,9 +440,28 @@ export class ErdWebView {
             background-color: #ff6b6b;
             transform: scale(1.5);
         }
-        .table-connector {
+        /* Table connection points on all four sides */
+        .table-connector-top {
+            position: absolute;
+            top: -7px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .table-connector-bottom {
+            position: absolute;
+            bottom: -7px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .table-connector-left {
             position: absolute;
             left: -7px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .table-connector-right {
+            position: absolute;
+            right: -7px;
             top: 50%;
             transform: translateY(-50%);
         }
@@ -966,7 +985,11 @@ export class ErdWebView {
                 <div class="table-body">
                     ${columns}
                 </div>
-                <div class="table-connector connection-point" data-table="${this.escapeHtml(table.tableName)}" title="${this.escapeHtml(table.tableName)} connector"></div>
+                <!-- Connection points on all four sides -->
+                <div class="table-connector-top connection-point" data-table="${this.escapeHtml(table.tableName)}" title="${this.escapeHtml(table.tableName)} top"></div>
+                <div class="table-connector-bottom connection-point" data-table="${this.escapeHtml(table.tableName)}" title="${this.escapeHtml(table.tableName)} bottom"></div>
+                <div class="table-connector-left connection-point" data-table="${this.escapeHtml(table.tableName)}" title="${this.escapeHtml(table.tableName)} left"></div>
+                <div class="table-connector-right connection-point" data-table="${this.escapeHtml(table.tableName)}" title="${this.escapeHtml(table.tableName)} right"></div>
             </div>
         `;
     }
