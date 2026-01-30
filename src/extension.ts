@@ -161,8 +161,8 @@ export function activate(context: vscode.ExtensionContext) {
         connectionNode.editDisplayName(context, mysqlTreeDataProvider);
     }));
 
-    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.runQuery", () => {
-        Utility.runQuery();
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.runQuery", (sql?: string) => {
+        Utility.runQuery(sql);
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.newQuery", (databaseOrConnectionNode: DatabaseNode | ConnectionNode) => {
