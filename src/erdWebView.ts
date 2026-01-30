@@ -12,6 +12,7 @@ interface TableData {
     width: number;
     height: number;
     database?: string;
+    comment?: string;
 }
 
 interface ColumnData {
@@ -49,16 +50,38 @@ export class ErdWebView {
             return;
         }
 
-        const conn = Utility.createConnection(connection);
-
         try {
-            // Get table structure
-            const results: any[] = await Utility.queryPromise(conn, `DESCRIBE \`${database}\`.\`${tableName}\`;`);
+            // Get table structure with column comments from INFORMATION_SCHEMA
+            const columnQuery = `
+                SELECT
+                    COLUMN_NAME as Field,
+                    COLUMN_TYPE as Type,
+                    COLUMN_KEY as \`Key\`,
+                    COLUMN_COMMENT as Comment,
+                    EXTRA as Extra
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = '${database}'
+                AND TABLE_NAME = '${tableName}'
+                ORDER BY ORDINAL_POSITION;
+            `;
+            const conn1 = Utility.createConnection(connection);
+            const results: any[] = await Utility.queryPromise(conn1, columnQuery);
 
             if (!results || results.length === 0) {
                 vscode.window.showWarningMessage(`Failed to get table structure for ${tableName}`);
                 return;
             }
+
+            // Get table comment
+            const tableCommentQuery = `
+                SELECT TABLE_COMMENT
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = '${database}'
+                AND TABLE_NAME = '${tableName}';
+            `;
+            const conn2 = Utility.createConnection(connection);
+            const tableCommentResult: any[] = await Utility.queryPromise(conn2, tableCommentQuery);
+            const tableComment = tableCommentResult && tableCommentResult.length > 0 ? tableCommentResult[0].TABLE_COMMENT || '' : '';
 
             // Parse table structure
             const columns: ColumnData[] = [];
@@ -67,6 +90,8 @@ export class ErdWebView {
                 const type = row.Type;
                 const key = row.Key || '';
                 const comment = row.Comment || '';
+
+                console.log('[ERD] Column:', field, 'Type:', type, 'Comment:', comment);
 
                 columns.push({
                     name: field,
@@ -89,8 +114,8 @@ export class ErdWebView {
                 AND REFERENCED_TABLE_NAME IS NOT NULL;
             `;
 
-            const conn2 = Utility.createConnection(connection);
-            const fkResults: any[] = await Utility.queryPromise(conn2, fkQuery);
+            const conn3 = Utility.createConnection(connection);
+            const fkResults: any[] = await Utility.queryPromise(conn3, fkQuery);
 
             if (fkResults && fkResults.length > 0) {
                 for (const row of fkResults) {
@@ -127,7 +152,8 @@ export class ErdWebView {
                 y: 100,
                 width: columnWidth,
                 height: headerHeight + columns.length * rowHeight + padding * 2,
-                database: database
+                database: database,
+                comment: tableComment
             };
 
             ErdWebView.tableData.set(`${database}.${tableName}`, tableData);
@@ -181,10 +207,34 @@ export class ErdWebView {
             if (ErdWebView.tableData.has(refTableKey)) continue;
 
             try {
-                const conn = Utility.createConnection(connection);
-                const results: any[] = await Utility.queryPromise(conn, `DESCRIBE \`${database}\`.\`${refTable}\`;`);
+                // Get table structure with column comments from INFORMATION_SCHEMA
+                const columnQuery = `
+                    SELECT
+                        COLUMN_NAME as Field,
+                        COLUMN_TYPE as Type,
+                        COLUMN_KEY as \`Key\`,
+                        COLUMN_COMMENT as Comment,
+                        EXTRA as Extra
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = '${database}'
+                    AND TABLE_NAME = '${refTable}'
+                    ORDER BY ORDINAL_POSITION;
+                `;
+                const conn1 = Utility.createConnection(connection);
+                const results: any[] = await Utility.queryPromise(conn1, columnQuery);
 
                 if (!results || results.length === 0) continue;
+
+                // Get table comment
+                const tableCommentQuery = `
+                    SELECT TABLE_COMMENT
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_SCHEMA = '${database}'
+                    AND TABLE_NAME = '${refTable}';
+                `;
+                const conn2 = Utility.createConnection(connection);
+                const tableCommentResult: any[] = await Utility.queryPromise(conn2, tableCommentQuery);
+                const tableComment = tableCommentResult && tableCommentResult.length > 0 ? tableCommentResult[0].TABLE_COMMENT || '' : '';
 
                 const refColumns: ColumnData[] = [];
                 for (const row of results) {
@@ -218,7 +268,8 @@ export class ErdWebView {
                     y: y,
                     width: columnWidth,
                     height: headerHeight + refColumns.length * rowHeight + padding * 2,
-                    database: database
+                    database: database,
+                    comment: tableComment
                 });
 
             } catch (error) {
@@ -245,13 +296,23 @@ export class ErdWebView {
             background-color: var(--vscode-editor-background);
             color: var(--vscode-editor-foreground);
             overflow: hidden;
+            cursor: grab;
+        }
+        body.panning {
+            cursor: grabbing;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
         }
         #canvas {
             width: 100%;
-            height: 100vh;
-            position: relative;
+            height: 100%;
+            position: absolute;
             transform-origin: 0 0;
-            transition: transform 0.3s ease;
+            transition: transform 0.1s ease-out;
         }
         svg {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -298,6 +359,13 @@ export class ErdWebView {
             gap: 8px;
             flex: 1;
         }
+        .table-comment {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.8);
+            font-weight: normal;
+            margin-left: 8px;
+            font-style: italic;
+        }
         .toggle-comments-btn {
             background: rgba(255, 255, 255, 0.2);
             border: 1px solid rgba(255, 255, 255, 0.3);
@@ -335,7 +403,7 @@ export class ErdWebView {
             color: var(--vscode-descriptionForeground);
         }
         .column-comment {
-            display: none;
+            display: inline-block;
             font-size: 11px;
             color: var(--vscode-descriptionForeground);
             margin-left: 8px;
@@ -343,8 +411,9 @@ export class ErdWebView {
             opacity: 0.8;
             flex-shrink: 0;
         }
-        .table-body.show-comments .column-comment {
-            display: inline-block;
+        .hide-comments .column-comment,
+        .column-row.hide-comments .column-comment {
+            display: none;
         }
         .connection-point {
             position: absolute;
@@ -456,8 +525,9 @@ export class ErdWebView {
     </style>
 </head>
 <body>
-    <div id="canvas">
-        <svg id="relationships"></svg>
+    <div id="canvas-container">
+        <div id="canvas">
+            <svg id="relationships"></svg>
 `;
 
         // Add table nodes
@@ -465,7 +535,8 @@ export class ErdWebView {
             html += ErdWebView.renderTableNode(table, table.tableName === mainTable);
         }
 
-        html += `    </div>
+        html += `        </div>
+    </div>
 
     <!-- Zoom controls -->
     <div class="zoom-controls">
@@ -485,11 +556,50 @@ export class ErdWebView {
         let isDraggingConnection = false;
         let connectionStartPoint = null;
         let tempLine = null;
+        let panX = 0;
+        let panY = 0;
+        let isPanning = false;
+        let panStartX = 0;
+        let panStartY = 0;
 
         function updateZoom() {
-            const canvas = document.getElementById('canvas');
-            canvas.style.transform = 'scale(' + zoom + ')';
+            updateCanvasTransform();
             document.getElementById('zoomLevel').textContent = Math.round(zoom * 100) + '%';
+        }
+
+        function updateCanvasTransform() {
+            const canvas = document.getElementById('canvas');
+            canvas.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + zoom + ')';
+        }
+
+        // Initialize canvas panning
+        function initCanvasPanning() {
+            const container = document.getElementById('canvas-container');
+
+            container.addEventListener('mousedown', function(e) {
+                // Only pan if clicking on background, not on tables or controls
+                if (e.target === container || e.target === document.getElementById('canvas')) {
+                    isPanning = true;
+                    panStartX = e.clientX - panX;
+                    panStartY = e.clientY - panY;
+                    document.body.classList.add('panning');
+                }
+            });
+
+            document.addEventListener('mousemove', function(e) {
+                if (isPanning) {
+                    panX = e.clientX - panStartX;
+                    panY = e.clientY - panStartY;
+                    updateCanvasTransform();
+                }
+            });
+
+            document.addEventListener('mouseup', function() {
+                if (isPanning) {
+                    isPanning = false;
+                    document.body.classList.remove('panning');
+                }
+            });
         }
 
         document.getElementById('zoomInBtn').addEventListener('click', function() {
@@ -508,15 +618,43 @@ export class ErdWebView {
         });
 
         function toggleComments(tableNode) {
+            console.log('[toggleComments] Function called');
+            console.log('[toggleComments] tableNode:', tableNode);
+
             const tableBody = tableNode.querySelector('.table-body');
-            tableBody.classList.toggle('show-comments');
+            console.log('[toggleComments] tableBody:', tableBody);
+
+            const columnRows = tableBody.querySelectorAll('.column-row');
+            console.log('[toggleComments] columnRows found:', columnRows.length);
+
+            const isHidden = tableBody.classList.toggle('hide-comments');
+            console.log('[toggleComments] isHidden:', isHidden);
+            console.log('[toggleComments] tableBody.classList after toggle:', tableBody.classList.toString());
 
             const btn = tableNode.querySelector('.toggle-comments-btn');
-            if (tableBody.classList.contains('show-comments')) {
-                btn.textContent = '📝';
-            } else {
+            console.log('[toggleComments] btn:', btn);
+
+            if (isHidden) {
+                console.log('[toggleComments] Hiding comments - setting button to 📋');
                 btn.textContent = '📋';
+                // Add hide-comments class to each column-row
+                columnRows.forEach(function(row) {
+                    row.classList.add('hide-comments');
+                });
+            } else {
+                console.log('[toggleComments] Showing comments - setting button to 📝');
+                btn.textContent = '📝';
+                // Remove hide-comments class from each column-row
+                columnRows.forEach(function(row) {
+                    row.classList.remove('hide-comments');
+                });
             }
+
+            console.log('[toggleComments] Final columnRows classes:');
+            columnRows.forEach(function(row, index) {
+                console.log('[toggleComments]   Row', index, 'classes:', row.classList.toString());
+            });
+
             drawRelationships();
         }
 
@@ -570,7 +708,7 @@ export class ErdWebView {
         }
 
         function initDraggable() {
-            const canvas = document.getElementById('canvas');
+            const canvasContainer = document.getElementById('canvas-container');
             let draggedElement = null;
             let offsetX = 0;
             let offsetY = 0;
@@ -610,11 +748,21 @@ export class ErdWebView {
 
                 // Toggle comments button
                 const toggleBtn = table.querySelector('.toggle-comments-btn');
+                console.log('[initDraggable] Found toggle button for table', table.dataset.table, ':', toggleBtn);
                 if (toggleBtn) {
                     toggleBtn.addEventListener('click', function(e) {
+                        console.log('[toggleBtn click] Button clicked!');
+                        console.log('[toggleBtn click] Event:', e);
+                        console.log('[toggleBtn click] Target:', e.target);
+                        console.log('[toggleBtn click] Current target:', e.currentTarget);
                         e.stopPropagation();
+                        console.log('[toggleBtn click] About to call toggleComments');
                         toggleComments(table);
+                        console.log('[toggleBtn click] toggleComments returned');
                     });
+                    console.log('[initDraggable] Button click listener attached for table', table.dataset.table);
+                } else {
+                    console.log('[initDraggable] ERROR: No toggle button found for table', table.dataset.table);
                 }
 
                 // Connection points mouse handlers
@@ -675,9 +823,9 @@ export class ErdWebView {
             document.addEventListener('mousemove', function(e) {
                 // Handle table dragging
                 if (draggedElement) {
-                    const canvasRect = canvas.getBoundingClientRect();
-                    const x = (e.clientX - canvasRect.left - offsetX) / zoom;
-                    const y = (e.clientY - canvasRect.top - offsetY) / zoom;
+                    const canvasRect = document.getElementById('canvas-container').getBoundingClientRect();
+                    const x = (e.clientX - canvasRect.left - offsetX - panX) / zoom;
+                    const y = (e.clientY - canvasRect.top - offsetY - panY) / zoom;
 
                     draggedElement.style.left = x + 'px';
                     draggedElement.style.top = y + 'px';
@@ -694,9 +842,9 @@ export class ErdWebView {
 
                 // Handle connection dragging
                 if (isDraggingConnection && connectionStartPoint && tempLine) {
-                    const canvasRect = canvas.getBoundingClientRect();
-                    const currentX = (e.clientX - canvasRect.left) / zoom;
-                    const currentY = (e.clientY - canvasRect.top) / zoom;
+                    const canvasRect = document.getElementById('canvas-container').getBoundingClientRect();
+                    const currentX = (e.clientX - canvasRect.left - panX) / zoom;
+                    const currentY = (e.clientY - canvasRect.top - panY) / zoom;
 
                     const midX = (connectionStartPoint.x + currentX) / 2;
                     const path = 'M ' + connectionStartPoint.x + ' ' + connectionStartPoint.y +
@@ -749,8 +897,22 @@ export class ErdWebView {
 
         // Initialize
         window.addEventListener('load', function() {
+            console.log('[ERD Init] Page loaded');
+            console.log('[ERD Init] Number of tables:', document.querySelectorAll('.table-node').length);
+            console.log('[ERD Init] Number of toggle buttons:', document.querySelectorAll('.toggle-comments-btn').length);
+
+            // Log each table and its button
+            document.querySelectorAll('.table-node').forEach(function(table, index) {
+                console.log('[ERD Init] Table', index, ':', table.dataset.table);
+                const btn = table.querySelector('.toggle-comments-btn');
+                console.log('[ERD Init]   Has button:', !!btn);
+                console.log('[ERD Init]   Button text:', btn ? btn.textContent : 'N/A');
+            });
+
             drawRelationships();
+            initCanvasPanning();
             initDraggable();
+            console.log('[ERD Init] Initialization complete');
         });
 
         window.addEventListener('resize', function() {
@@ -765,12 +927,15 @@ export class ErdWebView {
 
     private static renderTableNode(table: TableData, isMainTable: boolean): string {
         let columns = '';
+        console.log('[renderTableNode] Rendering table:', table.tableName);
         for (const col of table.columns) {
+            console.log('[renderTableNode] Column:', col.name, 'Comment:', col.comment);
             let icon = '';
             if (col.isPrimaryKey) icon = '<span class="column-icon pk-icon">🔑</span>';
             else if (col.isForeignKey) icon = '<span class="column-icon fk-icon">🔗</span>';
 
             const comment = col.comment ? `<span class="column-comment">${this.escapeHtml(col.comment)}</span>` : '';
+            console.log('[renderTableNode] Generated comment HTML:', comment ? comment.substring(0, 50) + '...' : '(empty)');
 
             columns += `
                 <div class="column-row" data-column="${this.escapeHtml(col.name)}">
@@ -793,9 +958,10 @@ export class ErdWebView {
                 <div class="table-header ${isMainTable ? '' : 'related'}">
                     <div class="table-header-left">
                         <span>${this.escapeHtml(table.tableName)}</span>
+                        ${table.comment ? `<span class="table-comment">${this.escapeHtml(table.comment)}</span>` : ''}
                         ${isMainTable ? '<span>⭐</span>' : ''}
                     </div>
-                    <button class="toggle-comments-btn" title="Toggle comments">📋</button>
+                    <button class="toggle-comments-btn" title="Toggle comments">📝</button>
                 </div>
                 <div class="table-body">
                     ${columns}
