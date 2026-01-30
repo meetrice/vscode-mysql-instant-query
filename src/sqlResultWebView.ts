@@ -649,17 +649,19 @@ export class SqlResultWebView {
                     if (!tbody) return;
 
                     const rows = tbody.querySelectorAll('tr');
-                    
+
                     // Reset filtered data
                     filteredData = [];
-                    
+
                     rows.forEach((row, index) => {
                         const cells = row.querySelectorAll('td');
                         let showRow = true;
 
                         filters.forEach(filter => {
                             if (filter.value && showRow) {
-                                const cell = cells[filter.columnIndex];
+                                // Add 1 to columnIndex to account for the sticky checkbox column
+                                const cellIndex = filter.columnIndex + 1;
+                                const cell = cells[cellIndex];
                                 if (cell) {
                                     const cellText = cell.textContent.toLowerCase();
                                     if (!cellText.includes(filter.value)) {
