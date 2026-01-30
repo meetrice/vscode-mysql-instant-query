@@ -42,7 +42,7 @@ export class RunNowCodeLensProvider implements vscode.CodeLensProvider {
                 new vscode.CodeLens(statement.range, {
                     title: "▶ Run Now",
                     command: "mysqlInstantQuery.runQuery",
-                    arguments: [statement.sql]
+                    arguments: [statement.sql, false] // false = don't update SQL editor
                 })
             );
         }

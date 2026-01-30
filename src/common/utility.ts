@@ -53,7 +53,7 @@ export class Utility {
         return result;
     }
 
-    public static async runQuery(sql?: string, connectionOptions?: IConnection, totalRows?: number) {
+    public static async runQuery(sql?: string, connectionOptions?: IConnection, totalRows?: number, updateSQLEditor: boolean = true) {
         AppInsightsClient.sendEvent("runQuery.start");
         if (!sql && !vscode.window.activeTextEditor) {
             vscode.window.showWarningMessage("No SQL file selected");
@@ -93,13 +93,13 @@ export class Utility {
                 if (rows.some(((row) => Array.isArray(row)))) {
                     rows.forEach((row, index) => {
                         if (Array.isArray(row)) {
-                             Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRows);
+                             Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRows, undefined, undefined, false, updateSQLEditor);
                         } else {
                             OutputChannel.appendLine(JSON.stringify(row));
                         }
                     });
                 } else {
-                    Utility.showQueryResult(rows, "Results", sql, totalRows);
+                    Utility.showQueryResult(rows, "Results", sql, totalRows, undefined, undefined, false, updateSQLEditor);
                 }
 
             } else {
@@ -286,7 +286,7 @@ export class Utility {
         return uri.with({ query: data });
     }
 
-    private static async showQueryResult(data, title: string, sql?: string, totalRows?: number, database?: string, table?: string, updatePanel: boolean = false) {
+    private static async showQueryResult(data, title: string, sql?: string, totalRows?: number, database?: string, table?: string, updatePanel: boolean = false, updateSQLEditor: boolean = true) {
         // Get column comments if database and table are available
         let columnComments: { [key: string]: string } | undefined = undefined;
         if (database && table && data && data.length > 0) {
@@ -333,7 +333,7 @@ export class Utility {
         if (updatePanel) {
             SqlResultWebView.updatePanel(data, sql, database, table, columnComments);
         } else {
-            SqlResultWebView.show(data, title, sql, database, table, columnComments);
+            SqlResultWebView.show(data, title, sql, database, table, columnComments, updateSQLEditor);
         }
     }
 
