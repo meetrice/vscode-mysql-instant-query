@@ -55,8 +55,11 @@ export class SqlResultWebView {
         // Split editor into two rows (上下分栏)
         await vscode.commands.executeCommand('workbench.action.editorLayoutTwoRows');
 
+        // Create panel title with database.table format
+        const panelTitle = database && table ? `\`${database}\`.\`${table}\`` : title;
+
         // Create webview panel in the bottom group (ViewColumn.Two in two-row layout)
-        const panel = vscode.window.createWebviewPanel("MySQL", title, vscode.ViewColumn.Two, {
+        const panel = vscode.window.createWebviewPanel("MySQL", panelTitle, vscode.ViewColumn.Two, {
             retainContextWhenHidden: true,
             enableScripts: true,
         });
@@ -1374,15 +1377,6 @@ export class SqlResultWebView {
         });
 
         let body = "<table><thead><tr>" + head + "</tr><tr>" + filterRow + "</tr></thead><tbody>";
-
-        // Add table name display before the table
-        const queryInfo = SqlResultWebView.lastQueryInfo;
-        if (queryInfo && queryInfo.table) {
-            const tableName = queryInfo.database ?
-                `\`${queryInfo.database}\`.\`${queryInfo.table}\`` :
-                `\`${queryInfo.table}\``;
-            body = `<div class="table-info">📊 Table: ${this.escapeHtml(tableName)}</div>` + body;
-        }
 
         rows.forEach((row: any, rowIndex: number) => {
             // Store row data as JSON string for delete functionality
