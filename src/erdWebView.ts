@@ -1044,12 +1044,11 @@ export class ErdWebView {
         .resize-handle-vertical.dragging {
             background: rgba(0, 122, 204, 0.4);
         }
-        /* Table body scrollable */
-        .table-body {
-            padding: 8px;
-            overflow-y: auto;
-            max-height: none;
-        }
+         /* Table body scrollable */
+         .table-body {
+             padding: 8px;
+             overflow-y: auto;
+         }
         .table-node {
             /* Ensure table has minimum and maximum height constraints */
             min-height: 100px;
@@ -3107,6 +3106,11 @@ function initCommentEvents(commentEl) {
             `;
         }
 
+        // Calculate max height for table body (subtract header height and padding)
+        const headerHeight = 40; // Fixed header height from CSS
+        const padding = 16; // 8px top + 8px bottom padding
+        const maxBodyHeight = table.height - headerHeight - padding;
+
         return `
             <div class="table-node ${isMainTable ? 'main-table' : ''}"
                  data-table="${this.escapeHtml(table.tableName)}"
@@ -3120,7 +3124,7 @@ function initCommentEvents(commentEl) {
                     </div>
                     <button class="toggle-comments-btn" title="Toggle comments">📝</button>
                 </div>
-                <div class="table-body">
+                <div class="table-body" style="max-height: ${maxBodyHeight}px; overflow-y: auto;">
                     ${columns}
                 </div>
                 <!-- Connection points on all four sides -->
