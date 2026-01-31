@@ -721,8 +721,109 @@ export class ErdWebView {
             stroke: #007acc;
             stroke-width: 2;
             fill: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            pointer-events: none;
         }
-        .relationship-arrow { fill: #007acc; }
+        .relationship-hit-area {
+            stroke: transparent;
+            stroke-width: 20;
+            fill: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .relationship-hit-area:hover {
+            stroke-width: 25;
+            stroke: rgba(0, 122, 204, 0.1);
+        }
+        .relationship-hit-area.selected {
+            stroke: rgba(255, 107, 107, 0.2);
+            stroke-width: 28;
+            filter: drop-shadow(0 0 8px rgba(255, 107, 107, 0.4));
+        }
+        .relationship-line:hover {
+            stroke-width: 4;
+            stroke: #0098ff;
+            filter: drop-shadow(0 0 6px rgba(0, 152, 255, 0.5));
+        }
+        .relationship-line.selected {
+            stroke: #ff6b6b;
+            stroke-width: 5;
+            filter: drop-shadow(0 0 10px rgba(255, 107, 107, 0.8));
+            animation: pulse-line 2s ease-in-out infinite;
+        }
+        @keyframes pulse-line {
+            0%, 100% {
+                stroke-opacity: 1;
+                filter: drop-shadow(0 0 10px rgba(255, 107, 107, 0.8));
+            }
+            50% {
+                stroke-opacity: 0.7;
+                filter: drop-shadow(0 0 15px rgba(255, 107, 107, 1));
+            }
+        }
+        .relationship-arrow { fill: #007acc; transition: all 0.3s ease; }
+        .relationship-arrow.one-to-one {
+            fill: #007acc;
+        }
+        .relationship-arrow.one-to-many {
+            fill: #28a745;
+        }
+        .relationship-arrow.many-to-many {
+            fill: #ffc107;
+        }
+        .relationship-arrow.selected {
+            filter: drop-shadow(0 0 6px rgba(255, 107, 107, 0.8));
+        }
+        .relationship-start-marker {
+            fill: #007acc;
+            transition: all 0.3s ease;
+        }
+        .relationship-start-marker.one-to-one {
+            fill: #007acc;
+        }
+        .relationship-start-marker.one-to-many {
+            fill: #28a745;
+        }
+        .relationship-start-marker.many-to-many {
+            fill: #ffc107;
+        }
+        .relationship-start-marker.selected {
+            filter: drop-shadow(0 0 6px rgba(255, 107, 107, 0.8));
+        }
+        /* Relationship context menu */
+        .relationship-context-menu {
+            position: fixed;
+            background: var(--vscode-menu-background);
+            border: 1px solid var(--vscode-menu-border);
+            border-radius: 6px;
+            padding: 8px 0;
+            min-width: 200px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 2000;
+            display: none;
+        }
+        .relationship-context-menu-item {
+            padding: 8px 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--vscode-menu-foreground);
+            font-size: 13px;
+            transition: background 0.1s;
+        }
+        .relationship-context-menu-item:hover {
+            background: var(--vscode-menu-selectionBackground);
+        }
+        .relationship-context-menu-item.danger {
+            color: #ff6b6b;
+        }
+        .relationship-context-menu-separator {
+            height: 1px;
+            background: var(--vscode-menu-separatorBackground);
+            margin: 4px 0;
+        }
 
         /* Zoom controls */
         .zoom-controls {
@@ -853,6 +954,15 @@ export class ErdWebView {
     <!-- Context menu -->
     <div class="context-menu" id="contextMenu">
         <div class="context-menu-item danger" id="ctxDelete">🗑️ Delete</div>
+    </div>
+
+    <!-- Relationship context menu -->
+    <div class="relationship-context-menu" id="relationshipContextMenu">
+        <div class="relationship-context-menu-item" id="relTypeOneToOne">1:1 一对一</div>
+        <div class="relationship-context-menu-item" id="relTypeOneToMany">1:N 一对多</div>
+        <div class="relationship-context-menu-item" id="relTypeManyToMany">N:N 多对多</div>
+        <div class="relationship-context-menu-separator"></div>
+        <div class="relationship-context-menu-item danger" id="relDelete">🗑️ 删除关系</div>
     </div>
 
     <script>
@@ -999,7 +1109,7 @@ export class ErdWebView {
             const canvasContainer = document.getElementById('canvas-container');
             const containerRect = canvasContainer.getBoundingClientRect();
 
-            relationships.forEach(function(rel) {
+            relationships.forEach(function(rel, relIndex) {
                 const fromTable = tables.find(function(t) { return t.tableName === rel.fromTable; });
                 const toTable = tables.find(function(t) { return t.tableName === rel.toTable; });
 
@@ -1051,18 +1161,214 @@ export class ErdWebView {
                 const midX = (fromX + toX) / 2;
                 const path = 'M ' + fromX + ' ' + fromY + ' C ' + midX + ' ' + fromY + ', ' + midX + ' ' + toY + ', ' + toX + ' ' + toY;
 
+                // Create invisible thick line for easier clicking (hit area)
+                const hitArea = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                hitArea.setAttribute('d', path);
+                hitArea.setAttribute('class', 'relationship-hit-area');
+                hitArea.setAttribute('data-rel-index', relIndex);
+                hitArea.setAttribute('data-from-table', rel.fromTable);
+                hitArea.setAttribute('data-to-table', rel.toTable);
+                svg.appendChild(hitArea);
+
+                // Create visible line with relationship data
                 const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 line.setAttribute('d', path);
                 line.setAttribute('class', 'relationship-line');
+                line.setAttribute('data-rel-index', relIndex);
+                line.setAttribute('data-from-table', rel.fromTable);
+                line.setAttribute('data-to-table', rel.toTable);
                 svg.appendChild(line);
 
+                // Calculate angle for arrow rotation
+                const angle = Math.atan2(toY - fromY, toX - fromX);
+
+                // Draw start marker (from table) based on relationship type
+                const startMarker = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                const startMarkerSize = 6;
+
+                if (rel.type === 'one-to-one') {
+                    // Single line for "one" (no marker)
+                    // No start marker for one-to-one
+                } else if (rel.type === 'one-to-many') {
+                    // Single vertical line for "one"
+                    const startPoints = calculatePerpendicularLine(fromX, fromY, angle, startMarkerSize, 'single');
+                    startMarker.setAttribute('points', startPoints);
+                    startMarker.setAttribute('class', 'relationship-start-marker one-to-many');
+                    svg.appendChild(startMarker);
+                } else if (rel.type === 'many-to-many') {
+                    // Double vertical lines for "many"
+                    const startPoints = calculatePerpendicularLine(fromX, fromY, angle, startMarkerSize, 'double');
+                    startMarker.setAttribute('points', startPoints);
+                    startMarker.setAttribute('class', 'relationship-start-marker many-to-many');
+                    svg.appendChild(startMarker);
+                }
+
+                // Draw end marker (to table) based on relationship type
                 const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
                 const arrowSize = 8;
-                const points = toX + ',' + toY + ' ' + (toX - arrowSize) + ',' + (toY - arrowSize/2) + ' ' + (toX - arrowSize) + ',' + (toY + arrowSize/2);
-                arrow.setAttribute('points', points);
-                arrow.setAttribute('class', 'relationship-arrow');
+
+                if (rel.type === 'one-to-one') {
+                    // Single line for "one" (no arrow, just line)
+                    const endPoints = calculatePerpendicularLine(toX, toY, angle, arrowSize, 'single');
+                    arrow.setAttribute('points', endPoints);
+                    arrow.setAttribute('class', 'relationship-arrow one-to-one');
+                } else if (rel.type === 'one-to-many') {
+                    // Crow's foot (triangle) for "many"
+                    const endPoints = calculateCrowsFoot(toX, toY, angle, arrowSize);
+                    arrow.setAttribute('points', endPoints);
+                    arrow.setAttribute('class', 'relationship-arrow one-to-many');
+                } else if (rel.type === 'many-to-many') {
+                    // Double crow's foot for "many-to-many"
+                    const endPoints = calculateDoubleCrowsFoot(toX, toY, angle, arrowSize);
+                    arrow.setAttribute('points', endPoints);
+                    arrow.setAttribute('class', 'relationship-arrow many-to-many');
+                }
+
                 svg.appendChild(arrow);
+
+                // Add context menu event to hit area
+                hitArea.addEventListener('contextmenu', function(e) {
+                    e.preventDefault();
+                    showRelationshipContextMenu(e, relIndex);
+                });
+
+                // Add click event to hit area to select relationship
+                hitArea.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    selectRelationship(relIndex);
+                });
+
+                // Also add events to visible line for compatibility
+                line.addEventListener('contextmenu', function(e) {
+                    e.preventDefault();
+                    showRelationshipContextMenu(e, relIndex);
+                });
+
+                line.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    selectRelationship(relIndex);
+                });
             });
+        }
+
+        // Helper function to calculate perpendicular line markers (for "one")
+        function calculatePerpendicularLine(x, y, angle, size, type) {
+            const perpAngle = angle + Math.PI / 2;
+            const halfSize = size / 2;
+
+            if (type === 'single') {
+                // Single perpendicular line
+                const x1 = x - Math.cos(perpAngle) * halfSize;
+                const y1 = y - Math.sin(perpAngle) * halfSize;
+                const x2 = x + Math.cos(perpAngle) * halfSize;
+                const y2 = y + Math.sin(perpAngle) * halfSize;
+                return x1 + ',' + y1 + ' ' + x2 + ',' + y2;
+            } else if (type === 'double') {
+                // Double perpendicular lines
+                const offset = 3;
+                const x1 = (x - Math.cos(angle) * offset) - Math.cos(perpAngle) * halfSize;
+                const y1 = (y - Math.sin(angle) * offset) - Math.sin(perpAngle) * halfSize;
+                const x2 = (x - Math.cos(angle) * offset) + Math.cos(perpAngle) * halfSize;
+                const y2 = (y - Math.sin(angle) * offset) + Math.sin(perpAngle) * halfSize;
+                const x3 = (x + Math.cos(angle) * offset) - Math.cos(perpAngle) * halfSize;
+                const y3 = (y + Math.sin(angle) * offset) - Math.sin(perpAngle) * halfSize;
+                const x4 = (x + Math.cos(angle) * offset) + Math.cos(perpAngle) * halfSize;
+                const y4 = (y + Math.sin(angle) * offset) + Math.sin(perpAngle) * halfSize;
+                return x1 + ',' + y1 + ' ' + x2 + ',' + y2 + ' ' + x3 + ',' + y3 + ' ' + x4 + ',' + y4;
+            }
+        }
+
+        // Helper function to calculate crow's foot (for "many")
+        function calculateCrowsFoot(x, y, angle, size) {
+            const angle1 = angle + Math.PI / 6;
+            const angle2 = angle - Math.PI / 6;
+
+            const x1 = x + Math.cos(angle) * size;
+            const y1 = y + Math.sin(angle) * size;
+            const x2 = x + Math.cos(angle1) * size;
+            const y2 = y + Math.sin(angle1) * size;
+            const x3 = x + Math.cos(angle2) * size;
+            const y3 = y + Math.sin(angle2) * size;
+
+            return x + ',' + y + ' ' + x1 + ',' + y1 + ' ' + x2 + ',' + y2 + ' ' + x3 + ',' + y3;
+        }
+
+        // Helper function to calculate double crow's foot (for "many-to-many")
+        function calculateDoubleCrowsFoot(x, y, angle, size) {
+            const offset = 4;
+            const baseX = x - Math.cos(angle) * offset;
+            const baseY = y - Math.sin(angle) * offset;
+
+            const angle1 = angle + Math.PI / 6;
+            const angle2 = angle - Math.PI / 6;
+
+            const x1 = baseX + Math.cos(angle) * size;
+            const y1 = baseY + Math.sin(angle) * size;
+            const x2 = baseX + Math.cos(angle1) * size;
+            const y2 = baseY + Math.sin(angle1) * size;
+            const x3 = baseX + Math.cos(angle2) * size;
+            const y3 = baseY + Math.sin(angle2) * size;
+
+            return x + ',' + y + ' ' + baseX + ',' + baseY + ' ' + x1 + ',' + y1 + ' ' + x2 + ',' + y2 + ' ' + x3 + ',' + y3;
+        }
+
+        let selectedRelationshipIndex = -1;
+
+        function selectRelationship(relIndex) {
+            // Deselect all relationships (lines, hit areas, and markers)
+            document.querySelectorAll('.relationship-line').forEach(function(line) {
+                line.classList.remove('selected');
+            });
+            document.querySelectorAll('.relationship-hit-area').forEach(function(hitArea) {
+                hitArea.classList.remove('selected');
+            });
+            document.querySelectorAll('.relationship-arrow').forEach(function(arrow) {
+                arrow.classList.remove('selected');
+            });
+            document.querySelectorAll('.relationship-start-marker').forEach(function(marker) {
+                marker.classList.remove('selected');
+            });
+
+            // Select clicked relationship
+            const line = document.querySelector('.relationship-line[data-rel-index="' + relIndex + '"]');
+            const hitArea = document.querySelector('.relationship-hit-area[data-rel-index="' + relIndex + '"]');
+
+            // Find and select the arrows and markers for this relationship
+            // We need to find the arrows in the SVG - they don't have data-rel-index, so we use order
+            const svg = document.getElementById('relationships');
+            const allElements = svg.querySelectorAll('path, polygon');
+            let currentRelIndex = 0;
+            let foundRelationship = false;
+
+            allElements.forEach(function(el) {
+                if (el.classList.contains('relationship-line')) {
+                    if (foundRelationship) return;
+                    currentRelIndex = parseInt(el.getAttribute('data-rel-index'));
+                    if (currentRelIndex === relIndex) {
+                        foundRelationship = true;
+                    }
+                } else if (foundRelationship && (el.classList.contains('relationship-arrow') || el.classList.contains('relationship-start-marker'))) {
+                    el.classList.add('selected');
+                }
+            });
+
+            if (line) {
+                line.classList.add('selected');
+            }
+            if (hitArea) {
+                hitArea.classList.add('selected');
+            }
+            selectedRelationshipIndex = relIndex;
+        }
+
+        let currentRelationshipIndex = -1;
+
+        function showRelationshipContextMenu(e, relIndex) {
+            const contextMenu = document.getElementById('relationshipContextMenu');
+            contextMenu.style.left = e.clientX + 'px';
+            contextMenu.style.top = e.clientY + 'px';
+            contextMenu.style.display = 'block';
+            currentRelationshipIndex = relIndex;
         }
 
         function initDraggable() {
@@ -1266,6 +1572,10 @@ export class ErdWebView {
                 if (!e.target.closest('.context-menu')) {
                     document.getElementById('contextMenu').style.display = 'none';
                 }
+                // Hide relationship context menu
+                if (!e.target.closest('.relationship-context-menu') && !e.target.closest('.relationship-line')) {
+                    document.getElementById('relationshipContextMenu').style.display = 'none';
+                }
 
                 if (!e.target.closest('.table-node') && !e.target.closest('.zoom-controls')) {
                     if (selectedTable) {
@@ -1316,6 +1626,44 @@ export class ErdWebView {
 
                 // Hide context menu
                 contextMenu.style.display = 'none';
+            });
+
+            // Relationship context menu item handlers
+            document.getElementById('relTypeOneToOne').addEventListener('click', function() {
+                if (currentRelationshipIndex >= 0 && currentRelationshipIndex < relationships.length) {
+                    relationships[currentRelationshipIndex].type = 'one-to-one';
+                    drawRelationships();
+                    console.log('[Relationship Menu] Changed to one-to-one');
+                }
+                document.getElementById('relationshipContextMenu').style.display = 'none';
+            });
+
+            document.getElementById('relTypeOneToMany').addEventListener('click', function() {
+                if (currentRelationshipIndex >= 0 && currentRelationshipIndex < relationships.length) {
+                    relationships[currentRelationshipIndex].type = 'one-to-many';
+                    drawRelationships();
+                    console.log('[Relationship Menu] Changed to one-to-many');
+                }
+                document.getElementById('relationshipContextMenu').style.display = 'none';
+            });
+
+            document.getElementById('relTypeManyToMany').addEventListener('click', function() {
+                if (currentRelationshipIndex >= 0 && currentRelationshipIndex < relationships.length) {
+                    relationships[currentRelationshipIndex].type = 'many-to-many';
+                    drawRelationships();
+                    console.log('[Relationship Menu] Changed to many-to-many');
+                }
+                document.getElementById('relationshipContextMenu').style.display = 'none';
+            });
+
+            document.getElementById('relDelete').addEventListener('click', function() {
+                if (currentRelationshipIndex >= 0 && currentRelationshipIndex < relationships.length) {
+                    const rel = relationships[currentRelationshipIndex];
+                    console.log('[Relationship Menu] Deleting relationship:', rel.fromTable, '->', rel.toTable);
+                    relationships.splice(currentRelationshipIndex, 1);
+                    drawRelationships();
+                }
+                document.getElementById('relationshipContextMenu').style.display = 'none';
             });
 
             // Delete key handler - remove selected table
