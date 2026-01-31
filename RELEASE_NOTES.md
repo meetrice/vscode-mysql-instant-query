@@ -1,3 +1,59 @@
+# Release Notes - Version 0.7.1
+
+## 🎨 UI Improvements
+
+### 1. ERD View Button Enhancements
+- **Icon-only buttons**: Changed action buttons from text+emoji to emoji-only for cleaner design
+- **Consistent sizing**: All buttons now have uniform 40x40px dimensions
+- **Improved spacing**: Added proper padding and alignment for better visual harmony
+- **Theme adaptability**: Emoji icons automatically adjust to VS Code theme colors (light/dark)
+- **Clear tooltips**: Hovering over buttons still shows descriptive tooltips
+
+### Button Changes
+- **New ERD**: Changed from "✨ New" to "✨"
+- **Save ERD**: Changed from "💾 Save" to "💾"
+- **Open ERD**: Changed from "📂 Open" to "📂"
+
+## 🔧 Improvements
+
+### Better User Experience
+- More compact button layout saves screen space
+- Visual consistency with VS Code's design style
+- Faster recognition of button functions with emoji-only design
+- Maintains all existing functionality and keyboard accessibility
+
+## 📝 Technical Details
+
+### Modified Files
+- `src/erdWebView.ts` - Updated button HTML and CSS styles
+- `package.json` - Version update to 0.7.1
+- `publish.sh` - Updated script for version 0.7.1
+
+### Configuration
+- No new settings added
+- All existing settings remain unchanged
+
+## 🚀 Usage Examples
+
+### ERD View Buttons
+1. Open any ERD diagram
+2. Action buttons are now located at the top right corner
+3. Hover over buttons to see tooltips
+4. Click buttons to perform actions (New/Save/Open)
+
+### Button Functions
+- **✨ (New ERD)**: Creates a new empty ERD diagram
+- **💾 (Save ERD)**: Saves current ERD to .merd file
+- **📂 (Open ERD)**: Opens existing ERD file from disk
+
+## 📋 Compatibility
+
+- Requires VS Code version 1.83.0 or higher
+- Compatible with MySQL 5.x, 8.x, and 9.x
+- Supports both SSL and non-SSL connections
+
+---
+
 # Release Notes - Version 0.7.0
 
 ## 🎉 Major New Features
@@ -21,65 +77,6 @@
 - Properly tracks quotes (single, double, backtick)
 - Respects escape characters
 - Excludes any content after the semicolon (like table structure documentation)
-
-## 🔧 Improvements
-
-### Better User Experience
-- Results panel uses full available space with zero padding
-- Column widths persist during the session
-- More intuitive table layout
-- Cleaner visual hierarchy
-
-### Enhanced Code Quality
-- Fixed table name parsing edge cases
-- Improved SQL statement boundary detection
-- Better handling of complex SQL with nested structures
-
-## 🐛 Bug Fixes
-
-- Fixed "Run Now" button including content after semicolon in execution
-- Resolved SQL syntax errors caused by including table structure documentation
-- Improved handling of quoted strings in SQL statement detection
-
-## 📝 Technical Details
-
-### Modified Files
-- `src/sqlResultWebView.ts` - Column resize functionality, compact layout, enhanced title display
-- `src/runButtonProvider.ts` - Improved SQL statement extraction logic
-- `package.json` - Version update to 0.7.0
-
-### Configuration
-- No new settings added
-- All existing settings remain unchanged
-
-## 🚀 Usage Examples
-
-### Resizing Columns
-1. Open any query results
-2. Move mouse to the right edge of any column header
-3. Cursor changes to resize indicator
-4. Click and drag to adjust width
-5. Release to set new width
-
-### Run Now Button Precision
-```sql
--- This SQL will be executed completely:
-SELECT * FROM `wecomf`.`fa_uran_videofiles` ORDER BY `id` DESC LIMIT 5;
-
--- This content (table structure) is NOT executed:
-id (编号)  filename (文件名)  path (路径) ...
-```
-
-### Results Tab Title
-- Tab shows: `` `database`.`table` ``
-- Panel shows clean table without redundant title
-- Maximum space for data viewing
-
-## 📋 Compatibility
-
-- Requires VS Code version 1.83.0 or higher
-- Compatible with MySQL 5.x, 8.x, and 9.x
-- Supports both SSL and non-SSL connections
 
 ---
 

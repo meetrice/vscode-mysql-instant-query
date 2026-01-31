@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # VSCode Extension Publish Script
-# Version: 0.7.0
+# Version: 0.7.1
 
 echo "======================================"
 echo "  MySQL Instant Query Extension"
-echo "  Publishing Version 0.7.0"
+echo "  Publishing Version 0.7.1"
 echo "======================================"
 echo ""
 
@@ -46,12 +46,12 @@ echo ""
 # Step 4: Git commit
 echo "📝 Step 4: Git commit recommended changes..."
 echo "git add package.json RELEASE_NOTES.md"
-echo 'git commit -m "chore: release version 0.7.0"'
-echo "git tag v0.7.0"
+echo 'git commit -m "chore: release version 0.7.1"'
+echo "git tag v0.7.1"
 echo ""
 
 echo "======================================"
-echo "  ✅ Version 0.7.0 Published!"
+echo "  ✅ Version 0.7.1 Published!"
 echo "======================================"
 echo ""
 echo "Extension published to marketplace:"
