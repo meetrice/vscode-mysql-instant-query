@@ -1946,15 +1946,95 @@ function initCommentEvents(commentEl) {
                 if (rel.fromTable && rel.fromTable.startsWith('comment_')) {
                     fromEl = document.querySelector('[data-comment-id="' + rel.fromTable + '"]');
                     if (fromEl) {
-                        // For comments, we need to find the specific connection point or use center if not specified
-                        const fromConnector = fromEl.querySelector('.connection-point[data-comment="' + rel.fromTable + '"]');
-                        if (fromConnector) {
-                            const fromPointRect = fromConnector.getBoundingClientRect();
-                            fromX = (fromPointRect.left + fromPointRect.width / 2 - containerRect.left - panX) / zoom;
-                            fromY = (fromPointRect.top + fromPointRect.height / 2 - containerRect.top - panY) / zoom;
+                        const fromRect = fromEl.getBoundingClientRect();
+                        
+                        // Determine which side to connect to based on target position
+                        if (rel.toTable && !rel.toTable.startsWith('comment_')) {
+                            // From comment to table - determine optimal connection side
+                            const toTable = tables.find(function(t) { return t.tableName === rel.toTable; });
+                            if (toTable) {
+                                const toElTemp = document.querySelector('[data-table="' + rel.toTable + '"]');
+                                if (toElTemp) {
+                                    const toRect = toElTemp.getBoundingClientRect();
+                                    const commentCenterX = fromRect.left + fromRect.width / 2;
+                                    const commentCenterY = fromRect.top + fromRect.height / 2;
+                                    const tableCenterX = toRect.left + toRect.width / 2;
+                                    const tableCenterY = toRect.top + toRect.height / 2;
+                                    
+                                    // Determine which side of the comment is closest to the table
+                                    const dx = tableCenterX - commentCenterX;
+                                    const dy = tableCenterY - commentCenterY;
+                                    
+                                    if (Math.abs(dx) > Math.abs(dy)) {
+                                        // Horizontal connection
+                                        if (dx > 0) {
+                                            // Connect to right side
+                                            fromX = (fromRect.right - containerRect.left - panX) / zoom;
+                                            fromY = (commentCenterY - containerRect.top - panY) / zoom;
+                                        } else {
+                                            // Connect to left side
+                                            fromX = (fromRect.left - containerRect.left - panX) / zoom;
+                                            fromY = (commentCenterY - containerRect.top - panY) / zoom;
+                                        }
+                                    } else {
+                                        // Vertical connection
+                                        if (dy > 0) {
+                                            // Connect to bottom side
+                                            fromX = (commentCenterX - containerRect.left - panX) / zoom;
+                                            fromY = (fromRect.bottom - containerRect.top - panY) / zoom;
+                                        } else {
+                                            // Connect to top side
+                                            fromX = (commentCenterX - containerRect.left - panX) / zoom;
+                                            fromY = (fromRect.top - containerRect.top - panY) / zoom;
+                                        }
+                                    }
+                                } else {
+                                    // Fallback to center
+                                    fromX = (fromRect.left + fromRect.width / 2 - containerRect.left - panX) / zoom;
+                                    fromY = (fromRect.top + fromRect.height / 2 - containerRect.top - panY) / zoom;
+                                }
+                            } else {
+                                // Fallback to center
+                                fromX = (fromRect.left + fromRect.width / 2 - containerRect.left - panX) / zoom;
+                                fromY = (fromRect.top + fromRect.height / 2 - containerRect.top - panY) / zoom;
+                            }
+                        } else if (rel.toTable && rel.toTable.startsWith('comment_')) {
+                            // From comment to comment - determine optimal connection side
+                            const toElTemp = document.querySelector('[data-comment-id="' + rel.toTable + '"]');
+                            if (toElTemp) {
+                                const toRect = toElTemp.getBoundingClientRect();
+                                const fromCenterX = fromRect.left + fromRect.width / 2;
+                                const fromCenterY = fromRect.top + fromRect.height / 2;
+                                const toCenterX = toRect.left + toRect.width / 2;
+                                const toCenterY = toRect.top + toRect.height / 2;
+                                
+                                const dx = toCenterX - fromCenterX;
+                                const dy = toCenterY - fromCenterY;
+                                
+                                if (Math.abs(dx) > Math.abs(dy)) {
+                                    // Horizontal connection
+                                    if (dx > 0) {
+                                        fromX = (fromRect.right - containerRect.left - panX) / zoom;
+                                        fromY = (fromCenterY - containerRect.top - panY) / zoom;
+                                    } else {
+                                        fromX = (fromRect.left - containerRect.left - panX) / zoom;
+                                        fromY = (fromCenterY - containerRect.top - panY) / zoom;
+                                    }
+                                } else {
+                                    // Vertical connection
+                                    if (dy > 0) {
+                                        fromX = (fromCenterX - containerRect.left - panX) / zoom;
+                                        fromY = (fromRect.bottom - containerRect.top - panY) / zoom;
+                                    } else {
+                                        fromX = (fromCenterX - containerRect.left - panX) / zoom;
+                                        fromY = (fromRect.top - containerRect.top - panY) / zoom;
+                                    }
+                                }
+                            } else {
+                                fromX = (fromRect.left + fromRect.width / 2 - containerRect.left - panX) / zoom;
+                                fromY = (fromRect.top + fromRect.height / 2 - containerRect.top - panY) / zoom;
+                            }
                         } else {
-                            // Fallback to center if no specific connector found
-                            const fromRect = fromEl.getBoundingClientRect();
                             fromX = (fromRect.left + fromRect.width / 2 - containerRect.left - panX) / zoom;
                             fromY = (fromRect.top + fromRect.height / 2 - containerRect.top - panY) / zoom;
                         }
@@ -1985,15 +2065,83 @@ function initCommentEvents(commentEl) {
                 if (rel.toTable && rel.toTable.startsWith('comment_')) {
                     toEl = document.querySelector('[data-comment-id="' + rel.toTable + '"]');
                     if (toEl) {
-                        // For comments, we need to find the specific connection point or use center if not specified
-                        const toConnector = toEl.querySelector('.connection-point[data-comment="' + rel.toTable + '"]');
-                        if (toConnector) {
-                            const toPointRect = toConnector.getBoundingClientRect();
-                            toX = (toPointRect.left + toPointRect.width / 2 - containerRect.left - panX) / zoom;
-                            toY = (toPointRect.top + toPointRect.height / 2 - containerRect.top - panY) / zoom;
+                        const toRect = toEl.getBoundingClientRect();
+                        
+                        if (rel.fromTable && !rel.fromTable.startsWith('comment_')) {
+                            // From table to comment - determine optimal connection side
+                            const fromTable = tables.find(function(t) { return t.tableName === rel.fromTable; });
+                            if (fromTable) {
+                                const fromElTemp = document.querySelector('[data-table="' + rel.fromTable + '"]');
+                                if (fromElTemp) {
+                                    const fromRect = fromElTemp.getBoundingClientRect();
+                                    const tableCenterX = fromRect.left + fromRect.width / 2;
+                                    const tableCenterY = fromRect.top + fromRect.height / 2;
+                                    const commentCenterX = toRect.left + toRect.width / 2;
+                                    const commentCenterY = toRect.top + toRect.height / 2;
+                                    
+                                    const dx = commentCenterX - tableCenterX;
+                                    const dy = commentCenterY - tableCenterY;
+                                    
+                                    if (Math.abs(dx) > Math.abs(dy)) {
+                                        if (dx > 0) {
+                                            toX = (toRect.left - containerRect.left - panX) / zoom;
+                                            toY = (commentCenterY - containerRect.top - panY) / zoom;
+                                        } else {
+                                            toX = (toRect.right - containerRect.left - panX) / zoom;
+                                            toY = (commentCenterY - containerRect.top - panY) / zoom;
+                                        }
+                                    } else {
+                                        if (dy > 0) {
+                                            toX = (commentCenterX - containerRect.left - panX) / zoom;
+                                            toY = (toRect.top - containerRect.top - panY) / zoom;
+                                        } else {
+                                            toX = (commentCenterX - containerRect.left - panX) / zoom;
+                                            toY = (toRect.bottom - containerRect.top - panY) / zoom;
+                                        }
+                                    }
+                                } else {
+                                    toX = (toRect.left + toRect.width / 2 - containerRect.left - panX) / zoom;
+                                    toY = (toRect.top + toRect.height / 2 - containerRect.top - panY) / zoom;
+                                }
+                            } else {
+                                toX = (toRect.left + toRect.width / 2 - containerRect.left - panX) / zoom;
+                                toY = (toRect.top + toRect.height / 2 - containerRect.top - panY) / zoom;
+                            }
+                        } else if (rel.fromTable && rel.fromTable.startsWith('comment_')) {
+                            // From comment to comment - determine optimal connection side
+                            const fromElTemp = document.querySelector('[data-comment-id="' + rel.fromTable + '"]');
+                            if (fromElTemp) {
+                                const fromRect = fromElTemp.getBoundingClientRect();
+                                const fromCenterX = fromRect.left + fromRect.width / 2;
+                                const fromCenterY = fromRect.top + fromRect.height / 2;
+                                const toCenterX = toRect.left + toRect.width / 2;
+                                const toCenterY = toRect.top + toRect.height / 2;
+                                
+                                const dx = toCenterX - fromCenterX;
+                                const dy = toCenterY - fromCenterY;
+                                
+                                if (Math.abs(dx) > Math.abs(dy)) {
+                                    if (dx > 0) {
+                                        toX = (toRect.left - containerRect.left - panX) / zoom;
+                                        toY = (toCenterY - containerRect.top - panY) / zoom;
+                                    } else {
+                                        toX = (toRect.right - containerRect.left - panX) / zoom;
+                                        toY = (toCenterY - containerRect.top - panY) / zoom;
+                                    }
+                                } else {
+                                    if (dy > 0) {
+                                        toX = (toCenterX - containerRect.left - panX) / zoom;
+                                        toY = (toRect.top - containerRect.top - panY) / zoom;
+                                    } else {
+                                        toX = (toCenterX - containerRect.left - panX) / zoom;
+                                        toY = (toRect.bottom - containerRect.top - panY) / zoom;
+                                    }
+                                }
+                            } else {
+                                toX = (toRect.left + toRect.width / 2 - containerRect.left - panX) / zoom;
+                                toY = (toRect.top + toRect.height / 2 - containerRect.top - panY) / zoom;
+                            }
                         } else {
-                            // Fallback to center if no specific connector found
-                            const toRect = toEl.getBoundingClientRect();
                             toX = (toRect.left + toRect.width / 2 - containerRect.left - panX) / zoom;
                             toY = (toRect.top + toRect.height / 2 - containerRect.top - panY) / zoom;
                         }
