@@ -655,7 +655,7 @@ export class ErdWebView {
 
         try {
             const fileData = await vscode.workspace.fs.readFile(uri[0]);
-            const json = Buffer.from(fileData).toString('utf-8');
+            const json = Buffer.from(fileData.buffer).toString('utf-8');
             const merdData: MerdFileData = JSON.parse(json);
 
             // Validate version
@@ -989,7 +989,7 @@ export class ErdWebView {
             fill: none;
             cursor: pointer;
             transition: all 0.3s ease;
-            pointer-events: none;
+            pointer-events: auto;
         }
         .relationship-hit-area {
             stroke: transparent;
@@ -997,6 +997,7 @@ export class ErdWebView {
             fill: none;
             cursor: pointer;
             transition: all 0.3s ease;
+            pointer-events: auto;
         }
         .relationship-hit-area:hover {
             stroke-width: 25;
@@ -1017,6 +1018,15 @@ export class ErdWebView {
             stroke-width: 5;
             filter: drop-shadow(0 0 10px rgba(255, 107, 107, 0.8));
             animation: pulse-line 2s ease-in-out infinite;
+        }
+        /* Selection box around relationship */
+        .relationship-selection-box {
+            stroke: #ff6b6b;
+            stroke-width: 2;
+            stroke-dasharray: 5, 5;
+            fill: transparent;
+            pointer-events: none;
+            transition: all 0.3s ease;
         }
         @keyframes pulse-line {
             0%, 100% {
@@ -1610,6 +1620,8 @@ export class ErdWebView {
                 // Add context menu event to hit area
                 hitArea.addEventListener('contextmenu', function(e) {
                     e.preventDefault();
+                    e.stopPropagation();
+                    selectRelationship(relIndex);
                     showRelationshipContextMenu(e, relIndex);
                 });
 
@@ -1622,6 +1634,8 @@ export class ErdWebView {
                 // Also add events to visible line for compatibility
                 line.addEventListener('contextmenu', function(e) {
                     e.preventDefault();
+                    e.stopPropagation();
+                    selectRelationship(relIndex);
                     showRelationshipContextMenu(e, relIndex);
                 });
 
@@ -1629,6 +1643,12 @@ export class ErdWebView {
                     e.stopPropagation();
                     selectRelationship(relIndex);
                 });
+
+                // Add data-rel-index to arrow and start marker for easier selection
+                if (startMarker.parentNode) {
+                    startMarker.setAttribute('data-rel-index', relIndex);
+                }
+                arrow.setAttribute('data-rel-index', relIndex);
             });
         }
 
@@ -1709,29 +1729,15 @@ export class ErdWebView {
             document.querySelectorAll('.relationship-start-marker').forEach(function(marker) {
                 marker.classList.remove('selected');
             });
+            document.querySelectorAll('.relationship-selection-box').forEach(function(box) {
+                box.remove();
+            });
 
             // Select clicked relationship
             const line = document.querySelector('.relationship-line[data-rel-index="' + relIndex + '"]');
             const hitArea = document.querySelector('.relationship-hit-area[data-rel-index="' + relIndex + '"]');
-
-            // Find and select the arrows and markers for this relationship
-            // We need to find the arrows in the SVG - they don't have data-rel-index, so we use order
-            const svg = document.getElementById('relationships');
-            const allElements = svg.querySelectorAll('path, polygon');
-            let currentRelIndex = 0;
-            let foundRelationship = false;
-
-            allElements.forEach(function(el) {
-                if (el.classList.contains('relationship-line')) {
-                    if (foundRelationship) return;
-                    currentRelIndex = parseInt(el.getAttribute('data-rel-index'));
-                    if (currentRelIndex === relIndex) {
-                        foundRelationship = true;
-                    }
-                } else if (foundRelationship && (el.classList.contains('relationship-arrow') || el.classList.contains('relationship-start-marker'))) {
-                    el.classList.add('selected');
-                }
-            });
+            const arrow = document.querySelector('.relationship-arrow[data-rel-index="' + relIndex + '"]');
+            const startMarker = document.querySelector('.relationship-start-marker[data-rel-index="' + relIndex + '"]');
 
             if (line) {
                 line.classList.add('selected');
@@ -1739,6 +1745,28 @@ export class ErdWebView {
             if (hitArea) {
                 hitArea.classList.add('selected');
             }
+            if (arrow) {
+                arrow.classList.add('selected');
+            }
+            if (startMarker) {
+                startMarker.classList.add('selected');
+            }
+
+            // Create selection box around the relationship
+            const svg = document.getElementById('relationships');
+            const path = line || hitArea;
+            if (path) {
+                const bbox = path.getBBox();
+                const padding = 10;
+                const selectionBox = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                selectionBox.setAttribute('x', (bbox.x - padding) + '');
+                selectionBox.setAttribute('y', (bbox.y - padding) + '');
+                selectionBox.setAttribute('width', (bbox.width + padding * 2) + '');
+                selectionBox.setAttribute('height', (bbox.height + padding * 2) + '');
+                selectionBox.setAttribute('class', 'relationship-selection-box');
+                svg.appendChild(selectionBox);
+            }
+
             selectedRelationshipIndex = relIndex;
         }
 
@@ -1961,7 +1989,7 @@ export class ErdWebView {
                     document.getElementById('contextMenu').style.display = 'none';
                 }
                 // Hide relationship context menu
-                if (!e.target.closest('.relationship-context-menu') && !e.target.closest('.relationship-line')) {
+                if (!e.target.closest('.relationship-context-menu') && !e.target.closest('.relationship-line') && !e.target.closest('.relationship-hit-area')) {
                     document.getElementById('relationshipContextMenu').style.display = 'none';
                 }
 
@@ -1969,6 +1997,29 @@ export class ErdWebView {
                     if (selectedTable) {
                         selectedTable.classList.remove('selected');
                         selectedTable = null;
+                    }
+                }
+
+                // Deselect relationship if clicking outside relationship elements
+                if (!e.target.closest('.relationship-line') && !e.target.closest('.relationship-hit-area') && !e.target.closest('.relationship-context-menu')) {
+                    if (selectedRelationshipIndex >= 0) {
+                        document.querySelectorAll('.relationship-line').forEach(function(line) {
+                            line.classList.remove('selected');
+                        });
+                        document.querySelectorAll('.relationship-hit-area').forEach(function(hitArea) {
+                            hitArea.classList.remove('selected');
+                        });
+                        document.querySelectorAll('.relationship-arrow').forEach(function(arrow) {
+                            arrow.classList.remove('selected');
+                        });
+                        document.querySelectorAll('.relationship-start-marker').forEach(function(marker) {
+                            marker.classList.remove('selected');
+                        });
+                        document.querySelectorAll('.relationship-selection-box').forEach(function(box) {
+                            box.remove();
+                        });
+                        selectedRelationshipIndex = -1;
+                        currentRelationshipIndex = -1;
                     }
                 }
             });
