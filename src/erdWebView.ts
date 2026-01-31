@@ -1256,7 +1256,7 @@ export class ErdWebView {
 
     <!-- Action buttons -->
     <div class="action-buttons">
-        <button class="action-btn" id="newErdBtn" title="Create new ERD">✨ New ERD</button>
+        <button class="action-btn" id="newErdBtn" title="Create new ERD">✨ New</button>
         <button class="action-btn" id="saveBtn" title="Save ERD to file">💾 Save</button>
         <button class="action-btn" id="openBtn" title="Open ERD from file">📂 Open</button>
     </div>
@@ -1545,13 +1545,36 @@ export class ErdWebView {
                 // Calculate angle for arrow rotation
                 const angle = Math.atan2(toY - fromY, toX - fromX);
 
-                // Draw end marker (to table) - original arrow style
-                const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-                const arrowSize = 8; // Original size
-                const points = toX + ',' + toY + ' ' + (toX - arrowSize) + ',' + (toY - arrowSize/2) + ' ' + (toX - arrowSize) + ',' + (toY + arrowSize/2);
-                arrow.setAttribute('points', points);
-                arrow.setAttribute('class', 'relationship-arrow');
-                svg.appendChild(arrow);
+                // Draw arrows based on relationship type
+                if (rel.type === 'one-to-one') {
+                    // No arrows for one-to-one relationship
+                } else if (rel.type === 'one-to-many') {
+                    // Arrow at end (to table) for one-to-many
+                    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                    const arrowSize = 8; // Original size
+                    const points = toX + ',' + toY + ' ' + (toX - arrowSize) + ',' + (toY - arrowSize/2) + ' ' + (toX - arrowSize) + ',' + (toY + arrowSize/2);
+                    arrow.setAttribute('points', points);
+                    arrow.setAttribute('class', 'relationship-arrow');
+                    arrow.setAttribute('data-rel-index', relIndex);
+                    svg.appendChild(arrow);
+                } else if (rel.type === 'many-to-many') {
+                    // Arrows at both start and end for many-to-many
+                    const startArrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                    const startArrowSize = 8;
+                    const startPoints = fromX + ',' + fromY + ' ' + (fromX + startArrowSize) + ',' + (fromY - startArrowSize/2) + ' ' + (fromX + startArrowSize) + ',' + (fromY + startArrowSize/2);
+                    startArrow.setAttribute('points', startPoints);
+                    startArrow.setAttribute('class', 'relationship-arrow');
+                    startArrow.setAttribute('data-rel-index', relIndex);
+                    svg.appendChild(startArrow);
+
+                    const endArrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                    const endArrowSize = 8;
+                    const endPoints = toX + ',' + toY + ' ' + (toX - endArrowSize) + ',' + (toY - endArrowSize/2) + ' ' + (toX - endArrowSize) + ',' + (toY + endArrowSize/2);
+                    endArrow.setAttribute('points', endPoints);
+                    endArrow.setAttribute('class', 'relationship-arrow');
+                    endArrow.setAttribute('data-rel-index', relIndex);
+                    svg.appendChild(endArrow);
+                }
 
                 // Add context menu event to hit area
                 hitArea.addEventListener('contextmenu', function(e) {
@@ -1580,8 +1603,6 @@ export class ErdWebView {
                     selectRelationship(relIndex);
                 });
 
-                // Add data-rel-index to arrow for easier selection
-                arrow.setAttribute('data-rel-index', relIndex);
             });
         }
 
