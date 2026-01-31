@@ -853,9 +853,16 @@ export class ErdWebView {
             border: 2px solid var(--vscode-panel-border);
             border-radius: 8px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            cursor: default;
+            transition: box-shadow 0.2s, border-color 0.2s;
+        }
+        .table-header {
             cursor: move;
             user-select: none;
-            transition: box-shadow 0.2s, border-color 0.2s;
+        }
+        .table-body {
+            cursor: text;
+            user-select: text;
         }
         .table-node:hover {
             box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.3);
@@ -2454,6 +2461,10 @@ function initCommentEvents(commentEl) {
                     if (e.target.classList.contains('toggle-comments-btn')) return;
                     if (e.target.classList.contains('resize-handle')) return;
                     if (e.target.classList.contains('connection-point')) return;
+                    
+                    // 只有在点击 table-header 时才允许拖动
+                    const isHeaderClick = e.target.closest('.table-header');
+                    if (!isHeaderClick) return;
 
                     draggedElement = table;
                     const rect = table.getBoundingClientRect();
