@@ -1510,14 +1510,28 @@ export class ErdWebView {
                 }
             });
 
-            // Add mouse wheel scrolling support
+            // Add mouse wheel scrolling and zooming support
             container.addEventListener('wheel', function(e) {
                 e.preventDefault();
                 const scrollSpeed = 50; // Adjust scroll sensitivity
-                panY -= e.deltaY * (scrollSpeed / 100);
-                updateCanvasTransform();
-                if (thumbnailVisible) {
-                    updateThumbnail();
+                const zoomSpeed = 0.05; // Adjust zoom sensitivity
+                
+                // Check if Ctrl or Command key is pressed (for zooming)
+                if (e.ctrlKey || e.metaKey) {
+                    // Zoom in or out based on wheel direction
+                    if (e.deltaY < 0) {
+                        zoom = Math.min(zoom + zoomSpeed, 2); // Zoom in
+                    } else {
+                        zoom = Math.max(zoom - zoomSpeed, 0.3); // Zoom out
+                    }
+                    updateZoom();
+                } else {
+                    // Normal scrolling
+                    panY -= e.deltaY * (scrollSpeed / 100);
+                    updateCanvasTransform();
+                    if (thumbnailVisible) {
+                        updateThumbnail();
+                    }
                 }
             });
         }
