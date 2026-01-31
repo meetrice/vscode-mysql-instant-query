@@ -200,6 +200,33 @@ export class ErdWebView {
                             if (message.relationships) {
                                 ErdWebView.relationships = message.relationships;
                             }
+                            // Update table dimensions from webview
+                            if (message.tables) {
+                                message.tables.forEach((webviewTable: any) => {
+                                    // Find the table by iterating through the Map
+                                    let foundTable = null;
+                                    let foundKey = null;
+
+                                    ErdWebView.tableData.forEach((table, key) => {
+                                        if (table.tableName === webviewTable.tableName) {
+                                            foundTable = table;
+                                            foundKey = key;
+                                        }
+                                    });
+
+                                    if (foundTable) {
+                                        console.log('[Save Handler] Updating table:', webviewTable.tableName,
+                                                    'old width:', foundTable.width, 'new width:', webviewTable.width,
+                                                    'old pos:', foundTable.x, ',', foundTable.y,
+                                                    'new pos:', webviewTable.x, ',', webviewTable.y);
+                                        foundTable.width = webviewTable.width;
+                                        foundTable.x = webviewTable.x;
+                                        foundTable.y = webviewTable.y;
+                                    } else {
+                                        console.log('[Save Handler] Table not found:', webviewTable.tableName);
+                                    }
+                                });
+                            }
                             await ErdWebView.saveToFile();
                             break;
                         case 'open':
@@ -375,15 +402,15 @@ export class ErdWebView {
         }
 
         try {
-            // Get current canvas state from the webview
-            const panel = Array.from(ErdWebView.panels.values())[0];
-            if (!panel) {
-                vscode.window.showWarningMessage("No ERD panel open");
-                return;
-            }
+            // Get tables from tableData (already updated with actual dimensions from save handler)
+            const tables = Array.from(ErdWebView.tableData.values());
+
+            console.log('[saveToFile] Saving', tables.length, 'tables');
+            tables.forEach(table => {
+                console.log('[saveToFile] Table:', table.tableName, 'width:', table.width, 'x:', table.x, 'y:', table.y);
+            });
 
             // Get canvas dimensions from tables
-            const tables = Array.from(ErdWebView.tableData.values());
             let maxX = 0, maxY = 0;
             tables.forEach(table => {
                 maxX = Math.max(maxX, table.x + table.width);
@@ -443,7 +470,9 @@ export class ErdWebView {
             ErdWebView.relationships = [];
 
             // Load tables
+            console.log('[openFromFile] Loading', merdData.tables.length, 'tables from MERD file');
             merdData.tables.forEach(table => {
+                console.log('[openFromFile] Loading table:', table.tableName, 'width:', table.width, 'position:', table.x, ',', table.y);
                 ErdWebView.tableData.set(`${table.database || ''}.${table.tableName}`, table);
             });
 
@@ -472,6 +501,31 @@ export class ErdWebView {
                             if (message.relationships) {
                                 ErdWebView.relationships = message.relationships;
                             }
+                            // Update table dimensions from webview
+                            if (message.tables) {
+                                message.tables.forEach((webviewTable: any) => {
+                                    // Find the table by iterating through the Map
+                                    let foundTable = null;
+
+                                    ErdWebView.tableData.forEach((table, key) => {
+                                        if (table.tableName === webviewTable.tableName) {
+                                            foundTable = table;
+                                        }
+                                    });
+
+                                    if (foundTable) {
+                                        console.log('[Save from open file] Updating table:', webviewTable.tableName,
+                                                    'old width:', foundTable.width, 'new width:', webviewTable.width,
+                                                    'old pos:', foundTable.x, ',', foundTable.y,
+                                                    'new pos:', webviewTable.x, ',', webviewTable.y);
+                                        foundTable.width = webviewTable.width;
+                                        foundTable.x = webviewTable.x;
+                                        foundTable.y = webviewTable.y;
+                                    } else {
+                                        console.log('[Save from open file] Table not found:', webviewTable.tableName);
+                                    }
+                                });
+                            }
                             await ErdWebView.saveToFile();
                             break;
                         case 'open':
@@ -495,14 +549,14 @@ export class ErdWebView {
             const mainTable = merdData.tables.length > 0 ? merdData.tables[0].tableName : '';
             const database = merdData.tables.length > 0 ? (merdData.tables[0].database || '') : '';
 
-            panel.webview.html = ErdWebView.getWebviewContent(database, mainTable);
+            panel.webview.html = ErdWebView.getWebviewContent(database, mainTable, merdData.canvas);
             vscode.window.showInformationMessage(`ERD loaded from ${uri[0].fsPath}`);
         } catch (error) {
             vscode.window.showErrorMessage(`Error opening ERD: ${error}`);
         }
     }
 
-    private static getWebviewContent(database: string, mainTable: string): string {
+    private static getWebviewContent(database: string, mainTable: string, canvasData?: any): string {
         const tables = Array.from(ErdWebView.tableData.values());
         const relationships = ErdWebView.relationships;
 
@@ -1038,9 +1092,37 @@ export class ErdWebView {
 
         // Save button - send current state to extension
         document.getElementById('saveBtn').addEventListener('click', function() {
+            // Collect actual table dimensions from DOM
+            const tableElements = document.querySelectorAll('.table-node');
+            const tablesData = [];
+
+            console.log('[Save Button] Collecting data from', tableElements.length, 'tables');
+
+            tableElements.forEach(function(tableEl) {
+                const tableName = tableEl.getAttribute('data-table');
+                if (tableName) {
+                    const actualWidth = tableEl.offsetWidth;
+                    const styleWidth = tableEl.style.width;
+                    const x = parseFloat(tableEl.style.left) || 0;
+                    const y = parseFloat(tableEl.style.top) || 0;
+
+                    console.log('[Save Button] Table:', tableName, 'offsetWidth:', actualWidth, 'style.width:', styleWidth, 'position:', x, ',', y);
+
+                    tablesData.push({
+                        tableName: tableName,
+                        x: x,
+                        y: y,
+                        width: actualWidth
+                    });
+                }
+            });
+
+            console.log('[Save Button] Sending data to extension:', tablesData);
+
             vscode.postMessage({
                 command: 'save',
-                relationships: relationships
+                relationships: relationships,
+                tables: tablesData
             });
         });
 
@@ -1732,7 +1814,7 @@ export class ErdWebView {
 
     private static renderTableNode(table: TableData, isMainTable: boolean): string {
         let columns = '';
-        console.log('[renderTableNode] Rendering table:', table.tableName);
+        console.log('[renderTableNode] Rendering table:', table.tableName, 'with dimensions:', table.width, 'x', table.height, 'at position:', table.x, ',', table.y);
         for (const col of table.columns) {
             console.log('[renderTableNode] Column:', col.name, 'Comment:', col.comment);
             let icon = '';
