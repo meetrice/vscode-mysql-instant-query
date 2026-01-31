@@ -1220,7 +1220,7 @@ export class ErdWebView {
             min-height: 80px;
             border: none;
             background: transparent;
-            resize: vertical;
+            resize: none;
             font-family: inherit;
             font-size: 13px;
             color: var(--vscode-editor-foreground);
@@ -1604,6 +1604,10 @@ function initCommentEvents(commentEl) {
     const textarea = commentEl.querySelector('.comment-textarea');
     const deleteBtn = commentEl.querySelector('.comment-delete-btn');
     
+    // Set initial textarea height to match comment node height (subtract padding)
+    const commentHeight = commentEl.offsetHeight;
+    textarea.style.height = (commentHeight - 24) + 'px';
+    
     // Add resize handle
     const resizeHandle = document.createElement('div');
     resizeHandle.className = 'comment-resize-handle';
@@ -1648,6 +1652,9 @@ function initCommentEvents(commentEl) {
             
             commentEl.style.width = newWidth + 'px';
             commentEl.style.height = newHeight + 'px';
+            
+            // Update textarea height to match comment node height
+            textarea.style.height = (newHeight - 24) + 'px';
             
             // Update comment data
             const commentId = commentEl.dataset.commentId;
