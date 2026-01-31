@@ -2561,17 +2561,21 @@ function initCommentEvents(commentEl) {
                         const columnRows = tableBody.querySelectorAll('.column-row');
                         const minHeight = headerHeight + (columnRows.length > 0 ? Math.min(columnRows.length, 2) * columnRows[0].offsetHeight : 60) + 16; // 16px padding
                         
-                        // Calculate maximum height (all content visible)
-                        let totalContentHeight = headerHeight + 16; // 16px padding
+                        // Calculate maximum height (all content visible + extra space for better usability)
+                        let totalContentHeight = headerHeight + 1; // 16px padding
                         columnRows.forEach(row => {
                             totalContentHeight += row.offsetHeight;
                         });
                         
-                        const newHeight = Math.max(minHeight, Math.min(totalContentHeight, startHeight + deltaY));
+                        // 增加额外的高度空间（例如增加50%的内容高度或固定值）
+                        const extraHeight = 200; // 增加200px的额外空间
+                        const maxHeight = totalContentHeight + extraHeight;
+                        
+                        const newHeight = Math.max(minHeight, Math.min(maxHeight, startHeight + deltaY));
                         resizeElement.style.height = newHeight + 'px';
                         
                         // Set table body height to allow scrolling
-                        const bodyHeight = newHeight - headerHeight - 16; // subtract padding
+                        const bodyHeight = newHeight - headerHeight - 16; // subtract padding (8px top + 8px bottom)
                         tableBody.style.maxHeight = bodyHeight + 'px';
                     } else {
                         // Horizontal resizing
