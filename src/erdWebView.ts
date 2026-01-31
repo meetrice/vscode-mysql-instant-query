@@ -149,6 +149,7 @@ export class ErdWebView {
    
                                if (foundTable) {
                                    foundTable.width = webviewTable.width;
+                                   foundTable.height = webviewTable.height;
                                    foundTable.x = webviewTable.x;
                                    foundTable.y = webviewTable.y;
                                }
@@ -222,9 +223,11 @@ export class ErdWebView {
                                 if (foundTable) {
                                     console.log('[Save Handler] Updating table:', webviewTable.tableName,
                                                 'old width:', foundTable.width, 'new width:', webviewTable.width,
+                                                'old height:', foundTable.height, 'new height:', webviewTable.height,
                                                 'old pos:', foundTable.x, ',', foundTable.y,
                                                 'new pos:', webviewTable.x, ',', webviewTable.y);
                                     foundTable.width = webviewTable.width;
+                                    foundTable.height = webviewTable.height;
                                     foundTable.x = webviewTable.x;
                                     foundTable.y = webviewTable.y;
                                 } else {
