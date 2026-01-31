@@ -1678,6 +1678,10 @@ function initCommentEvents(commentEl) {
     
     // Connection points mouse handlers - same as table nodes
     [connectorTop, connectorBottom, connectorLeft, connectorRight].forEach(function(point) {
+        // Set both data-table and data-comment attributes for compatibility
+        point.dataset.table = commentId;
+        point.dataset.comment = commentId;
+        
         point.addEventListener('mousedown', function(e) {
             e.stopPropagation();
             e.preventDefault();
@@ -1845,6 +1849,12 @@ function initCommentEvents(commentEl) {
             if (comment) {
                 comment.x = x;
                 comment.y = y;
+            }
+            
+            // Redraw relationships to reflect new position
+            drawRelationships();
+            if (thumbnailVisible) {
+                updateThumbnail();
             }
         }
     });
