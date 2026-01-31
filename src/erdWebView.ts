@@ -1539,6 +1539,11 @@ export class ErdWebView {
 
             // Add mouse wheel scrolling and zooming support
             container.addEventListener('wheel', function(e) {
+                // Check if event is from table-body, if so, let it scroll normally
+                if (e.target.closest('.table-body')) {
+                    return; // Do not prevent default or handle canvas scrolling
+                }
+                
                 e.preventDefault();
                 const scrollSpeed = 50; // Adjust scroll sensitivity
                 const zoomSpeed = 0.05; // Adjust zoom sensitivity
