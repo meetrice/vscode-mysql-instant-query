@@ -170,6 +170,7 @@ export class ErdWebView {
         // Clear existing data
         ErdWebView.tableData.clear();
         ErdWebView.relationships = [];
+        ErdWebView.comments = [];
 
         // Get or create panel
         let panel = Array.from(ErdWebView.panels.values())[0];
@@ -243,6 +244,7 @@ export class ErdWebView {
                 ErdWebView.panels.clear();
                 ErdWebView.tableData.clear();
                 ErdWebView.relationships = [];
+                ErdWebView.comments = [];
             });
 
             ErdWebView.panels.set('global', panel);
