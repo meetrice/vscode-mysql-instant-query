@@ -195,6 +195,16 @@ export class ErdWebView {
                 // Handle messages from webview
                 panel.webview.onDidReceiveMessage(async (message) => {
                     switch (message.command) {
+                        case 'selectTable100': {
+                            const tableName = message.tableName;
+                            const database = message.database;
+                            if (tableName && database) {
+                                const sql = `SELECT * FROM \`${database}\`.\`${tableName}\` LIMIT 100;`;
+                                // 追加SQL到现有的SQL编辑器
+                                await Utility.appendSQLToEditor(sql);
+                            }
+                            break;
+                        }
                         case 'save':
                             // Update relationships from current webview state
                             if (message.relationships) {
@@ -496,6 +506,16 @@ export class ErdWebView {
                 // Handle messages from webview for open file panel too
                 panel.webview.onDidReceiveMessage(async (message) => {
                     switch (message.command) {
+                        case 'selectTable100': {
+                            const tableName = message.tableName;
+                            const database = message.database;
+                            if (tableName && database) {
+                                const sql = `SELECT * FROM \`${database}\`.\`${tableName}\` LIMIT 100;`;
+                                // 追加SQL到现有的SQL编辑器
+                                await Utility.appendSQLToEditor(sql);
+                            }
+                            break;
+                        }
                         case 'save':
                             // Update relationships from current webview state
                             if (message.relationships) {
@@ -1007,6 +1027,8 @@ export class ErdWebView {
 
     <!-- Context menu -->
     <div class="context-menu" id="contextMenu">
+        <div class="context-menu-item" id="ctxSelect100">📋 选择前100条</div>
+        <div class="context-menu-separator"></div>
         <div class="context-menu-item danger" id="ctxDelete">🗑️ Delete</div>
     </div>
 
@@ -1493,8 +1515,9 @@ export class ErdWebView {
                     contextMenu.style.top = e.clientY + 'px';
                     contextMenu.style.display = 'block';
 
-                    // Store reference to the table for delete action
+                    // Store reference to the table for actions
                     contextMenu.dataset.tableName = table.dataset.table;
+                    contextMenu.dataset.database = table.dataset.database;
                 });
 
                 table.addEventListener('mousedown', function(e) {
@@ -1668,6 +1691,24 @@ export class ErdWebView {
             });
 
             // Context menu item handlers
+            document.getElementById('ctxSelect100').addEventListener('click', function() {
+                const contextMenu = document.getElementById('contextMenu');
+                const tableName = contextMenu.dataset.tableName;
+                const database = contextMenu.dataset.database;
+
+                if (tableName && database) {
+                    // Send message to extension to generate SQL and open SQL tab
+                    vscode.postMessage({
+                        command: 'selectTable100',
+                        tableName: tableName,
+                        database: database
+                    });
+                }
+
+                // Hide context menu
+                contextMenu.style.display = 'none';
+            });
+
             document.getElementById('ctxDelete').addEventListener('click', function() {
                 const contextMenu = document.getElementById('contextMenu');
                 const tableName = contextMenu.dataset.tableName;
@@ -1841,6 +1882,7 @@ export class ErdWebView {
         return `
             <div class="table-node ${isMainTable ? 'main-table' : ''}"
                  data-table="${this.escapeHtml(table.tableName)}"
+                 data-database="${this.escapeHtml(table.database || '')}"
                  style="left: ${table.x}px; top: ${table.y}px; width: ${table.width}px;">
                 <div class="table-header">
                     <div class="table-header-left">
