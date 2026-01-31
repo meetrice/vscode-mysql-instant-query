@@ -1252,6 +1252,35 @@ export class ErdWebView {
         .comment-delete-btn:hover {
             background-color: rgba(255, 107, 107, 0.3);
         }
+        /* Comment connection points on all four sides */
+        .comment-connector-top {
+            position: absolute;
+            top: -7px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .comment-connector-bottom {
+            position: absolute;
+            bottom: -7px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .comment-connector-left {
+            position: absolute;
+            left: -7px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .comment-connector-right {
+            position: absolute;
+            right: -7px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .comment-node:hover .connection-point,
+        .comment-node.selected .connection-point {
+            opacity: 0.6;
+        }
         /* Context menu */
         .context-menu {
             position: fixed;
@@ -1364,7 +1393,13 @@ export class ErdWebView {
                 'px; width: ' + (comment.width || 200) + 'px; height: ' + (comment.height || 100) + 'px;">' +
                 '<button class="comment-delete-btn" title="Delete comment">×</button>' +
                 '<textarea class="comment-textarea" placeholder="Enter comment...">' +
-                ErdWebView.escapeHtml(comment.text) + '</textarea></div>';
+                ErdWebView.escapeHtml(comment.text) + '</textarea>' +
+                // Connection points on all four sides
+                '<div class="comment-connector-top connection-point" data-comment="' + comment.id + '" title="Comment top"></div>' +
+                '<div class="comment-connector-bottom connection-point" data-comment="' + comment.id + '" title="Comment bottom"></div>' +
+                '<div class="comment-connector-left connection-point" data-comment="' + comment.id + '" title="Comment left"></div>' +
+                '<div class="comment-connector-right connection-point" data-comment="' + comment.id + '" title="Comment right"></div>' +
+                '</div>';
             html += commentHtml;
         });
 
@@ -1615,6 +1650,84 @@ function initCommentEvents(commentEl) {
     resizeHandle.className = 'comment-resize-handle';
     commentEl.appendChild(resizeHandle);
     
+    // Add connection points to comment node
+    const commentId = commentEl.dataset.commentId;
+    const connectorTop = document.createElement('div');
+    connectorTop.className = 'comment-connector-top connection-point';
+    connectorTop.dataset.comment = commentId;
+    connectorTop.title = 'Comment top';
+    commentEl.appendChild(connectorTop);
+    
+    const connectorBottom = document.createElement('div');
+    connectorBottom.className = 'comment-connector-bottom connection-point';
+    connectorBottom.dataset.comment = commentId;
+    connectorBottom.title = 'Comment bottom';
+    commentEl.appendChild(connectorBottom);
+    
+    const connectorLeft = document.createElement('div');
+    connectorLeft.className = 'comment-connector-left connection-point';
+    connectorLeft.dataset.comment = commentId;
+    connectorLeft.title = 'Comment left';
+    commentEl.appendChild(connectorLeft);
+    
+    const connectorRight = document.createElement('div');
+    connectorRight.className = 'comment-connector-right connection-point';
+    connectorRight.dataset.comment = commentId;
+    connectorRight.title = 'Comment right';
+    commentEl.appendChild(connectorRight);
+    
+    // Connection points mouse handlers - same as table nodes
+    [connectorTop, connectorBottom, connectorLeft, connectorRight].forEach(function(point) {
+        point.addEventListener('mousedown', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+
+            const pointRect = point.getBoundingClientRect();
+            const canvasRect = canvas.getBoundingClientRect();
+
+            connectionStartPoint = {
+                table: commentId, // Use commentId as table identifier (starts with 'comment_')
+                column: '', // No column for comment connections
+                x: (pointRect.left + pointRect.width / 2 - canvasRect.left) / zoom,
+                y: (pointRect.top + pointRect.height / 2 - canvasRect.top) / zoom
+            };
+
+            isDraggingConnection = true;
+            point.classList.add('dragging');
+
+            // Create temporary line
+            tempLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            tempLine.setAttribute('class', 'relationship-line');
+            tempLine.style.stroke = '#ff6b6b';
+            tempLine.style.strokeDasharray = '5,5';
+            document.getElementById('relationships').appendChild(tempLine);
+        });
+
+        point.addEventListener('mouseup', function(e) {
+            if (isDraggingConnection && connectionStartPoint) {
+                const endPoint = {
+                    table: commentId,
+                    column: ''
+                };
+
+                // Don't connect to same point
+                if (connectionStartPoint.table !== endPoint.table) {
+                    // Add new relationship
+                    const newRel = {
+                        fromTable: connectionStartPoint.table,
+                        fromColumn: connectionStartPoint.column || '',
+                        toTable: endPoint.table,
+                        toColumn: endPoint.column || '',
+                        type: 'one-to-many'
+                    };
+
+                    relationships.push(newRel);
+                    drawRelationships();
+                }
+            }
+        });
+    });
+    
     // Handle text changes
     textarea.addEventListener('input', function() {
         const commentId = commentEl.dataset.commentId;
@@ -1816,53 +1929,88 @@ function initCommentEvents(commentEl) {
             const containerRect = canvasContainer.getBoundingClientRect();
 
             relationships.forEach(function(rel, relIndex) {
-                const fromTable = tables.find(function(t) { return t.tableName === rel.fromTable; });
-                const toTable = tables.find(function(t) { return t.tableName === rel.toTable; });
-
-                if (!fromTable || !toTable) return;
-
-                const fromEl = document.querySelector('[data-table="' + rel.fromTable + '"]');
-                const toEl = document.querySelector('[data-table="' + rel.toTable + '"]');
-
-                if (!fromEl || !toEl) return;
-
                 let fromX, fromY, toX, toY;
+                let fromEl, toEl;
 
-                // Check if this is a column-to-column relationship
-                if (rel.fromColumn && rel.toColumn) {
-                    // Find the specific column connection points
-                    const fromColumnPoint = fromEl.querySelector('.column-connector-right[data-column="' + rel.fromColumn + '"]');
-                    const toColumnPoint = toEl.querySelector('.column-connector-left[data-column="' + rel.toColumn + '"]');
-
-                    if (fromColumnPoint && toColumnPoint) {
-                        const fromPointRect = fromColumnPoint.getBoundingClientRect();
-                        const toPointRect = toColumnPoint.getBoundingClientRect();
-
-                        // Transform screen coordinates to canvas coordinates
-                        fromX = (fromPointRect.left + fromPointRect.width / 2 - containerRect.left - panX) / zoom;
-                        fromY = (fromPointRect.top + fromPointRect.height / 2 - containerRect.top - panY) / zoom;
-                        toX = (toPointRect.left + toPointRect.width / 2 - containerRect.left - panX) / zoom;
-                        toY = (toPointRect.top + toPointRect.height / 2 - containerRect.top - panY) / zoom;
-                    } else {
-                        // Fallback to table-level connection
-                        const fromRect = fromEl.getBoundingClientRect();
-                        const toRect = toEl.getBoundingClientRect();
-
-                        fromX = (fromRect.right - containerRect.left - panX) / zoom;
-                        fromY = (fromRect.top + fromRect.height / 2 - containerRect.top - panY) / zoom;
-                        toX = (toRect.left - containerRect.left - panX) / zoom;
-                        toY = (toRect.top + toRect.height / 2 - containerRect.top - panY) / zoom;
+                // Check if from is a comment
+                if (rel.fromTable && rel.fromTable.startsWith('comment_')) {
+                    fromEl = document.querySelector('[data-comment-id="' + rel.fromTable + '"]');
+                    if (fromEl) {
+                        // For comments, we need to find the specific connection point or use center if not specified
+                        const fromConnector = fromEl.querySelector('.connection-point[data-comment="' + rel.fromTable + '"]');
+                        if (fromConnector) {
+                            const fromPointRect = fromConnector.getBoundingClientRect();
+                            fromX = (fromPointRect.left + fromPointRect.width / 2 - containerRect.left - panX) / zoom;
+                            fromY = (fromPointRect.top + fromPointRect.height / 2 - containerRect.top - panY) / zoom;
+                        } else {
+                            // Fallback to center if no specific connector found
+                            const fromRect = fromEl.getBoundingClientRect();
+                            fromX = (fromRect.left + fromRect.width / 2 - containerRect.left - panX) / zoom;
+                            fromY = (fromRect.top + fromRect.height / 2 - containerRect.top - panY) / zoom;
+                        }
                     }
                 } else {
-                    // Table-level connection (no specific columns)
-                    const fromRect = fromEl.getBoundingClientRect();
-                    const toRect = toEl.getBoundingClientRect();
-
-                    fromX = (fromRect.right - containerRect.left - panX) / zoom;
-                    fromY = (fromRect.top + fromRect.height / 2 - containerRect.top - panY) / zoom;
-                    toX = (toRect.left - containerRect.left - panX) / zoom;
-                    toY = (toRect.top + toRect.height / 2 - containerRect.top - panY) / zoom;
+                    // From is a table
+                    const fromTable = tables.find(function(t) { return t.tableName === rel.fromTable; });
+                    if (fromTable) {
+                        fromEl = document.querySelector('[data-table="' + rel.fromTable + '"]');
+                        if (fromEl) {
+                            if (rel.fromColumn) {
+                                const fromColumnPoint = fromEl.querySelector('.column-connector-right[data-column="' + rel.fromColumn + '"]');
+                                if (fromColumnPoint) {
+                                    const fromPointRect = fromColumnPoint.getBoundingClientRect();
+                                    fromX = (fromPointRect.left + fromPointRect.width / 2 - containerRect.left - panX) / zoom;
+                                    fromY = (fromPointRect.top + fromPointRect.height / 2 - containerRect.top - panY) / zoom;
+                                }
+                            } else {
+                                const fromRect = fromEl.getBoundingClientRect();
+                                fromX = (fromRect.right - containerRect.left - panX) / zoom;
+                                fromY = (fromRect.top + fromRect.height / 2 - containerRect.top - panY) / zoom;
+                            }
+                        }
+                    }
                 }
+
+                // Check if to is a comment
+                if (rel.toTable && rel.toTable.startsWith('comment_')) {
+                    toEl = document.querySelector('[data-comment-id="' + rel.toTable + '"]');
+                    if (toEl) {
+                        // For comments, we need to find the specific connection point or use center if not specified
+                        const toConnector = toEl.querySelector('.connection-point[data-comment="' + rel.toTable + '"]');
+                        if (toConnector) {
+                            const toPointRect = toConnector.getBoundingClientRect();
+                            toX = (toPointRect.left + toPointRect.width / 2 - containerRect.left - panX) / zoom;
+                            toY = (toPointRect.top + toPointRect.height / 2 - containerRect.top - panY) / zoom;
+                        } else {
+                            // Fallback to center if no specific connector found
+                            const toRect = toEl.getBoundingClientRect();
+                            toX = (toRect.left + toRect.width / 2 - containerRect.left - panX) / zoom;
+                            toY = (toRect.top + toRect.height / 2 - containerRect.top - panY) / zoom;
+                        }
+                    }
+                } else {
+                    // To is a table
+                    const toTable = tables.find(function(t) { return t.tableName === rel.toTable; });
+                    if (toTable) {
+                        toEl = document.querySelector('[data-table="' + rel.toTable + '"]');
+                        if (toEl) {
+                            if (rel.toColumn) {
+                                const toColumnPoint = toEl.querySelector('.column-connector-left[data-column="' + rel.toColumn + '"]');
+                                if (toColumnPoint) {
+                                    const toPointRect = toColumnPoint.getBoundingClientRect();
+                                    toX = (toPointRect.left + toPointRect.width / 2 - containerRect.left - panX) / zoom;
+                                    toY = (toPointRect.top + toPointRect.height / 2 - containerRect.top - panY) / zoom;
+                                }
+                            } else {
+                                const toRect = toEl.getBoundingClientRect();
+                                toX = (toRect.left - containerRect.left - panX) / zoom;
+                                toY = (toRect.top + toRect.height / 2 - containerRect.top - panY) / zoom;
+                            }
+                        }
+                    }
+                }
+
+                if (!fromX || !fromY || !toX || !toY) return;
 
                 const midX = (fromX + toX) / 2;
                 const path = 'M ' + fromX + ' ' + fromY + ' C ' + midX + ' ' + fromY + ', ' + midX + ' ' + toY + ', ' + toX + ' ' + toY;
