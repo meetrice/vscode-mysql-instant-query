@@ -1123,7 +1123,8 @@ export class ErdWebView {
             z-index: 1000;
         }
         .action-btn {
-            padding: 8px 16px;
+            width: 40px;
+            height: 40px;
             background-color: var(--vscode-editor-background);
             border: 1px solid var(--vscode-button-border);
             border-radius: 6px;
@@ -1132,7 +1133,7 @@ export class ErdWebView {
             cursor: pointer;
             display: flex;
             align-items: center;
-            gap: 6px;
+            justify-content: center;
             transition: background 0.2s;
         }
         .action-btn:hover {
@@ -1256,9 +1257,9 @@ export class ErdWebView {
 
     <!-- Action buttons -->
     <div class="action-buttons">
-        <button class="action-btn" id="newErdBtn" title="Create new ERD">✨ New</button>
-        <button class="action-btn" id="saveBtn" title="Save ERD to file">💾 Save</button>
-        <button class="action-btn" id="openBtn" title="Open ERD from file">📂 Open</button>
+        <button class="action-btn" id="newErdBtn" title="Create new ERD">✨</button>
+        <button class="action-btn" id="saveBtn" title="Save ERD to file">💾</button>
+        <button class="action-btn" id="openBtn" title="Open ERD from file">📂</button>
     </div>
 
     <!-- Context menu -->
