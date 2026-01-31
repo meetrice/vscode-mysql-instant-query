@@ -31,7 +31,8 @@
     "activationEvents": [
         "onView:mysqlInstantQuery",
         "onCommand:mysqlInstantQuery.addConnection",
-        "onCommand:mysqlInstantQuery.runQuery"
+        "onCommand:mysqlInstantQuery.runQuery",
+        "onLanguage:json"
     ],
     "main": "./out/extension",
     "contributes": {
@@ -221,6 +222,15 @@
                 "command": "mysqlInstantQuery.openErdFile",
                 "title": "Open ERD File",
                 "category": "%commands.mysqlInstantQuery.category%"
+            },
+            {
+                "command": "mysqlInstantQuery.viewAsErd",
+                "title": "View as ERD",
+                "icon": {
+                    "light": "resources/light/erd.svg",
+                    "dark": "resources/dark/erd.svg"
+                },
+                "category": "%commands.mysqlInstantQuery.category%"
             }
         ],
         "keybindings": [
@@ -244,6 +254,13 @@
             }
         ],
         "menus": {
+            "editor/title": [
+                {
+                    "command": "mysqlInstantQuery.viewAsErd",
+                    "when": "resourceLangId == json && resourceFilename =~ /\\.merd$/",
+                    "group": "navigation"
+                }
+            ],
             "editor/context": [
                 {
                     "command": "mysqlInstantQuery.runQuery",
@@ -459,7 +476,15 @@
                     "description": "Enable 'Run Now' button in SQL editor"
                 }
             }
-        }
+        },
+        "languages": [
+            {
+                "id": "json",
+                "extensions": [".merd"],
+                "aliases": ["MERD", "merd"],
+                "configuration": "./language-configuration.json"
+            }
+        ]
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",

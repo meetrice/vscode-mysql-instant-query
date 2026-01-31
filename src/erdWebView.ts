@@ -51,7 +51,193 @@ interface MerdFileData {
 export class ErdWebView {
     private static panels: Map<string, vscode.WebviewPanel> = new Map();
     private static tableData: Map<string, TableData> = new Map();
-    private static relationships: Relationship[] = [];
+    public static relationships: Relationship[] = [];
+    private static currentPanel: vscode.WebviewPanel | null = null;
+
+    // Helper methods for external access
+    public static clearInternalData() {
+        ErdWebView.tableData.clear();
+        ErdWebView.relationships = [];
+    }
+
+    public static loadTable(table: TableData) {
+        ErdWebView.tableData.set(`${table.database || ''}.${table.tableName}`, table);
+    }
+
+    public static loadRelationships(relationships: Relationship[]) {
+        ErdWebView.relationships = relationships;
+    }
+
+    public static async renderPanel() {
+        let panel = Array.from(ErdWebView.panels.values())[0];
+        if (!panel) {
+            panel = vscode.window.createWebviewPanel(
+                'mysqlErd',
+                `ERD`,
+                vscode.ViewColumn.One,
+                {
+                    enableScripts: true,
+                    retainContextWhenHidden: true,
+                    localResourceRoots: []
+                }
+            );
+
+            // Register message handlers
+            ErdWebView.registerMessageHandlers(panel);
+
+            panel.onDidDispose(() => {
+                ErdWebView.panels.clear();
+                ErdWebView.tableData.clear();
+                ErdWebView.relationships = [];
+                ErdWebView.currentPanel = null;
+            });
+
+            ErdWebView.panels.set('global', panel);
+        } else {
+            panel.reveal();
+        }
+
+        ErdWebView.currentPanel = panel;
+        return panel;
+    }
+
+    public static async updatePanelContent(database: string, mainTable: string, canvasData?: any) {
+        if (ErdWebView.currentPanel) {
+            ErdWebView.currentPanel.webview.html = ErdWebView.getWebviewContent(database, mainTable, canvasData);
+        }
+    }
+
+    private static registerMessageHandlers(panel: vscode.WebviewPanel) {
+        panel.webview.onDidReceiveMessage(async (message) => {
+            switch (message.command) {
+                case 'newErd':
+                    await ErdWebView.clearCanvas();
+                    break;
+                case 'selectTable100': {
+                    const tableName = message.tableName;
+                    const database = message.database;
+                    if (tableName && database) {
+                        const sql = `SELECT * FROM \`${database}\`.\`${tableName}\` LIMIT 100;`;
+                        await Utility.appendSQLToEditor(sql);
+                    }
+                    break;
+                }
+                case 'save':
+                    if (message.relationships) {
+                        ErdWebView.relationships = message.relationships;
+                    }
+                    if (message.tables) {
+                        message.tables.forEach((webviewTable: any) => {
+                            let foundTable = null;
+                            ErdWebView.tableData.forEach((table, key) => {
+                                if (table.tableName === webviewTable.tableName) {
+                                    foundTable = table;
+                                }
+                            });
+
+                            if (foundTable) {
+                                foundTable.width = webviewTable.width;
+                                foundTable.x = webviewTable.x;
+                                foundTable.y = webviewTable.y;
+                            }
+                        });
+                    }
+                    await ErdWebView.saveToFile();
+                    break;
+                case 'open':
+                    await ErdWebView.openFromFile();
+                    break;
+            }
+        }, undefined);
+    }
+
+    public static async clearCanvas() {
+        // Clear existing data
+        ErdWebView.tableData.clear();
+        ErdWebView.relationships = [];
+
+        // Get or create panel
+        let panel = Array.from(ErdWebView.panels.values())[0];
+
+        if (!panel) {
+            panel = vscode.window.createWebviewPanel(
+                'mysqlErd',
+                `ERD`,
+                vscode.ViewColumn.One,
+                {
+                    enableScripts: true,
+                    retainContextWhenHidden: true,
+                    localResourceRoots: []
+                }
+            );
+
+            // Handle messages from webview
+            panel.webview.onDidReceiveMessage(async (message) => {
+                switch (message.command) {
+                    case 'selectTable100': {
+                        const tableName = message.tableName;
+                        const database = message.database;
+                        if (tableName && database) {
+                            const sql = `SELECT * FROM \`${database}\`.\`${tableName}\` LIMIT 100;`;
+                            // 追加SQL到现有的SQL编辑器
+                            await Utility.appendSQLToEditor(sql);
+                        }
+                        break;
+                    }
+                    case 'save':
+                        // Update relationships from current webview state
+                        if (message.relationships) {
+                            ErdWebView.relationships = message.relationships;
+                        }
+                        // Update table dimensions from webview
+                        if (message.tables) {
+                            message.tables.forEach((webviewTable: any) => {
+                                // Find the table by iterating through the Map
+                                let foundTable = null;
+                                let foundKey = null;
+
+                                ErdWebView.tableData.forEach((table, key) => {
+                                    if (table.tableName === webviewTable.tableName) {
+                                        foundTable = table;
+                                        foundKey = key;
+                                    }
+                                });
+
+                                if (foundTable) {
+                                    console.log('[Save Handler] Updating table:', webviewTable.tableName,
+                                                'old width:', foundTable.width, 'new width:', webviewTable.width,
+                                                'old pos:', foundTable.x, ',', foundTable.y,
+                                                'new pos:', webviewTable.x, ',', webviewTable.y);
+                                    foundTable.width = webviewTable.width;
+                                    foundTable.x = webviewTable.x;
+                                    foundTable.y = webviewTable.y;
+                                } else {
+                                    console.log('[Save Handler] Table not found:', webviewTable.tableName);
+                                }
+                            });
+                        }
+                        await ErdWebView.saveToFile();
+                        break;
+                    case 'open':
+                        await ErdWebView.openFromFile();
+                        break;
+                }
+            }, undefined);
+
+            panel.onDidDispose(() => {
+                ErdWebView.panels.clear();
+                ErdWebView.tableData.clear();
+                ErdWebView.relationships = [];
+            });
+
+            ErdWebView.panels.set('global', panel);
+        } else {
+            panel.reveal();
+        }
+
+        // Render empty ERD
+        panel.webview.html = ErdWebView.getWebviewContent('', '');
+    }
 
     public static async showTableErd(tableNode: TableNode, currentDatabase: string) {
         const tableName = tableNode.table;
@@ -195,6 +381,9 @@ export class ErdWebView {
                 // Handle messages from webview
                 panel.webview.onDidReceiveMessage(async (message) => {
                     switch (message.command) {
+                        case 'newErd':
+                            await ErdWebView.clearCanvas();
+                            break;
                         case 'selectTable100': {
                             const tableName = message.tableName;
                             const database = message.database;
@@ -506,6 +695,9 @@ export class ErdWebView {
                 // Handle messages from webview for open file panel too
                 panel.webview.onDidReceiveMessage(async (message) => {
                     switch (message.command) {
+                        case 'newErd':
+                            await ErdWebView.clearCanvas();
+                            break;
                         case 'selectTable100': {
                             const tableName = message.tableName;
                             const database = message.database;
@@ -1021,6 +1213,7 @@ export class ErdWebView {
 
     <!-- Action buttons -->
     <div class="action-buttons">
+        <button class="action-btn" id="newErdBtn" title="Create new ERD">✨ New ERD</button>
         <button class="action-btn" id="saveBtn" title="Save ERD to file">💾 Save</button>
         <button class="action-btn" id="openBtn" title="Open ERD from file">📂 Open</button>
     </div>
@@ -1152,6 +1345,13 @@ export class ErdWebView {
         document.getElementById('openBtn').addEventListener('click', function() {
             vscode.postMessage({
                 command: 'open'
+            });
+        });
+
+        // New ERD button - clear canvas
+        document.getElementById('newErdBtn').addEventListener('click', function() {
+            vscode.postMessage({
+                command: 'newErd'
             });
         });
 

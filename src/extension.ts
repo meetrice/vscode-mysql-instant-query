@@ -225,6 +225,61 @@ export function activate(context: vscode.ExtensionContext) {
         await ErdWebView.openFromFile();
     }));
 
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.viewAsErd", async () => {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (!activeEditor) {
+            vscode.window.showWarningMessage("No active editor");
+            return;
+        }
+
+        const document = activeEditor.document;
+        const uri = document.uri;
+
+        // Check if it's a .merd file
+        if (!uri.fsPath.endsWith('.merd')) {
+            vscode.window.showWarningMessage("Please open a .merd file");
+            return;
+        }
+
+        try {
+            // Read the file content
+            const fileData = await vscode.workspace.fs.readFile(uri);
+            const json = Buffer.from(fileData).toString('utf-8');
+            const merdData: any = JSON.parse(json);
+
+            // Validate version
+            if (!merdData.version || merdData.version !== "1.0") {
+                vscode.window.showWarningMessage("Unsupported MERD file version");
+                return;
+            }
+
+            // Clear existing data
+            ErdWebView.clearInternalData();
+            ErdWebView.relationships = [];
+
+            // Load tables
+            console.log('[viewAsErd] Loading', merdData.tables.length, 'tables from MERD file');
+            merdData.tables.forEach((table: any) => {
+                console.log('[viewAsErd] Loading table:', table.tableName, 'width:', table.width, 'position:', table.x, ',', table.y);
+                ErdWebView.loadTable(table);
+            });
+
+            // Load relationships
+            ErdWebView.loadRelationships(merdData.relationships || []);
+
+            // Create or reuse panel and render
+            await ErdWebView.renderPanel();
+
+            // Use canvas data from file
+            const canvasData = merdData.canvas || { width: 2000, height: 1500, zoom: 1, panX: 0, panY: 0 };
+            await ErdWebView.updatePanelContent('', '', canvasData);
+
+            vscode.window.showInformationMessage(`ERD visualized from ${uri.fsPath}`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Error visualizing ERD: ${error}`);
+        }
+    }));
+
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.refreshResults", async () => {
         const queryInfo = SqlResultWebView.getLastQueryInfo();
         if (queryInfo && queryInfo.sql) {
