@@ -1509,6 +1509,17 @@ export class ErdWebView {
                     document.body.classList.remove('panning');
                 }
             });
+
+            // Add mouse wheel scrolling support
+            container.addEventListener('wheel', function(e) {
+                e.preventDefault();
+                const scrollSpeed = 50; // Adjust scroll sensitivity
+                panY -= e.deltaY * (scrollSpeed / 100);
+                updateCanvasTransform();
+                if (thumbnailVisible) {
+                    updateThumbnail();
+                }
+            });
         }
 
         document.getElementById('zoomInBtn').addEventListener('click', function() {
