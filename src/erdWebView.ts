@@ -2474,24 +2474,56 @@ function initCommentEvents(commentEl) {
                     selectTable(table);
                 });
 
-                // Toggle comments button
-                const toggleBtn = table.querySelector('.toggle-comments-btn');
-                console.log('[initDraggable] Found toggle button for table', table.dataset.table, ':', toggleBtn);
-                if (toggleBtn) {
-                    toggleBtn.addEventListener('click', function(e) {
-                        console.log('[toggleBtn click] Button clicked!');
-                        console.log('[toggleBtn click] Event:', e);
-                        console.log('[toggleBtn click] Target:', e.target);
-                        console.log('[toggleBtn click] Current target:', e.currentTarget);
-                        e.stopPropagation();
-                        console.log('[toggleBtn click] About to call toggleComments');
-                        toggleComments(table);
-                        console.log('[toggleBtn click] toggleComments returned');
-                    });
-                    console.log('[initDraggable] Button click listener attached for table', table.dataset.table);
-                } else {
-                    console.log('[initDraggable] ERROR: No toggle button found for table', table.dataset.table);
-                }
+                 // Toggle comments button
+                 const toggleBtn = table.querySelector('.toggle-comments-btn');
+                 console.log('[initDraggable] Found toggle button for table', table.dataset.table, ':', toggleBtn);
+                 if (toggleBtn) {
+                     toggleBtn.addEventListener('click', function(e) {
+                         console.log('[toggleBtn click] Button clicked!');
+                         console.log('[toggleBtn click] Event:', e);
+                         console.log('[toggleBtn click] Target:', e.target);
+                         console.log('[toggleBtn click] Current target:', e.currentTarget);
+                         e.stopPropagation();
+                         console.log('[toggleBtn click] About to call toggleComments');
+                         toggleComments(table);
+                         console.log('[toggleBtn click] toggleComments returned');
+                     });
+                     console.log('[initDraggable] Button click listener attached for table', table.dataset.table);
+                 } else {
+                     console.log('[initDraggable] ERROR: No toggle button found for table', table.dataset.table);
+                 }
+
+                 // Column name click to copy
+                 table.querySelectorAll('.column-name').forEach(function(columnNameEl) {
+                     const columnNameText = columnNameEl.querySelector('.column-name-text');
+                     if (columnNameText) {
+                         columnNameEl.addEventListener('click', function(e) {
+                             e.stopPropagation();
+                             const columnName = columnNameText.textContent.trim();
+                             // 复制到剪贴板
+                             navigator.clipboard.writeText(columnName).then(function() {
+                                 console.log('Column name copied:', columnName);
+                                 // 可以添加一个短暂的提示反馈
+                                 const originalText = columnNameText.textContent;
+                                 columnNameText.textContent = '✓ 已复制';
+                                 setTimeout(function() {
+                                     columnNameText.textContent = originalText;
+                                 }, 1000);
+                             }).catch(function(err) {
+                                 console.error('Failed to copy:', err);
+                             });
+                         });
+                         // 添加点击反馈样式
+                         columnNameEl.style.cursor = 'pointer';
+                         columnNameEl.style.transition = 'opacity 0.2s';
+                         columnNameEl.addEventListener('mouseenter', function() {
+                             this.style.opacity = '0.7';
+                         });
+                         columnNameEl.addEventListener('mouseleave', function() {
+                             this.style.opacity = '1';
+                         });
+                     }
+                 });
 
                 // Connection points mouse handlers
                 table.querySelectorAll('.connection-point').forEach(function(point) {
@@ -3058,11 +3090,11 @@ function initCommentEvents(commentEl) {
             const comment = col.comment ? `<span class="column-comment">${this.escapeHtml(col.comment)}</span>` : '';
             console.log('[renderTableNode] Generated comment HTML:', comment ? comment.substring(0, 50) + '...' : '(empty)');
 
-            columns += `
+             columns += `
                 <div class="column-row" data-column="${this.escapeHtml(col.name)}">
                     ${icon}
                     <span class="column-name">
-                        ${this.escapeHtml(col.name)}
+                        <span class="column-name-text">${this.escapeHtml(col.name)}</span>
                         <div class="column-connector-left connection-point" data-table="${this.escapeHtml(table.tableName)}" data-column="${this.escapeHtml(col.name)}" title="${this.escapeHtml(col.name)} connector"></div>
                         <div class="column-connector-right connection-point" data-table="${this.escapeHtml(table.tableName)}" data-column="${this.escapeHtml(col.name)}" title="${this.escapeHtml(col.name)} connector"></div>
                     </span>
