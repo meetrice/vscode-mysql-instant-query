@@ -35,6 +35,15 @@ interface Relationship {
     type: 'one-to-one' | 'one-to-many' | 'many-to-many';
 }
 
+interface CommentData {
+    id: string;
+    x: number;
+    y: number;
+    text: string;
+    width?: number;
+    height?: number;
+}
+
 interface MerdFileData {
     version: string;
     canvas: {
@@ -46,18 +55,21 @@ interface MerdFileData {
     };
     tables: TableData[];
     relationships: Relationship[];
+    comments?: CommentData[];
 }
 
 export class ErdWebView {
     private static panels: Map<string, vscode.WebviewPanel> = new Map();
     private static tableData: Map<string, TableData> = new Map();
     public static relationships: Relationship[] = [];
+    public static comments: CommentData[] = [];
     private static currentPanel: vscode.WebviewPanel | null = null;
 
     // Helper methods for external access
     public static clearInternalData() {
         ErdWebView.tableData.clear();
         ErdWebView.relationships = [];
+        ErdWebView.comments = [];
     }
 
     public static loadTable(table: TableData) {
@@ -123,27 +135,30 @@ export class ErdWebView {
                     break;
                 }
                 case 'save':
-                    if (message.relationships) {
-                        ErdWebView.relationships = message.relationships;
-                    }
-                    if (message.tables) {
-                        message.tables.forEach((webviewTable: any) => {
-                            let foundTable = null;
-                            ErdWebView.tableData.forEach((table, key) => {
-                                if (table.tableName === webviewTable.tableName) {
-                                    foundTable = table;
-                                }
-                            });
-
-                            if (foundTable) {
-                                foundTable.width = webviewTable.width;
-                                foundTable.x = webviewTable.x;
-                                foundTable.y = webviewTable.y;
-                            }
-                        });
-                    }
-                    await ErdWebView.saveToFile();
-                    break;
+                       if (message.relationships) {
+                           ErdWebView.relationships = message.relationships;
+                       }
+                       if (message.tables) {
+                           message.tables.forEach((webviewTable: any) => {
+                               let foundTable = null;
+                               ErdWebView.tableData.forEach((table, key) => {
+                                   if (table.tableName === webviewTable.tableName) {
+                                       foundTable = table;
+                                   }
+                               });
+   
+                               if (foundTable) {
+                                   foundTable.width = webviewTable.width;
+                                   foundTable.x = webviewTable.x;
+                                   foundTable.y = webviewTable.y;
+                               }
+                           });
+                       }
+                       if (message.comments) {
+                           ErdWebView.comments = message.comments;
+                       }
+                       await ErdWebView.saveToFile();
+                       break;
                 case 'open':
                     await ErdWebView.openFromFile();
                     break;
@@ -426,6 +441,10 @@ export class ErdWebView {
                                     }
                                 });
                             }
+                            // Update comments from webview
+                            if (message.comments) {
+                                ErdWebView.comments = message.comments;
+                            }
                             await ErdWebView.saveToFile();
                             break;
                         case 'open':
@@ -584,7 +603,7 @@ export class ErdWebView {
     }
 
     public static async saveToFile() {
-        if (ErdWebView.tableData.size === 0) {
+        if (ErdWebView.tableData.size === 0 && ErdWebView.comments.length === 0) {
             vscode.window.showWarningMessage("No ERD data to save");
             return;
         }
@@ -609,11 +628,16 @@ export class ErdWebView {
                 console.log('[saveToFile] Table:', table.tableName, 'width:', table.width, 'x:', table.x, 'y:', table.y);
             });
 
-            // Get canvas dimensions from tables
+            // Get canvas dimensions from tables and comments
             let maxX = 0, maxY = 0;
             tables.forEach(table => {
                 maxX = Math.max(maxX, table.x + table.width);
                 maxY = Math.max(maxY, table.y + table.height);
+            });
+            
+            ErdWebView.comments.forEach(comment => {
+                maxX = Math.max(maxX, comment.x + (comment.width || 200));
+                maxY = Math.max(maxY, comment.y + (comment.height || 100));
             });
 
             const merdData: MerdFileData = {
@@ -626,7 +650,8 @@ export class ErdWebView {
                     panY: 0
                 },
                 tables: tables,
-                relationships: ErdWebView.relationships
+                relationships: ErdWebView.relationships,
+                comments: ErdWebView.comments
             };
 
             const json = JSON.stringify(merdData, null, 2);
@@ -677,6 +702,9 @@ export class ErdWebView {
 
             // Load relationships
             ErdWebView.relationships = merdData.relationships || [];
+            
+            // Load comments
+            ErdWebView.comments = merdData.comments || [];
 
             // Create or reuse panel
             let panel = Array.from(ErdWebView.panels.values())[0];
@@ -709,37 +737,41 @@ export class ErdWebView {
                             break;
                         }
                         case 'save':
-                            // Update relationships from current webview state
-                            if (message.relationships) {
-                                ErdWebView.relationships = message.relationships;
-                            }
-                            // Update table dimensions from webview
-                            if (message.tables) {
-                                message.tables.forEach((webviewTable: any) => {
-                                    // Find the table by iterating through the Map
-                                    let foundTable = null;
+                           // Update relationships from current webview state
+                           if (message.relationships) {
+                               ErdWebView.relationships = message.relationships;
+                           }
+                           // Update table dimensions from webview
+                           if (message.tables) {
+                               message.tables.forEach((webviewTable: any) => {
+                                   // Find the table by iterating through the Map
+                                   let foundTable = null;
 
-                                    ErdWebView.tableData.forEach((table, key) => {
-                                        if (table.tableName === webviewTable.tableName) {
-                                            foundTable = table;
-                                        }
-                                    });
+                                   ErdWebView.tableData.forEach((table, key) => {
+                                       if (table.tableName === webviewTable.tableName) {
+                                           foundTable = table;
+                                       }
+                                   });
 
-                                    if (foundTable) {
-                                        console.log('[Save from open file] Updating table:', webviewTable.tableName,
-                                                    'old width:', foundTable.width, 'new width:', webviewTable.width,
-                                                    'old pos:', foundTable.x, ',', foundTable.y,
-                                                    'new pos:', webviewTable.x, ',', webviewTable.y);
-                                        foundTable.width = webviewTable.width;
-                                        foundTable.x = webviewTable.x;
-                                        foundTable.y = webviewTable.y;
-                                    } else {
-                                        console.log('[Save from open file] Table not found:', webviewTable.tableName);
-                                    }
-                                });
-                            }
-                            await ErdWebView.saveToFile();
-                            break;
+                                   if (foundTable) {
+                                       console.log('[Save from open file] Updating table:', webviewTable.tableName,
+                                                   'old width:', foundTable.width, 'new width:', webviewTable.width,
+                                                   'old pos:', foundTable.x, ',', foundTable.y,
+                                                   'new pos:', webviewTable.x, ',', webviewTable.y);
+                                       foundTable.width = webviewTable.width;
+                                       foundTable.x = webviewTable.x;
+                                       foundTable.y = webviewTable.y;
+                                   } else {
+                                       console.log('[Save from open file] Table not found:', webviewTable.tableName);
+                                   }
+                               });
+                           }
+                           // Update comments from webview
+                           if (message.comments) {
+                               ErdWebView.comments = message.comments;
+                           }
+                           await ErdWebView.saveToFile();
+                           break;
                         case 'open':
                             await ErdWebView.openFromFile();
                             break;
@@ -1139,6 +1171,85 @@ export class ErdWebView {
         .action-btn:hover {
             background-color: var(--vscode-toolbar-hoverBackground);
         }
+        
+        /* Comment sticky notes */
+        .comment-node {
+            position: absolute;
+            background-color: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            cursor: move;
+            user-select: none;
+            padding: 12px;
+            min-width: 200px;
+            max-width: 500px;
+            min-height: 100px;
+            max-height: 600px;
+            z-index: 500;
+            transition: box-shadow 0.2s, border-color 0.2s;
+        }
+        .comment-resize-handle {
+            position: absolute;
+            right: 4px;
+            bottom: 4px;
+            width: 12px;
+            height: 12px;
+            background-color: #ffc107;
+            border-radius: 50%;
+            cursor: nwse-resize;
+            z-index: 10;
+            transition: transform 0.2s;
+        }
+        .comment-resize-handle:hover {
+            transform: scale(1.2);
+        }
+        .comment-resize-handle.dragging {
+            transform: scale(1.3);
+            background-color: #ffb300;
+        }
+        .comment-node:hover {
+            box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.3);
+        }
+        .comment-node.selected {
+            box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.5);
+            border-color: #ffb300;
+        }
+        .comment-textarea {
+            width: 100%;
+            min-height: 80px;
+            border: none;
+            background: transparent;
+            resize: vertical;
+            font-family: inherit;
+            font-size: 13px;
+            color: var(--vscode-editor-foreground);
+            outline: none;
+        }
+        .comment-delete-btn {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 24px;
+            height: 24px;
+            background-color: rgba(255, 107, 107, 0.2);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            border-radius: 4px;
+            color: #ff6b6b;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+            opacity: 0;
+        }
+        .comment-node:hover .comment-delete-btn {
+            opacity: 1;
+        }
+        .comment-delete-btn:hover {
+            background-color: rgba(255, 107, 107, 0.3);
+        }
         /* Context menu */
         .context-menu {
             position: fixed;
@@ -1244,6 +1355,17 @@ export class ErdWebView {
             html += ErdWebView.renderTableNode(table, table.tableName === mainTable);
         }
 
+        // Add comment nodes
+        ErdWebView.comments.forEach(comment => {
+            const commentHtml = '                <div class="comment-node" data-comment-id="' +
+                comment.id + '" style="left: ' + comment.x + 'px; top: ' + comment.y +
+                'px; width: ' + (comment.width || 200) + 'px; height: ' + (comment.height || 100) + 'px;">' +
+                '<button class="comment-delete-btn" title="Delete comment">×</button>' +
+                '<textarea class="comment-textarea" placeholder="Enter comment...">' +
+                ErdWebView.escapeHtml(comment.text) + '</textarea></div>';
+            html += commentHtml;
+        });
+
         html += `        </div>
     </div>
 
@@ -1260,6 +1382,7 @@ export class ErdWebView {
         <button class="action-btn" id="newErdBtn" title="Create new ERD">✨</button>
         <button class="action-btn" id="saveBtn" title="Save ERD to file">💾</button>
         <button class="action-btn" id="openBtn" title="Open ERD from file">📂</button>
+        <button class="action-btn" id="addCommentBtn" title="Add comment">📝</button>
     </div>
 
     <!-- Context menu -->
@@ -1292,6 +1415,7 @@ export class ErdWebView {
         const vscode = acquireVsCodeApi();
         const tables = ${JSON.stringify(tables)};
         const relationships = ${JSON.stringify(relationships)};
+        let comments = ${JSON.stringify(ErdWebView.comments)};
 
         let zoom = 1;
         let selectedTable = null;
@@ -1392,12 +1516,36 @@ export class ErdWebView {
                 }
             });
 
-            console.log('[Save Button] Sending data to extension:', tablesData);
+            // Collect comment card dimensions from DOM
+            const commentElements = document.querySelectorAll('.comment-node');
+            const commentsData = [];
+
+            commentElements.forEach(function(commentEl) {
+                const commentId = commentEl.dataset.commentId;
+                const x = parseFloat(commentEl.style.left) || 0;
+                const y = parseFloat(commentEl.style.top) || 0;
+                const width = parseFloat(commentEl.style.width) || 200;
+                const height = parseFloat(commentEl.style.height) || 100;
+                const textarea = commentEl.querySelector('.comment-textarea');
+                const text = textarea ? textarea.value : '';
+
+                commentsData.push({
+                    id: commentId,
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height,
+                    text: text
+                });
+            });
+
+            console.log('[Save Button] Sending data to extension:', tablesData, commentsData);
 
             vscode.postMessage({
                 command: 'save',
                 relationships: relationships,
-                tables: tablesData
+                tables: tablesData,
+                comments: commentsData
             });
         });
 
@@ -1414,6 +1562,191 @@ export class ErdWebView {
                 command: 'newErd'
             });
         });
+
+        // Add comment button - create new comment
+        document.getElementById('addCommentBtn').addEventListener('click', function() {
+            const newComment = {
+                id: 'comment_' + Date.now(),
+                x: 100 + (comments.length * 50),
+                y: 100 + (comments.length * 50),
+                text: '',
+                width: 200,
+                height: 100
+            };
+            
+            comments.push(newComment);
+            
+            // Create DOM element
+            const commentEl = document.createElement('div');
+            commentEl.className = 'comment-node';
+            commentEl.dataset.commentId = newComment.id;
+            commentEl.style.left = newComment.x + 'px';
+            commentEl.style.top = newComment.y + 'px';
+            commentEl.style.width = newComment.width + 'px';
+            commentEl.style.height = newComment.height + 'px';
+            commentEl.innerHTML =
+                '<button class="comment-delete-btn" title="Delete comment">×</button>' +
+                '<textarea class="comment-textarea" placeholder="Enter comment..."></textarea>';
+            
+            document.getElementById('canvas').appendChild(commentEl);
+            
+            // Initialize events for new comment
+            initCommentEvents(commentEl);
+            
+            // Focus on the textarea
+            const textarea = commentEl.querySelector('.comment-textarea');
+            if (textarea) {
+                textarea.focus();
+            }
+        });
+// Initialize comment events
+function initCommentEvents(commentEl) {
+    const textarea = commentEl.querySelector('.comment-textarea');
+    const deleteBtn = commentEl.querySelector('.comment-delete-btn');
+    
+    // Add resize handle
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'comment-resize-handle';
+    commentEl.appendChild(resizeHandle);
+    
+    // Handle text changes
+    textarea.addEventListener('input', function() {
+        const commentId = commentEl.dataset.commentId;
+        const comment = comments.find(c => c.id === commentId);
+        if (comment) {
+            comment.text = textarea.value;
+            // Auto resize textarea
+            textarea.style.height = 'auto';
+            textarea.style.height = textarea.scrollHeight + 'px';
+        }
+    });
+    
+    // Handle delete
+    deleteBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const commentId = commentEl.dataset.commentId;
+        const commentIndex = comments.findIndex(c => c.id === commentId);
+        if (commentIndex !== -1) {
+            comments.splice(commentIndex, 1);
+            commentEl.remove();
+        }
+    });
+    
+    // Handle resize
+    let isResizing = false;
+    let resizeStartX = 0;
+    let resizeStartY = 0;
+    let resizeStartWidth = 0;
+    let resizeStartHeight = 0;
+    
+    const handleResizeMove = function(e) {
+        if (isResizing) {
+            const deltaX = (e.clientX - resizeStartX) / zoom;
+            const deltaY = (e.clientY - resizeStartY) / zoom;
+            const newWidth = Math.max(200, resizeStartWidth + deltaX);
+            const newHeight = Math.max(100, resizeStartHeight + deltaY);
+            
+            commentEl.style.width = newWidth + 'px';
+            commentEl.style.height = newHeight + 'px';
+            
+            // Update comment data
+            const commentId = commentEl.dataset.commentId;
+            const comment = comments.find(c => c.id === commentId);
+            if (comment) {
+                comment.width = newWidth;
+                comment.height = newHeight;
+            }
+        }
+    };
+    
+    const handleResizeUp = function() {
+        if (isResizing) {
+            isResizing = false;
+            resizeHandle.classList.remove('dragging');
+            commentEl.style.zIndex = '';
+            document.removeEventListener('mousemove', handleResizeMove);
+            document.removeEventListener('mouseup', handleResizeUp);
+        }
+    };
+    
+    resizeHandle.addEventListener('mousedown', function(e) {
+        e.stopPropagation();
+        isResizing = true;
+        resizeStartX = e.clientX;
+        resizeStartY = e.clientY;
+        resizeStartWidth = commentEl.offsetWidth;
+        resizeStartHeight = commentEl.offsetHeight;
+        resizeHandle.classList.add('dragging');
+        commentEl.style.zIndex = '1000';
+        
+        document.addEventListener('mousemove', handleResizeMove);
+        document.addEventListener('mouseup', handleResizeUp);
+    });
+    
+    // Make comment draggable
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let dragStartLeft = 0;
+    let dragStartTop = 0;
+    
+    commentEl.addEventListener('mousedown', function(e) {
+        // Only start dragging if clicking on the comment background or border
+        if (e.target === commentEl || e.target === deleteBtn) {
+            isDragging = true;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            dragStartLeft = parseFloat(commentEl.style.left) || 0;
+            dragStartTop = parseFloat(commentEl.style.top) || 0;
+            commentEl.style.zIndex = '1000';
+            commentEl.classList.add('selected');
+            
+            document.body.classList.add('panning');
+        }
+    });
+    
+    document.addEventListener('mousemove', function(e) {
+        if (isDragging) {
+            const deltaX = e.clientX - dragStartX;
+            const deltaY = e.clientY - dragStartY;
+            
+            const canvasRect = document.getElementById('canvas-container').getBoundingClientRect();
+            const x = (deltaX / zoom) + dragStartLeft;
+            const y = (deltaY / zoom) + dragStartTop;
+            
+            commentEl.style.left = x + 'px';
+            commentEl.style.top = y + 'px';
+            
+            // Update comment data
+            const commentId = commentEl.dataset.commentId;
+            const comment = comments.find(c => c.id === commentId);
+            if (comment) {
+                comment.x = x;
+                comment.y = y;
+            }
+        }
+    });
+    
+    document.addEventListener('mouseup', function() {
+        if (isDragging) {
+            isDragging = false;
+            commentEl.style.zIndex = '';
+            commentEl.classList.remove('selected');
+            document.body.classList.remove('panning');
+        }
+    });
+    
+    // Select comment when clicked
+    commentEl.addEventListener('click', function() {
+        document.querySelectorAll('.comment-node').forEach(node => {
+            node.classList.remove('selected');
+        });
+        commentEl.classList.add('selected');
+    });
+}
+
+        // Initialize all comment events
+        document.querySelectorAll('.comment-node').forEach(initCommentEvents);
 
         function toggleComments(tableNode) {
             console.log('[toggleComments] Function called');
