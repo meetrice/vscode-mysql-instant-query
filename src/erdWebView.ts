@@ -890,8 +890,8 @@ export class ErdWebView {
             margin-left: 8px;
         }
         .toggle-comments-btn {
-            background: rgba(255, 255, 255, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: transparent;
+            border: none;
             border-radius: 4px;
             padding: 2px 8px;
             font-size: 12px;
@@ -899,7 +899,7 @@ export class ErdWebView {
             transition: background 0.2s;
         }
         .toggle-comments-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.1);
         }
         .table-body { padding: 8px; }
         .column-row {
