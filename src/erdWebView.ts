@@ -433,9 +433,11 @@ export class ErdWebView {
                                     if (foundTable) {
                                         console.log('[Save Handler] Updating table:', webviewTable.tableName,
                                                     'old width:', foundTable.width, 'new width:', webviewTable.width,
+                                                    'old height:', foundTable.height, 'new height:', webviewTable.height,
                                                     'old pos:', foundTable.x, ',', foundTable.y,
                                                     'new pos:', webviewTable.x, ',', webviewTable.y);
                                         foundTable.width = webviewTable.width;
+                                        foundTable.height = webviewTable.height;
                                         foundTable.x = webviewTable.x;
                                         foundTable.y = webviewTable.y;
                                     } else {
@@ -758,9 +760,11 @@ export class ErdWebView {
                                    if (foundTable) {
                                        console.log('[Save from open file] Updating table:', webviewTable.tableName,
                                                    'old width:', foundTable.width, 'new width:', webviewTable.width,
+                                                   'old height:', foundTable.height, 'new height:', webviewTable.height,
                                                    'old pos:', foundTable.x, ',', foundTable.y,
                                                    'new pos:', webviewTable.x, ',', webviewTable.y);
                                        foundTable.width = webviewTable.width;
+                                       foundTable.height = webviewTable.height;
                                        foundTable.x = webviewTable.x;
                                        foundTable.y = webviewTable.y;
                                    } else {
@@ -999,7 +1003,7 @@ export class ErdWebView {
             top: 50%;
             transform: translateY(-50%);
         }
-        /* Resize handle */
+        /* Resize handles */
         .resize-handle {
             position: absolute;
             right: 0;
@@ -1010,12 +1014,35 @@ export class ErdWebView {
             background: transparent;
             z-index: 5;
         }
+        .resize-handle-vertical {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 8px;
+            cursor: ns-resize;
+            background: transparent;
+            z-index: 5;
+        }
         .resize-handle:hover,
-        .table-node:hover .resize-handle {
+        .table-node:hover .resize-handle,
+        .resize-handle-vertical:hover,
+        .table-node:hover .resize-handle-vertical {
             background: rgba(0, 122, 204, 0.2);
         }
-        .resize-handle.dragging {
+        .resize-handle.dragging,
+        .resize-handle-vertical.dragging {
             background: rgba(0, 122, 204, 0.4);
+        }
+        /* Table body scrollable */
+        .table-body {
+            padding: 8px;
+            overflow-y: auto;
+            max-height: none;
+        }
+        .table-node {
+            /* Ensure table has minimum and maximum height constraints */
+            min-height: 100px;
         }
         .relationship-line {
             stroke: #007acc;
@@ -1563,18 +1590,21 @@ export class ErdWebView {
                 const tableName = tableEl.getAttribute('data-table');
                 if (tableName) {
                     const actualWidth = tableEl.offsetWidth;
-                    const styleWidth = tableEl.style.width;
-                    const x = parseFloat(tableEl.style.left) || 0;
-                    const y = parseFloat(tableEl.style.top) || 0;
-
-                    console.log('[Save Button] Table:', tableName, 'offsetWidth:', actualWidth, 'style.width:', styleWidth, 'position:', x, ',', y);
-
-                    tablesData.push({
-                        tableName: tableName,
-                        x: x,
-                        y: y,
-                        width: actualWidth
-                    });
+                       const actualHeight = tableEl.offsetHeight;
+                       const styleWidth = tableEl.style.width;
+                       const styleHeight = tableEl.style.height;
+                       const x = parseFloat(tableEl.style.left) || 0;
+                       const y = parseFloat(tableEl.style.top) || 0;
+   
+                       console.log('[Save Button] Table:', tableName, 'offsetWidth:', actualWidth, 'offsetHeight:', actualHeight, 'style.width:', styleWidth, 'style.height:', styleHeight, 'position:', x, ',', y);
+   
+                       tablesData.push({
+                           tableName: tableName,
+                           x: x,
+                           y: y,
+                           width: actualWidth,
+                           height: actualHeight
+                       });
                 }
             });
 
@@ -2354,12 +2384,15 @@ function initCommentEvents(commentEl) {
             let offsetX = 0;
             let offsetY = 0;
             let isResizing = false;
+            let isResizingVertical = false;
             let resizeElement = null;
             let startX = 0;
+            let startY = 0;
             let startWidth = 0;
+            let startHeight = 0;
 
             document.querySelectorAll('.table-node').forEach(function(table) {
-                // Handle resize
+                // Handle horizontal resize
                 const resizeHandle = document.createElement('div');
                 resizeHandle.className = 'resize-handle';
                 table.appendChild(resizeHandle);
@@ -2367,10 +2400,29 @@ function initCommentEvents(commentEl) {
                 resizeHandle.addEventListener('mousedown', function(e) {
                     e.stopPropagation();
                     isResizing = true;
+                    isResizingVertical = false;
                     resizeElement = table;
                     startX = e.clientX;
                     startWidth = table.offsetWidth;
                     resizeHandle.classList.add('dragging');
+                    table.style.zIndex = '1000';
+                });
+
+                // Handle vertical resize
+                const resizeHandleVertical = table.querySelector('.resize-handle-vertical') || document.createElement('div');
+                if (!table.querySelector('.resize-handle-vertical')) {
+                    resizeHandleVertical.className = 'resize-handle-vertical';
+                    table.appendChild(resizeHandleVertical);
+                }
+
+                resizeHandleVertical.addEventListener('mousedown', function(e) {
+                    e.stopPropagation();
+                    isResizing = true;
+                    isResizingVertical = true;
+                    resizeElement = table;
+                    startY = e.clientY;
+                    startHeight = table.offsetHeight;
+                    resizeHandleVertical.classList.add('dragging');
                     table.style.zIndex = '1000';
                 });
 
@@ -2497,9 +2549,36 @@ function initCommentEvents(commentEl) {
 
                 // Handle resizing
                 if (isResizing && resizeElement) {
-                    const deltaX = (e.clientX - startX) / zoom;
-                    const newWidth = Math.max(150, startWidth + deltaX);
-                    resizeElement.style.width = newWidth + 'px';
+                    if (isResizingVertical) {
+                        // Vertical resizing
+                        const deltaY = (e.clientY - startY) / zoom;
+                        // Calculate minimum and maximum height based on content
+                        const tableHeader = resizeElement.querySelector('.table-header');
+                        const tableBody = resizeElement.querySelector('.table-body');
+                        const headerHeight = tableHeader.offsetHeight;
+                        
+                        // Calculate minimum height (header + 2 rows)
+                        const columnRows = tableBody.querySelectorAll('.column-row');
+                        const minHeight = headerHeight + (columnRows.length > 0 ? Math.min(columnRows.length, 2) * columnRows[0].offsetHeight : 60) + 16; // 16px padding
+                        
+                        // Calculate maximum height (all content visible)
+                        let totalContentHeight = headerHeight + 16; // 16px padding
+                        columnRows.forEach(row => {
+                            totalContentHeight += row.offsetHeight;
+                        });
+                        
+                        const newHeight = Math.max(minHeight, Math.min(totalContentHeight, startHeight + deltaY));
+                        resizeElement.style.height = newHeight + 'px';
+                        
+                        // Set table body height to allow scrolling
+                        const bodyHeight = newHeight - headerHeight - 16; // subtract padding
+                        tableBody.style.maxHeight = bodyHeight + 'px';
+                    } else {
+                        // Horizontal resizing
+                        const deltaX = (e.clientX - startX) / zoom;
+                        const newWidth = Math.max(150, startWidth + deltaX);
+                        resizeElement.style.width = newWidth + 'px';
+                    }
                     drawRelationships();
                     if (thumbnailVisible) {
                         updateThumbnail();
@@ -2526,10 +2605,16 @@ function initCommentEvents(commentEl) {
                 }
 
                 if (isResizing) {
-                    const handle = resizeElement?.querySelector('.resize-handle');
-                    if (handle) handle.classList.remove('dragging');
+                    if (isResizingVertical) {
+                        const handle = resizeElement?.querySelector('.resize-handle-vertical');
+                        if (handle) handle.classList.remove('dragging');
+                    } else {
+                        const handle = resizeElement?.querySelector('.resize-handle');
+                        if (handle) handle.classList.remove('dragging');
+                    }
                     if (resizeElement) resizeElement.style.zIndex = '';
                     isResizing = false;
+                    isResizingVertical = false;
                     resizeElement = null;
                 }
 
@@ -2971,7 +3056,7 @@ function initCommentEvents(commentEl) {
             <div class="table-node ${isMainTable ? 'main-table' : ''}"
                  data-table="${this.escapeHtml(table.tableName)}"
                  data-database="${this.escapeHtml(table.database || '')}"
-                 style="left: ${table.x}px; top: ${table.y}px; width: ${table.width}px;">
+                 style="left: ${table.x}px; top: ${table.y}px; width: ${table.width}px; height: ${table.height}px;">
                 <div class="table-header">
                     <div class="table-header-left">
                         <span>${this.escapeHtml(table.tableName)}</span>
@@ -2988,6 +3073,8 @@ function initCommentEvents(commentEl) {
                 <div class="table-connector-bottom connection-point" data-table="${this.escapeHtml(table.tableName)}" title="${this.escapeHtml(table.tableName)} bottom"></div>
                 <div class="table-connector-left connection-point" data-table="${this.escapeHtml(table.tableName)}" title="${this.escapeHtml(table.tableName)} left"></div>
                 <div class="table-connector-right connection-point" data-table="${this.escapeHtml(table.tableName)}" title="${this.escapeHtml(table.tableName)} right"></div>
+                <!-- Vertical resize handle -->
+                <div class="resize-handle-vertical"></div>
             </div>
         `;
     }
