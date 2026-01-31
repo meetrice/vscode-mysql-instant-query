@@ -1038,35 +1038,7 @@ export class ErdWebView {
                 filter: drop-shadow(0 0 15px rgba(255, 107, 107, 1));
             }
         }
-        .relationship-arrow { fill: #007acc; transition: all 0.3s ease; }
-        .relationship-arrow.one-to-one {
-            fill: #007acc;
-        }
-        .relationship-arrow.one-to-many {
-            fill: #28a745;
-        }
-        .relationship-arrow.many-to-many {
-            fill: #ffc107;
-        }
-        .relationship-arrow.selected {
-            filter: drop-shadow(0 0 6px rgba(255, 107, 107, 0.8));
-        }
-        .relationship-start-marker {
-            fill: #007acc;
-            transition: all 0.3s ease;
-        }
-        .relationship-start-marker.one-to-one {
-            fill: #007acc;
-        }
-        .relationship-start-marker.one-to-many {
-            fill: #28a745;
-        }
-        .relationship-start-marker.many-to-many {
-            fill: #ffc107;
-        }
-        .relationship-start-marker.selected {
-            filter: drop-shadow(0 0 6px rgba(255, 107, 107, 0.8));
-        }
+        .relationship-arrow { fill: #007acc; }
         /* Relationship context menu */
         .relationship-context-menu {
             position: fixed;
@@ -1573,48 +1545,12 @@ export class ErdWebView {
                 // Calculate angle for arrow rotation
                 const angle = Math.atan2(toY - fromY, toX - fromX);
 
-                // Draw start marker (from table) based on relationship type
-                const startMarker = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-                const startMarkerSize = 6;
-
-                if (rel.type === 'one-to-one') {
-                    // Single line for "one" (no marker)
-                    // No start marker for one-to-one
-                } else if (rel.type === 'one-to-many') {
-                    // Single vertical line for "one"
-                    const startPoints = calculatePerpendicularLine(fromX, fromY, angle, startMarkerSize, 'single');
-                    startMarker.setAttribute('points', startPoints);
-                    startMarker.setAttribute('class', 'relationship-start-marker one-to-many');
-                    svg.appendChild(startMarker);
-                } else if (rel.type === 'many-to-many') {
-                    // Double vertical lines for "many"
-                    const startPoints = calculatePerpendicularLine(fromX, fromY, angle, startMarkerSize, 'double');
-                    startMarker.setAttribute('points', startPoints);
-                    startMarker.setAttribute('class', 'relationship-start-marker many-to-many');
-                    svg.appendChild(startMarker);
-                }
-
-                // Draw end marker (to table) based on relationship type
+                // Draw end marker (to table) - original arrow style
                 const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-                const arrowSize = 8;
-
-                if (rel.type === 'one-to-one') {
-                    // Single line for "one" (no arrow, just line)
-                    const endPoints = calculatePerpendicularLine(toX, toY, angle, arrowSize, 'single');
-                    arrow.setAttribute('points', endPoints);
-                    arrow.setAttribute('class', 'relationship-arrow one-to-one');
-                } else if (rel.type === 'one-to-many') {
-                    // Crow's foot (triangle) for "many"
-                    const endPoints = calculateCrowsFoot(toX, toY, angle, arrowSize);
-                    arrow.setAttribute('points', endPoints);
-                    arrow.setAttribute('class', 'relationship-arrow one-to-many');
-                } else if (rel.type === 'many-to-many') {
-                    // Double crow's foot for "many-to-many"
-                    const endPoints = calculateDoubleCrowsFoot(toX, toY, angle, arrowSize);
-                    arrow.setAttribute('points', endPoints);
-                    arrow.setAttribute('class', 'relationship-arrow many-to-many');
-                }
-
+                const arrowSize = 8; // Original size
+                const points = toX + ',' + toY + ' ' + (toX - arrowSize) + ',' + (toY - arrowSize/2) + ' ' + (toX - arrowSize) + ',' + (toY + arrowSize/2);
+                arrow.setAttribute('points', points);
+                arrow.setAttribute('class', 'relationship-arrow');
                 svg.appendChild(arrow);
 
                 // Add context menu event to hit area
@@ -1644,74 +1580,11 @@ export class ErdWebView {
                     selectRelationship(relIndex);
                 });
 
-                // Add data-rel-index to arrow and start marker for easier selection
-                if (startMarker.parentNode) {
-                    startMarker.setAttribute('data-rel-index', relIndex);
-                }
+                // Add data-rel-index to arrow for easier selection
                 arrow.setAttribute('data-rel-index', relIndex);
             });
         }
 
-        // Helper function to calculate perpendicular line markers (for "one")
-        function calculatePerpendicularLine(x, y, angle, size, type) {
-            const perpAngle = angle + Math.PI / 2;
-            const halfSize = size / 2;
-
-            if (type === 'single') {
-                // Single perpendicular line
-                const x1 = x - Math.cos(perpAngle) * halfSize;
-                const y1 = y - Math.sin(perpAngle) * halfSize;
-                const x2 = x + Math.cos(perpAngle) * halfSize;
-                const y2 = y + Math.sin(perpAngle) * halfSize;
-                return x1 + ',' + y1 + ' ' + x2 + ',' + y2;
-            } else if (type === 'double') {
-                // Double perpendicular lines
-                const offset = 3;
-                const x1 = (x - Math.cos(angle) * offset) - Math.cos(perpAngle) * halfSize;
-                const y1 = (y - Math.sin(angle) * offset) - Math.sin(perpAngle) * halfSize;
-                const x2 = (x - Math.cos(angle) * offset) + Math.cos(perpAngle) * halfSize;
-                const y2 = (y - Math.sin(angle) * offset) + Math.sin(perpAngle) * halfSize;
-                const x3 = (x + Math.cos(angle) * offset) - Math.cos(perpAngle) * halfSize;
-                const y3 = (y + Math.sin(angle) * offset) - Math.sin(perpAngle) * halfSize;
-                const x4 = (x + Math.cos(angle) * offset) + Math.cos(perpAngle) * halfSize;
-                const y4 = (y + Math.sin(angle) * offset) + Math.sin(perpAngle) * halfSize;
-                return x1 + ',' + y1 + ' ' + x2 + ',' + y2 + ' ' + x3 + ',' + y3 + ' ' + x4 + ',' + y4;
-            }
-        }
-
-        // Helper function to calculate crow's foot (for "many")
-        function calculateCrowsFoot(x, y, angle, size) {
-            const angle1 = angle + Math.PI / 6;
-            const angle2 = angle - Math.PI / 6;
-
-            const x1 = x + Math.cos(angle) * size;
-            const y1 = y + Math.sin(angle) * size;
-            const x2 = x + Math.cos(angle1) * size;
-            const y2 = y + Math.sin(angle1) * size;
-            const x3 = x + Math.cos(angle2) * size;
-            const y3 = y + Math.sin(angle2) * size;
-
-            return x + ',' + y + ' ' + x1 + ',' + y1 + ' ' + x2 + ',' + y2 + ' ' + x3 + ',' + y3;
-        }
-
-        // Helper function to calculate double crow's foot (for "many-to-many")
-        function calculateDoubleCrowsFoot(x, y, angle, size) {
-            const offset = 4;
-            const baseX = x - Math.cos(angle) * offset;
-            const baseY = y - Math.sin(angle) * offset;
-
-            const angle1 = angle + Math.PI / 6;
-            const angle2 = angle - Math.PI / 6;
-
-            const x1 = baseX + Math.cos(angle) * size;
-            const y1 = baseY + Math.sin(angle) * size;
-            const x2 = baseX + Math.cos(angle1) * size;
-            const y2 = baseY + Math.sin(angle1) * size;
-            const x3 = baseX + Math.cos(angle2) * size;
-            const y3 = baseY + Math.sin(angle2) * size;
-
-            return x + ',' + y + ' ' + baseX + ',' + baseY + ' ' + x1 + ',' + y1 + ' ' + x2 + ',' + y2 + ' ' + x3 + ',' + y3;
-        }
 
         let selectedRelationshipIndex = -1;
 
