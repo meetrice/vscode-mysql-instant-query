@@ -1187,6 +1187,67 @@ export class ErdWebView {
             background-color: var(--vscode-panel-border);
             margin: 4px 0;
         }
+        /* Thumbnail toggle button */
+        .thumbnail-toggle {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            width: 40px;
+            height: 40px;
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-button-border);
+            border-radius: 6px;
+            color: var(--vscode-editor-foreground);
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            transition: background 0.2s;
+        }
+        .thumbnail-toggle:hover {
+            background-color: var(--vscode-toolbar-hoverBackground);
+        }
+        /* Thumbnail panel */
+        .thumbnail-panel {
+            position: fixed;
+            bottom: 70px;
+            left: 20px;
+            width: 300px;
+            height: 200px;
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 999;
+            display: none;
+            overflow: hidden;
+        }
+        .thumbnail-panel.show {
+            display: block;
+        }
+        .thumbnail-canvas {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            background-color: var(--vscode-editor-background);
+        }
+        .thumbnail-viewport-indicator {
+            position: absolute;
+            border: 2px solid #007acc;
+            background-color: transparent;
+            cursor: move;
+            pointer-events: all;
+            z-index: 100;
+        }
+        .thumbnail-table {
+            position: absolute;
+            background-color: var(--vscode-editor-selectionBackground);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 2px;
+            z-index: 1;
+        }
     </style>
 </head>
 <body>
@@ -1234,6 +1295,16 @@ export class ErdWebView {
         <div class="relationship-context-menu-item danger" id="relDelete">🗑️ 删除关系</div>
     </div>
 
+    <!-- Thumbnail toggle button -->
+    <button class="thumbnail-toggle" id="thumbnailToggle" title="Toggle Thumbnail">🗺️</button>
+
+    <!-- Thumbnail panel -->
+    <div class="thumbnail-panel" id="thumbnailPanel">
+        <div class="thumbnail-canvas" id="thumbnailCanvas">
+            <div class="thumbnail-viewport-indicator" id="viewportIndicator"></div>
+        </div>
+    </div>
+
     <script>
         const vscode = acquireVsCodeApi();
         const tables = ${JSON.stringify(tables)};
@@ -1253,6 +1324,9 @@ export class ErdWebView {
         function updateZoom() {
             updateCanvasTransform();
             document.getElementById('zoomLevel').textContent = Math.round(zoom * 100) + '%';
+            if (thumbnailVisible) {
+                updateThumbnail();
+            }
         }
 
         function updateCanvasTransform() {
@@ -1279,6 +1353,9 @@ export class ErdWebView {
                     panX = e.clientX - panStartX;
                     panY = e.clientY - panStartY;
                     updateCanvasTransform();
+                    if (thumbnailVisible) {
+                        updateThumbnail();
+                    }
                 }
             });
 
@@ -1817,6 +1894,9 @@ export class ErdWebView {
                     draggedElement.style.left = x + 'px';
                     draggedElement.style.top = y + 'px';
                     drawRelationships();
+                    if (thumbnailVisible) {
+                        updateThumbnail();
+                    }
                 }
 
                 // Handle resizing
@@ -1825,6 +1905,9 @@ export class ErdWebView {
                     const newWidth = Math.max(150, startWidth + deltaX);
                     resizeElement.style.width = newWidth + 'px';
                     drawRelationships();
+                    if (thumbnailVisible) {
+                        updateThumbnail();
+                    }
                 }
 
                 // Handle connection dragging
@@ -2022,6 +2105,192 @@ export class ErdWebView {
                 }
             });
         }
+
+        // Thumbnail functionality
+        let thumbnailVisible = false;
+        const thumbnailToggle = document.getElementById('thumbnailToggle');
+        const thumbnailPanel = document.getElementById('thumbnailPanel');
+        const thumbnailCanvas = document.getElementById('thumbnailCanvas');
+        const viewportIndicator = document.getElementById('viewportIndicator');
+
+        // Toggle thumbnail panel
+        thumbnailToggle.addEventListener('click', function() {
+            thumbnailVisible = !thumbnailVisible;
+            if (thumbnailVisible) {
+                thumbnailPanel.classList.add('show');
+                updateThumbnail();
+            } else {
+                thumbnailPanel.classList.remove('show');
+            }
+        });
+
+        // Update thumbnail content
+        function updateThumbnail() {
+            if (!thumbnailVisible) return;
+
+            // Clear previous thumbnail tables
+            const oldTables = thumbnailCanvas.querySelectorAll('.thumbnail-table');
+            oldTables.forEach(t => t.remove());
+
+            // Get canvas container dimensions
+            const containerRect = document.getElementById('canvas-container').getBoundingClientRect();
+            const containerWidth = containerRect.width;
+            const containerHeight = containerRect.height;
+
+            // Calculate scale factor for thumbnail
+            const canvasBounds = {
+                minX: Infinity,
+                minY: Infinity,
+                maxX: -Infinity,
+                maxY: -Infinity
+            };
+
+            // Find bounds of all tables
+            tables.forEach(function(table) {
+                canvasBounds.minX = Math.min(canvasBounds.minX, table.x);
+                canvasBounds.minY = Math.min(canvasBounds.minY, table.y);
+                canvasBounds.maxX = Math.max(canvasBounds.maxX, table.x + table.width);
+                canvasBounds.maxY = Math.max(canvasBounds.maxY, table.y + table.height);
+            });
+
+            // If no tables, use default bounds
+            if (canvasBounds.minX === Infinity) {
+                canvasBounds.minX = 0;
+                canvasBounds.minY = 0;
+                canvasBounds.maxX = 1000;
+                canvasBounds.maxY = 1000;
+            }
+
+            // Add padding
+            const padding = 100;
+            canvasBounds.minX -= padding;
+            canvasBounds.minY -= padding;
+            canvasBounds.maxX += padding;
+            canvasBounds.maxY += padding;
+
+            const boundsWidth = canvasBounds.maxX - canvasBounds.minX;
+            const boundsHeight = canvasBounds.maxY - canvasBounds.minY;
+
+            // Calculate scale to fit in thumbnail panel
+            const thumbnailWidth = thumbnailCanvas.offsetWidth;
+            const thumbnailHeight = thumbnailCanvas.offsetHeight;
+            const scaleX = thumbnailWidth / boundsWidth;
+            const scaleY = thumbnailHeight / boundsHeight;
+            const scale = Math.min(scaleX, scaleY);
+
+            // Draw thumbnail tables
+            tables.forEach(function(table) {
+                const thumbTable = document.createElement('div');
+                thumbTable.className = 'thumbnail-table';
+                thumbTable.style.left = ((table.x - canvasBounds.minX) * scale) + 'px';
+                thumbTable.style.top = ((table.y - canvasBounds.minY) * scale) + 'px';
+                thumbTable.style.width = (table.width * scale) + 'px';
+                thumbTable.style.height = (table.height * scale) + 'px';
+                thumbnailCanvas.appendChild(thumbTable);
+            });
+
+            // Update viewport indicator
+            updateViewportIndicator(scale, canvasBounds, boundsWidth, boundsHeight);
+        }
+
+        // Update viewport indicator position and size
+        function updateViewportIndicator(scale, canvasBounds, boundsWidth, boundsHeight) {
+            if (!thumbnailVisible) return;
+
+            // Get current viewport in canvas coordinates
+            const viewX = (-panX / zoom);
+            const viewY = (-panY / zoom);
+            const viewWidth = (window.innerWidth / zoom);
+            const viewHeight = (window.innerHeight / zoom);
+
+            // Calculate indicator position in thumbnail
+            const indicatorLeft = Math.max(0, (viewX - canvasBounds.minX) * scale);
+            const indicatorTop = Math.max(0, (viewY - canvasBounds.minY) * scale);
+            const indicatorWidth = Math.min(viewWidth * scale, (thumbnailCanvas.offsetWidth - indicatorLeft));
+            const indicatorHeight = Math.min(viewHeight * scale, (thumbnailCanvas.offsetHeight - indicatorTop));
+
+            viewportIndicator.style.left = indicatorLeft + 'px';
+            viewportIndicator.style.top = indicatorTop + 'px';
+            viewportIndicator.style.width = indicatorWidth + 'px';
+            viewportIndicator.style.height = indicatorHeight + 'px';
+        }
+
+        // Drag viewport indicator to pan
+        let isDraggingIndicator = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let dragStartPanX = 0;
+        let dragStartPanY = 0;
+
+        viewportIndicator.addEventListener('mousedown', function(e) {
+            isDraggingIndicator = true;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            dragStartPanX = panX;
+            dragStartPanY = panY;
+            e.preventDefault();
+            e.stopPropagation();
+        });
+
+        document.addEventListener('mousemove', function(e) {
+            if (!isDraggingIndicator) return;
+
+            const deltaX = e.clientX - dragStartX;
+            const deltaY = e.clientY - dragStartY;
+
+            // Calculate thumbnail bounds
+            const canvasBounds = {
+                minX: Infinity,
+                minY: Infinity,
+                maxX: -Infinity,
+                maxY: -Infinity
+            };
+
+            tables.forEach(function(table) {
+                canvasBounds.minX = Math.min(canvasBounds.minX, table.x);
+                canvasBounds.minY = Math.min(canvasBounds.minY, table.y);
+                canvasBounds.maxX = Math.max(canvasBounds.maxX, table.x + table.width);
+                canvasBounds.maxY = Math.max(canvasBounds.maxY, table.y + table.height);
+            });
+
+            if (canvasBounds.minX === Infinity) {
+                canvasBounds.minX = 0;
+                canvasBounds.minY = 0;
+                canvasBounds.maxX = 1000;
+                canvasBounds.maxY = 1000;
+            }
+
+            const padding = 100;
+            canvasBounds.minX -= padding;
+            canvasBounds.minY -= padding;
+            canvasBounds.maxX += padding;
+            canvasBounds.maxY += padding;
+
+            const boundsWidth = canvasBounds.maxX - canvasBounds.minX;
+            const boundsHeight = canvasBounds.maxY - canvasBounds.minY;
+
+            const thumbnailWidth = thumbnailCanvas.offsetWidth;
+            const thumbnailHeight = thumbnailCanvas.offsetHeight;
+            const scaleX = thumbnailWidth / boundsWidth;
+            const scaleY = thumbnailHeight / boundsHeight;
+            const scale = Math.min(scaleX, scaleY);
+
+            // Convert thumbnail delta to canvas delta
+            const canvasDeltaX = (deltaX / scale) * zoom;
+            const canvasDeltaY = (deltaY / scale) * zoom;
+
+            panX = dragStartPanX + canvasDeltaX;
+            panY = dragStartPanY + canvasDeltaY;
+
+            updateCanvasTransform();
+            updateViewportIndicator(scale, canvasBounds, boundsWidth, boundsHeight);
+        });
+
+        document.addEventListener('mouseup', function() {
+            if (isDraggingIndicator) {
+                isDraggingIndicator = false;
+            }
+        });
 
         // Initialize
         window.addEventListener('load', function() {
