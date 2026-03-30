@@ -305,7 +305,6 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        // Show confirmation dialog
         const confirm = await vscode.window.showWarningMessage(
             `Are you sure you want to delete ${rows.length} row(s)?`,
             { modal: true },
@@ -316,15 +315,17 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        // Generate DELETE statements for each row
+        if (!Global.activeConnection) {
+            vscode.window.showWarningMessage("No active MySQL connection");
+            return;
+        }
+
         const database = queryInfo.database;
         const table = queryInfo.table;
 
-        // Find primary key column (usually 'id')
         const columns = Object.keys(rows[0]);
         const primaryKeyColumn = columns.find(col => col.toLowerCase() === 'id') || columns[0];
 
-        // Build WHERE clauses for each row using only primary key
         const deleteStatements = [];
         for (const row of rows) {
             const value = row[primaryKeyColumn];
@@ -333,26 +334,39 @@ export function activate(context: vscode.ExtensionContext) {
             if (value === null || value === undefined) {
                 whereCondition = `\`${primaryKeyColumn}\` IS NULL`;
             } else {
-                // Check if the value looks like a number
                 const isNumeric = typeof value === 'number' || (typeof value === 'string' && !isNaN(Number(value)) && value !== '');
                 if (isNumeric) {
                     whereCondition = `\`${primaryKeyColumn}\` = ${value}`;
                 } else {
-                    // Escape single quotes for string values
                     const escapedValue = String(value).replace(/'/g, "''");
                     whereCondition = `\`${primaryKeyColumn}\` = '${escapedValue}'`;
                 }
             }
 
-            const sql = `DELETE FROM \`${database}\`.\`${table}\` WHERE ${whereCondition};`;
+            const sql = `DELETE FROM \`${database}\`.\`${table}\` WHERE ${whereCondition}`;
             deleteStatements.push(sql);
         }
 
-        // Create SQL document with all DELETE statements
-        const fullSql = deleteStatements.join('\n\n');
-        await Utility.createSQLTextDocument(fullSql);
+        const fullSql = deleteStatements.join(';\n') + ';';
 
-        vscode.window.showInformationMessage(`Generated ${deleteStatements.length} DELETE statement(s) in SQL editor`);
+        try {
+            const deleteConn = Utility.createConnection({ ...Global.activeConnection, multipleStatements: true });
+            await Utility.queryPromise(deleteConn, fullSql);
+
+            await Utility.appendSQLToEditor(fullSql);
+            vscode.window.showInformationMessage(`Successfully deleted ${rows.length} row(s)`);
+
+            // 直接重新查询并更新面板
+            if (queryInfo.sql) {
+                const refreshConn = Utility.createConnection({ ...Global.activeConnection });
+                const refreshedRows = await Utility.queryPromise<any[]>(refreshConn, queryInfo.sql);
+                if (Array.isArray(refreshedRows)) {
+                    SqlResultWebView.updatePanel(refreshedRows, queryInfo.sql, database, table);
+                }
+            }
+        } catch (err) {
+            vscode.window.showErrorMessage(`DELETE failed: ${err}`);
+        }
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.generateUpdateSQL", async (message: any) => {
@@ -417,13 +431,31 @@ export function activate(context: vscode.ExtensionContext) {
             }
         }
 
-        // Generate UPDATE SQL (single line)
         const sql = `UPDATE \`${database}\`.\`${table}\` SET ${setCondition} WHERE ${whereCondition};`;
 
-        // Create SQL document with the UPDATE statement
-        await Utility.createSQLTextDocument(sql);
+        if (!Global.activeConnection) {
+            vscode.window.showWarningMessage("No active MySQL connection");
+            return;
+        }
 
-        vscode.window.showInformationMessage("Generated UPDATE statement in SQL editor");
+        try {
+            const updateConn = Utility.createConnection({ ...Global.activeConnection });
+            await Utility.queryPromise(updateConn, sql);
+
+            await Utility.appendSQLToEditor(sql);
+            vscode.window.showInformationMessage("UPDATE executed successfully");
+
+            // 刷新表格数据
+            if (queryInfo.sql) {
+                const refreshConn = Utility.createConnection({ ...Global.activeConnection });
+                const refreshedRows = await Utility.queryPromise<any[]>(refreshConn, queryInfo.sql);
+                if (Array.isArray(refreshedRows)) {
+                    SqlResultWebView.updatePanel(refreshedRows, queryInfo.sql, database, table);
+                }
+            }
+        } catch (err) {
+            vscode.window.showErrorMessage(`UPDATE failed: ${err}`);
+        }
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.generateInsertSQL", async (message: any) => {

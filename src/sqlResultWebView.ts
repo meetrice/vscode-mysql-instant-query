@@ -133,8 +133,9 @@ export class SqlResultWebView {
                     columnComments: columnComments || SqlResultWebView.lastQueryInfo?.columnComments
                 };
             }
-            // Update webview content
-            SqlResultWebView.currentPanel.webview.html = SqlResultWebView.getWebviewContent(data, columnComments);
+            // Update webview content，优先使用传入的 columnComments，否则使用已存储的
+            const effectiveComments = columnComments || SqlResultWebView.lastQueryInfo?.columnComments;
+            SqlResultWebView.currentPanel.webview.html = SqlResultWebView.getWebviewContent(data, effectiveComments);
         }
     }
 
@@ -702,12 +703,24 @@ export class SqlResultWebView {
 
                 function filterColumns() {
                     const filterText = document.getElementById('columnFilterInput').value.toLowerCase().trim();
-                    const dataColumns = document.querySelectorAll('th.data-column, td.data-column');
 
-                    dataColumns.forEach(column => {
+                    // 先从表头行确定哪些列名匹配（同时匹配列名和列注释）
+                    const headerColumns = document.querySelectorAll('thead tr:first-child th.data-column');
+                    const visibleColumnNames = new Set();
+                    headerColumns.forEach(th => {
+                        const columnName = th.getAttribute('data-column-name');
+                        const columnComment = th.getAttribute('data-column-comment') || '';
+                        if (!filterText || columnName.toLowerCase().includes(filterText) || columnComment.toLowerCase().includes(filterText)) {
+                            visibleColumnNames.add(columnName);
+                        }
+                    });
+
+                    // 根据匹配结果显示/隐藏所有同名列（包括表头、过滤行、数据行）
+                    const allDataColumns = document.querySelectorAll('th.data-column, td.data-column');
+                    allDataColumns.forEach(column => {
                         const columnName = column.getAttribute('data-column-name');
                         if (columnName) {
-                            if (!filterText || columnName.toLowerCase().includes(filterText)) {
+                            if (visibleColumnNames.has(columnName)) {
                                 column.classList.remove('hidden');
                             } else {
                                 column.classList.add('hidden');
@@ -1376,10 +1389,7 @@ export class SqlResultWebView {
                     }
                 }
 
-                // Call initialization functions
-                initFilters();
-                initActionButtons();
-                initRowCheckboxes();
+                // Call initialization functions (only initColumnResize here; others are called in window load event)
                 initColumnResize();
             <\/script>
         `;
@@ -1440,7 +1450,7 @@ export class SqlResultWebView {
             const escapedField = this.escapeHtml(field);
             const comment = columnComments && columnComments[field] ? this.escapeHtml(columnComments[field]) : '';
             const commentHtml = comment ? `<span class="column-comment" title="${comment}">${comment}</span>` : '';
-            head += `<th class="data-column" data-column-name="${escapedField}" onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}" style="position: relative;"><span class="column-name">${escapedField}</span>${commentHtml}<div class="resize-handle" data-column-index="${index}"></div></th>`;
+            head += `<th class="data-column" data-column-name="${escapedField}" data-column-comment="${comment}" onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}" style="position: relative;"><span class="column-name">${escapedField}</span>${commentHtml}<div class="resize-handle" data-column-index="${index}"></div></th>`;
         });
 
         // Generate filter row (first column has action buttons)
