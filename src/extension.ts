@@ -573,9 +573,37 @@ export function activate(context: vscode.ExtensionContext) {
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.openTable", async () => {
-        if (!Global.activeConnection || !Global.activeConnection.database) {
+        if (!Global.activeConnection) {
             vscode.window.showWarningMessage(I18n.t("warning.noDatabaseSelected"));
             return;
+        }
+
+        // 如果未选择数据库，自动获取第一个用户数据库
+        if (!Global.activeConnection.database) {
+            try {
+                const conn = Utility.createConnection({
+                    host: Global.activeConnection.host,
+                    user: Global.activeConnection.user,
+                    password: Global.activeConnection.password,
+                    port: Global.activeConnection.port,
+                    certPath: Global.activeConnection.certPath,
+                });
+                const databases = await Utility.queryPromise<any[]>(conn, "SHOW DATABASES");
+                const systemDatabases = ["information_schema", "mysql", "performance_schema", "sys"];
+                const userDatabases = databases.filter((db: any) => !systemDatabases.includes(db.Database));
+                if (userDatabases.length > 0) {
+                    Global.activeConnection = {
+                        ...Global.activeConnection,
+                        database: userDatabases[0].Database,
+                    };
+                } else {
+                    vscode.window.showWarningMessage(I18n.t("warning.noDatabaseSelected"));
+                    return;
+                }
+            } catch (err) {
+                vscode.window.showWarningMessage(I18n.t("warning.noDatabaseSelected"));
+                return;
+            }
         }
 
         const connectionOptions = {
