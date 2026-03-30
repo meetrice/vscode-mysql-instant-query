@@ -14,6 +14,8 @@ import { I18n } from "./common/i18n";
 import { SqlResultWebView } from "./sqlResultWebView";
 import { RunNowCodeLensProvider } from "./runButtonProvider";
 import { ErdWebView } from "./erdWebView";
+import { Constants } from "./common/constants";
+import { IConnection } from "./model/connection";
 
 export function activate(context: vscode.ExtensionContext) {
     // Initialize i18n
@@ -24,6 +26,9 @@ export function activate(context: vscode.ExtensionContext) {
     const mysqlTreeDataProvider = new MySQLTreeDataProvider(context);
 
     Global.secrets = context.secrets;
+
+    // 启动时自动选中第一个连接的第一个用户数据库
+    autoSelectFirstDatabase(context);
 
     // Set context keys to help prevent other extensions' menus from showing
     vscode.commands.executeCommand('setContext', 'mysqlInstantQuery.sidebarActive', true);
@@ -843,4 +848,59 @@ export function deactivate() {
     vscode.commands.executeCommand('setContext', 'resourcePath', undefined);
     vscode.commands.executeCommand('setContext', 'resourceExtname', undefined);
     vscode.commands.executeCommand('setContext', 'resourceLangId', undefined);
+}
+
+/**
+ * 启动时自动选中第一个连接的第一个用户数据库，
+ * 无需等待用户点击侧边栏面板激活。
+ */
+async function autoSelectFirstDatabase(context: vscode.ExtensionContext) {
+    try {
+        const connections = context.globalState.get<{ [key: string]: IConnection }>(Constants.GlobalStateMySQLConectionsKey);
+        if (!connections) {
+            return;
+        }
+
+        const ids = Object.keys(connections);
+        if (ids.length === 0) {
+            return;
+        }
+
+        const firstId = ids[0];
+        const firstConn = connections[firstId];
+        const password = await Global.secrets.get(firstId);
+
+        const conn = Utility.createConnection({
+            host: firstConn.host,
+            user: firstConn.user,
+            password,
+            port: firstConn.port,
+            certPath: firstConn.certPath,
+        });
+
+        const databases = await Utility.queryPromise<any[]>(conn, "SHOW DATABASES");
+        const systemDatabases = ["information_schema", "mysql", "performance_schema", "sys"];
+        const userDatabases = databases.filter((db: any) => !systemDatabases.includes(db.Database));
+
+        if (userDatabases.length > 0) {
+            Global.activeConnection = {
+                host: firstConn.host,
+                user: firstConn.user,
+                password,
+                port: firstConn.port,
+                certPath: firstConn.certPath,
+                database: userDatabases[0].Database,
+            };
+        } else {
+            Global.activeConnection = {
+                host: firstConn.host,
+                user: firstConn.user,
+                password,
+                port: firstConn.port,
+                certPath: firstConn.certPath,
+            };
+        }
+    } catch {
+        // 启动时静默失败，不影响正常使用（可能数据库未启动等）
+    }
 }

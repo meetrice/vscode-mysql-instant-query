@@ -29,6 +29,7 @@
         "url": "https://github.com/meetrice/vscode-mysql-instant-query.git"
     },
     "activationEvents": [
+        "onStartupFinished",
         "onView:mysqlInstantQuery",
         "onCommand:mysqlInstantQuery.addConnection",
         "onCommand:mysqlInstantQuery.runQuery",
