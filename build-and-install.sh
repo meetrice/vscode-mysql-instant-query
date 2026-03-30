@@ -42,5 +42,30 @@ code --install-extension "$VSIX_FILE" --force
 
 echo ""
 echo "========================================="
-echo "✅ 完成! 请重新加载 VSCode 窗口以使用更新后的扩展"
+echo "4. 同步到 Cursor 扩展目录..."
+echo "========================================="
+CURSOR_EXT_DIR="$HOME/.cursor/extensions"
+if [ -d "$CURSOR_EXT_DIR" ]; then
+    # 从 package.json 获取扩展 ID 和版本
+    EXT_NAME="meetrice.mysql-instant-query"
+    EXT_VERSION=$(node -p "require('./package.json').version")
+    EXT_FOLDER="${EXT_NAME}-${EXT_VERSION}"
+    VSCODE_SRC="$HOME/.vscode/extensions/${EXT_FOLDER}"
+    CURSOR_DST="${CURSOR_EXT_DIR}/${EXT_FOLDER}"
+
+    if [ -d "$VSCODE_SRC" ]; then
+        echo "同步 ${EXT_FOLDER} 到 Cursor..."
+        rm -rf "$CURSOR_DST"
+        cp -r "$VSCODE_SRC" "$CURSOR_DST"
+        echo "Cursor 扩展同步完成"
+    else
+        echo "跳过: VSCode 扩展目录不存在 ${VSCODE_SRC}"
+    fi
+else
+    echo "跳过: Cursor 扩展目录不存在"
+fi
+
+echo ""
+echo "========================================="
+echo "✅ 完成! 请重新加载 VSCode/Cursor 窗口以使用更新后的扩展"
 echo "========================================="

@@ -3,7 +3,6 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { AppInsightsClient } from "../common/appInsightsClient";
 import { Global } from "../common/global";
-import { OutputChannel } from "../common/outputChannel";
 import { Utility } from "../common/utility";
 import { I18n } from "../common/i18n";
 import { ColumnNode } from "./columnNode";

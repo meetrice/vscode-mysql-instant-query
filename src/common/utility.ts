@@ -7,8 +7,6 @@ import { IConnection } from "../model/connection";
 import { SqlResultWebView } from "../sqlResultWebView";
 import { AppInsightsClient } from "./appInsightsClient";
 import { Global } from "./global";
-import { OutputChannel } from "./outputChannel";
-
 export class Utility {
     public static readonly maxTableCount = Utility.getConfiguration().get<number>("maxTableCount");
 
@@ -93,7 +91,7 @@ export class Utility {
             sql = this.removeDelimiterInstructions(sql);
         }
 
-        OutputChannel.appendLine("[Start] Executing MySQL query...");
+        // OutputChannel.appendLine("[Start] Executing MySQL query...");
         connection.query(sql, (err, rows) => {
             if (Array.isArray(rows)) {
                 if (rows.some(((row) => Array.isArray(row)))) {
@@ -101,7 +99,7 @@ export class Utility {
                         if (Array.isArray(row)) {
                              Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRows, undefined, undefined, false, updateSQLEditor, appendSQLEditor);
                         } else {
-                            OutputChannel.appendLine(JSON.stringify(row));
+                            // OutputChannel.appendLine(JSON.stringify(row));
                         }
                     });
                 } else {
@@ -109,16 +107,16 @@ export class Utility {
                 }
 
             } else {
-                OutputChannel.appendLine(JSON.stringify(rows));
+                // OutputChannel.appendLine(JSON.stringify(rows));
             }
 
             if (err) {
-                OutputChannel.appendLine(err);
+                // OutputChannel.appendLine(err);
                 AppInsightsClient.sendEvent("runQuery.end", { Result: "Fail", ErrorMessage: err });
             } else {
                 AppInsightsClient.sendEvent("runQuery.end", { Result: "Success" });
             }
-            OutputChannel.appendLine("[Done] Finished MySQL query.");
+            // OutputChannel.appendLine("[Done] Finished MySQL query.");
         });
         connection.end();
     }
@@ -345,7 +343,7 @@ export class Utility {
             }
         }
 
-        OutputChannel.appendLine("[Start] Executing MySQL query...");
+        // OutputChannel.appendLine("[Start] Executing MySQL query...");
         connection.query(sql, (err, rows) => {
             if (Array.isArray(rows)) {
                 if (rows.some(((row) => Array.isArray(row)))) {
@@ -353,7 +351,7 @@ export class Utility {
                         if (Array.isArray(row)) {
                              Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRows, parsedDatabase, parsedTable, updatePanel, true, appendSQLEditor);
                         } else {
-                            OutputChannel.appendLine(JSON.stringify(row));
+                            // OutputChannel.appendLine(JSON.stringify(row));
                         }
                     });
                 } else {
@@ -361,16 +359,16 @@ export class Utility {
                 }
 
             } else {
-                OutputChannel.appendLine(JSON.stringify(rows));
+                // OutputChannel.appendLine(JSON.stringify(rows));
             }
 
             if (err) {
-                OutputChannel.appendLine(err);
+                // OutputChannel.appendLine(err);
                 AppInsightsClient.sendEvent("runQuery.end", { Result: "Fail", ErrorMessage: err });
             } else {
                 AppInsightsClient.sendEvent("runQuery.end", { Result: "Success" });
             }
-            OutputChannel.appendLine("[Done] Finished MySQL query.");
+            // OutputChannel.appendLine("[Done] Finished MySQL query.");
         });
         connection.end();
     }
