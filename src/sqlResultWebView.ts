@@ -187,6 +187,11 @@ export class SqlResultWebView {
                     color: #666;
                     font-weight: normal;
                     margin-top: 2px;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    max-width: 100%;
+                    cursor: default;
                 }
                 thead tr:first-child th {
                     position: sticky;
@@ -1434,7 +1439,7 @@ export class SqlResultWebView {
         fields.forEach((field, index) => {
             const escapedField = this.escapeHtml(field);
             const comment = columnComments && columnComments[field] ? this.escapeHtml(columnComments[field]) : '';
-            const commentHtml = comment ? `<span class="column-comment">${comment}</span>` : '';
+            const commentHtml = comment ? `<span class="column-comment" title="${comment}">${comment}</span>` : '';
             head += `<th class="data-column" data-column-name="${escapedField}" onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}" style="position: relative;"><span class="column-name">${escapedField}</span>${commentHtml}<div class="resize-handle" data-column-index="${index}"></div></th>`;
         });
 
