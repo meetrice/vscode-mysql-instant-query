@@ -202,27 +202,25 @@ export class SqlResultWebView {
                     max-width: 100%;
                     cursor: default;
                 }
-                thead tr:first-child th {
+                thead {
                     position: sticky;
                     top: 0;
-                    z-index: 10;
-                    padding: 2px 2px;
-                }
-                thead tr:first-child th:hover {
+                    z-index: 100;
                     background-color: #e0e0e0;
                 }
-                thead tr:first-child th.sticky-column:hover {
+                thead tr:first-child th {
+                    padding: 2px 2px;
+                    background-color: #e0e0e0;
+                }
+                thead tr:first-child th:hover {
                     background-color: #e0e0e0;
                 }
                 th.filter-header:hover {
                     background-color: #e0e0e0;
                 }
                 th.filter-header {
-                    position: sticky;
-                    top: 35px;
                     background-color: #f5f5f5;
                     padding: 4px 8px;
-                    z-index: 9;
                 }
                 th.filter-header input {
                     width: 100%;
@@ -247,7 +245,6 @@ export class SqlResultWebView {
                     min-width: 70px;
                     text-align: center;
                     border-right: 2px solid #ccc;
-                    position: relative;
                     padding: 4px 4px;
                 }
                 th.filter-header.sticky-column {
@@ -258,9 +255,6 @@ export class SqlResultWebView {
                     min-width: 70px;
                     border-right: 2px solid #ccc;
                     background-color: #f0f0f0;
-                }
-                th.filter-header.sticky-column:hover {
-                    background-color: #e0e0e0;
                 }
                 .resize-handle {
                     position: absolute;
@@ -617,7 +611,7 @@ export class SqlResultWebView {
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    padding: 8px 12px;
+                    padding: 3px 12px;
                     background-color: var(--vscode-editor-selectionBackground);
                     border-top: 1px solid var(--vscode-panel-border);
                     flex-wrap: wrap;
@@ -901,7 +895,7 @@ export class SqlResultWebView {
                     // Update pagination info
                     const infoElement = document.getElementById('paginationInfo');
                     if (infoElement) {
-                        infoElement.textContent = \`Showing \${startRow} to \${endRow} of \${totalRows} entries\`;
+                        infoElement.textContent = \`\${startRow}-\${endRow} / \${totalRows}\`;
                     }
 
                     // Update page buttons
@@ -1596,10 +1590,10 @@ export class SqlResultWebView {
         // Add pagination controls
         body += `
             <div class="pagination-container">
-                <div class="pagination-info" id="paginationInfo">Showing 0 to 0 of 0 entries</div>
+                <div class="pagination-info" id="paginationInfo">0-0 / 0</div>
                 <div class="pagination-controls">
                     <div class="page-size-selector">
-                        <span class="page-size-label">Rows per page:</span>
+                       
                         <select id="pageSizeSelect" class="page-size-select" onchange="changePageSize()">
                             <option value="5">5</option>
                             <option value="10" selected>10</option>
