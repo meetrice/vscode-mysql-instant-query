@@ -298,9 +298,12 @@ export class SqlResultWebView {
                     z-index: 5;
                     width: 70px;
                     min-width: 70px;
+                    vertical-align: middle;
+                    text-align: center;
                 }
                 tbody .sticky-column {
                     background-color: #f0f0f0;
+                    padding: 4px 4px;
                 }
                 th.filter-header.sticky-column {
                     background-color: #f5f5f5;
@@ -379,7 +382,8 @@ export class SqlResultWebView {
                     width: 14px;
                     height: 14px;
                     cursor: pointer;
-                    margin-right: 4px;
+                    margin-right: 2px;
+                    vertical-align: middle;
                 }
                 .row-number {
                     font-size: 11px;
@@ -387,48 +391,40 @@ export class SqlResultWebView {
                     margin-right: 2px;
                     min-width: 16px;
                     display: inline-block;
+                    vertical-align: middle;
                 }
-                .save-row-btn {
+                .save-row-btn, .cancel-row-btn {
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
-                    width: 18px;
-                    height: 18px;
-                    margin-left: 2px;
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 2px;
+                    cursor: pointer;
+                    font-size: 8px;
+                    transition: all 0.15s;
+                    padding: 0;
+                    vertical-align: middle;
+                    line-height: 1;
+                }
+                .save-row-btn {
                     border: 1px solid #4caf50;
-                    border-radius: 3px;
                     background-color: #4caf50;
                     color: white;
-                    cursor: pointer;
-                    font-size: 12px;
-                    font-weight: bold;
-                    transition: all 0.2s;
                 }
                 .save-row-btn:hover {
                     background-color: #45a049;
-                    transform: scale(1.1);
                 }
-                .save-new-row-btn {
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    width: 18px;
-                    height: 18px;
+                .cancel-row-btn {
+                    border: 1px solid #999;
+                    background-color: #f5f5f5;
+                    color: #666;
                     margin-left: 2px;
-                    border: 1px solid #4caf50;
-                    border-radius: 3px;
-                    background-color: #4caf50;
-                    color: white;
-                    cursor: pointer;
-                    font-size: 12px;
-                    font-weight: bold;
-                    transition: all 0.2s;
                 }
-                .save-new-row-btn:hover {
-                    background-color: #45a049;
-                    transform: scale(1.1);
+                .cancel-row-btn:hover {
+                    background-color: #e0e0e0;
                 }
-                .save-row-btn.hidden {
+                .save-row-btn.hidden, .cancel-row-btn.hidden {
                     display: none !important;
                 }
                 tr.selected {
@@ -497,7 +493,7 @@ export class SqlResultWebView {
                 }
                 td {
                     border: 1px solid #e0e0e0;
-                    padding: 6px 10px;
+                    padding: 6px 6px;
                 }
                 tr:hover {
                     background-color: var(--vscode-editor-hoverHighlightBackground);
@@ -1088,11 +1084,11 @@ export class SqlResultWebView {
                     input.focus();
                     input.select();
 
-                    // Show save button for this row
+                    // Show save and cancel buttons for this row
                     const saveBtn = row.querySelector('.save-row-btn');
-                    if (saveBtn) {
-                        saveBtn.classList.remove('hidden');
-                    }
+                    const cancelBtn = row.querySelector('.cancel-row-btn');
+                    if (saveBtn) saveBtn.classList.remove('hidden');
+                    if (cancelBtn) cancelBtn.classList.remove('hidden');
 
                     row.classList.add('editing');
                 });
@@ -1117,6 +1113,9 @@ export class SqlResultWebView {
                     const cell = e.target.closest('td.editing');
                     const input = e.target.closest('.edit-input');
                     const saveBtn = e.target.closest('.save-row-btn');
+                    const cancelBtn = e.target.closest('.cancel-row-btn');
+
+                    if (cancelBtn) return; // Cancel button has its own handler
 
                     // If clicking outside the editing cell and not on save button
                     if (!cell && !input && !saveBtn) {
@@ -1126,13 +1125,10 @@ export class SqlResultWebView {
 
                 // Save button click handler for editing rows
                 document.addEventListener('click', function(e) {
-                    if (!e.target.classList.contains('save-row-btn')) return;
-
-                    const rowIndex = e.target.getAttribute('data-row-index');
-                    const row = document.querySelector('tr[data-row-index="' + rowIndex + '"]');
-
-                    if (row && row.classList.contains('editing')) {
+                    if (e.target.closest('.save-row-btn')) {
                         saveEdit();
+                    } else if (e.target.closest('.cancel-row-btn')) {
+                        cancelEdit();
                     }
                 });
 
@@ -1167,11 +1163,11 @@ export class SqlResultWebView {
                     const rowData = JSON.parse(row.getAttribute('data-row-data'));
                     generateUpdateSQL(rowData, columnName, originalValue, newValue);
 
-                    // Hide save button
+                    // Hide save and cancel buttons
                     const saveBtn = row.querySelector('.save-row-btn');
-                    if (saveBtn) {
-                        saveBtn.classList.add('hidden');
-                    }
+                    const cancelBtn = row.querySelector('.cancel-row-btn');
+                    if (saveBtn) saveBtn.classList.add('hidden');
+                    if (cancelBtn) cancelBtn.classList.add('hidden');
 
                     row.classList.remove('editing');
                     editingCell = null;
@@ -1187,11 +1183,11 @@ export class SqlResultWebView {
                     cell.classList.remove('editing');
                     cell.innerHTML = '<div class="cell-wrapper"><span class="cell-content">' + originalValue + '</span></div>';
 
-                    // Hide save button
+                    // Hide save and cancel buttons
                     const saveBtn = row.querySelector('.save-row-btn');
-                    if (saveBtn) {
-                        saveBtn.classList.add('hidden');
-                    }
+                    const cancelBtn = row.querySelector('.cancel-row-btn');
+                    if (saveBtn) saveBtn.classList.add('hidden');
+                    if (cancelBtn) cancelBtn.classList.add('hidden');
 
                     row.classList.remove('editing');
                     editingCell = null;
@@ -1537,7 +1533,8 @@ export class SqlResultWebView {
             body += `<td class='sticky-column'>
                 <input type='checkbox' class='row-checkbox' data-row-index='${rowIndex}'>
                 <span class='row-number'>${rowIndex + 1}</span>
-                <button class='save-row-btn hidden' data-row-index='${rowIndex}' title='Save changes'>✓</button>
+                <button class='save-row-btn hidden' data-row-index='${rowIndex}' title='Save changes'><i class='fa-solid fa-check'></i></button>
+                <button class='cancel-row-btn hidden' data-row-index='${rowIndex}' title='Cancel'><i class='fa-solid fa-reply'></i></button>
             </td>`;
             for (const field in row) {
                 if (row.hasOwnProperty(field)) {

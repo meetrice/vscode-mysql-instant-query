@@ -93,19 +93,58 @@ export class Utility {
             sql = this.removeDelimiterInstructions(sql);
         }
 
+        // Parse database and table from SQL
+        let parsedDatabase: string | undefined;
+        let parsedTable: string | undefined;
+        const parsed = Utility.parseTableFromSQL(sql);
+        if (parsed.database) {
+            parsedDatabase = parsed.database;
+        }
+        if (parsed.table) {
+            parsedTable = parsed.table;
+        }
+        // Use active connection database as fallback
+        if (!parsedDatabase && Global.activeConnection && Global.activeConnection.database) {
+            parsedDatabase = Global.activeConnection.database;
+        }
+
+        // Get total row count if database and table are available
+        let totalRowCount: number | undefined = undefined;
+        if (parsedDatabase && parsedTable) {
+            try {
+                const countConnection = Utility.createConnection(connectionOptions);
+                const countResult = await Utility.queryPromise<any[]>(countConnection, `SELECT COUNT(*) as total FROM \`${parsedDatabase}\`.\`${parsedTable}\`;`);
+                totalRowCount = countResult && countResult[0] ? countResult[0].total : undefined;
+            } catch (err) {
+                // Ignore count query errors
+            }
+        }
+
+        // Auto add LIMIT if SQL is SELECT and doesn't have LIMIT
+        const upperSql = sql.trim().toUpperCase();
+        if (upperSql.startsWith('SELECT') && !upperSql.includes('LIMIT')) {
+            // Strip trailing semicolon before appending LIMIT
+            sql = sql.trim().replace(/;\s*$/, '');
+            if (totalRowCount !== undefined && totalRowCount > 1000) {
+                sql = sql + ' LIMIT 1000';
+            } else {
+                sql = sql + ' LIMIT 100';
+            }
+        }
+
         OutputChannel.appendLine("[Start] Executing MySQL query...");
         connection.query(sql, (err, rows) => {
             if (Array.isArray(rows)) {
                 if (rows.some(((row) => Array.isArray(row)))) {
                     rows.forEach((row, index) => {
                         if (Array.isArray(row)) {
-                             Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRows, undefined, undefined, false, updateSQLEditor, appendSQLEditor);
+                             Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRowCount !== undefined ? totalRowCount : totalRows, undefined, undefined, false, updateSQLEditor, appendSQLEditor);
                         } else {
                             OutputChannel.appendLine(JSON.stringify(row));
                         }
                     });
                 } else {
-                    Utility.showQueryResult(rows, "Results", sql, totalRows, undefined, undefined, false, updateSQLEditor, appendSQLEditor);
+                    Utility.showQueryResult(rows, "Results", sql, totalRowCount !== undefined ? totalRowCount : totalRows, undefined, undefined, false, updateSQLEditor, appendSQLEditor);
                 }
 
             } else {
@@ -308,12 +347,6 @@ export class Utility {
             sql = this.removeDelimiterInstructions(sql);
         }
 
-        // Auto add LIMIT 100 if SQL is SELECT and doesn't have LIMIT
-        const upperSql = sql.trim().toUpperCase();
-        if (upperSql.startsWith('SELECT') && !upperSql.includes('LIMIT')) {
-            sql = sql.trim() + ' LIMIT 100';
-        }
-
         // Use provided database and table, or parse from SQL as fallback
         let parsedDatabase = database;
         let parsedTable = table;
@@ -342,6 +375,18 @@ export class Utility {
                 totalRows = countResult && countResult[0] ? countResult[0].total : undefined;
             } catch (err) {
                 // Ignore count query errors
+            }
+        }
+
+        // Auto add LIMIT if SQL is SELECT and doesn't have LIMIT
+        const upperSql = sql.trim().toUpperCase();
+        if (upperSql.startsWith('SELECT') && !upperSql.includes('LIMIT')) {
+            // Strip trailing semicolon before appending LIMIT
+            sql = sql.trim().replace(/;\s*$/, '');
+            if (totalRows !== undefined && totalRows > 1000) {
+                sql = sql + ' LIMIT 1000';
+            } else {
+                sql = sql + ' LIMIT 100';
             }
         }
 
