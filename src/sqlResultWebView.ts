@@ -152,6 +152,14 @@ export class SqlResultWebView {
                     padding: 0;
                     background-color: var(--vscode-editor-background);
                     color: var(--vscode-editor-foreground);
+                    height: 100vh;
+                    display: flex;
+                    flex-direction: column;
+                }
+                .table-wrapper {
+                    flex: 1;
+                    overflow-y: auto;
+                    overflow-x: auto;
                 }
                 .table-info {
                     padding: 10px 16px;
@@ -609,12 +617,12 @@ export class SqlResultWebView {
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    margin-top: 16px;
-                    padding: 12px;
+                    padding: 8px 12px;
                     background-color: var(--vscode-editor-selectionBackground);
-                    border-radius: 4px;
+                    border-top: 1px solid var(--vscode-panel-border);
                     flex-wrap: wrap;
                     gap: 12px;
+                    flex-shrink: 0;
                 }
                 .pagination-info {
                     color: var(--vscode-descriptionForeground);
@@ -1525,7 +1533,7 @@ export class SqlResultWebView {
             filterRow += `<th class="filter-header data-column" data-column-name="${this.escapeHtml(field)}"><input type="text" class="filter-input" data-column-index="${index}" placeholder=""></th>`;
         });
 
-        let body = "<table><thead><tr>" + head + "</tr><tr>" + filterRow + "</tr></thead><tbody>";
+        let body = "<div class='table-wrapper'><table><thead><tr>" + head + "</tr><tr>" + filterRow + "</tr></thead><tbody>";
 
         rows.forEach((row: any, rowIndex: number) => {
             // Store row data as JSON string for delete functionality
@@ -1583,6 +1591,7 @@ export class SqlResultWebView {
         });
 
         body += "</tbody></table>";
+        body += "</div>"; // close table-wrapper
 
         // Add pagination controls
         body += `
