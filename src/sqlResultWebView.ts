@@ -172,7 +172,7 @@ export class SqlResultWebView {
                     background-color: #e0e0e0;
                     border: 1px solid #d0d0d0;
                     padding: 8px 12px;
-                    text-align: left;
+                    text-align: center;
                     font-weight: 600;
                     cursor: pointer;
                     user-select: none;
@@ -198,13 +198,20 @@ export class SqlResultWebView {
                     position: sticky;
                     top: 0;
                     z-index: 10;
+                    padding: 2px 2px;
                 }
                 thead tr:first-child th:hover {
-                    background-color: #d0d0d0;
+                    background-color: #e0e0e0;
+                }
+                thead tr:first-child th.sticky-column:hover {
+                    background-color: #e0e0e0;
+                }
+                th.filter-header:hover {
+                    background-color: #e0e0e0;
                 }
                 th.filter-header {
                     position: sticky;
-                    top: 41px;
+                    top: 35px;
                     background-color: #f5f5f5;
                     padding: 4px 8px;
                     z-index: 9;
@@ -226,22 +233,26 @@ export class SqlResultWebView {
                 .column-filter-header {
                     position: sticky;
                     left: 0;
-                    background-color: #e8e8e8;
+                    background-color: #f0f0f0;
                     z-index: 20;
-                    width: 180px;
-                    min-width: 100px;
+                    width: 70px;
+                    min-width: 70px;
                     text-align: center;
                     border-right: 2px solid #ccc;
                     position: relative;
-                    padding: 8px 4px 8px 4px;
+                    padding: 4px 4px;
                 }
                 th.filter-header.sticky-column {
                     position: sticky;
                     left: 0;
                     z-index: 9;
-                    width: 180px;
-                    min-width: 100px;
+                    width: 70px;
+                    min-width: 70px;
                     border-right: 2px solid #ccc;
+                    background-color: #f0f0f0;
+                }
+                th.filter-header.sticky-column:hover {
+                    background-color: #e0e0e0;
                 }
                 .resize-handle {
                     position: absolute;
@@ -257,9 +268,10 @@ export class SqlResultWebView {
                     background-color: rgba(0, 122, 204, 0.3);
                 }
                 .column-filter-input {
-                    width: 100%;
-                    padding: 6px 12px 6px 6px;
-                    font-size: 12px;
+                    width: 80px;
+                    padding: 4px 4px 4px 4px;
+                    margin-top:4px;
+                    font-size: 11px;
                     border: 1px solid #bbb;
                     border-radius: 3px;
                     box-sizing: border-box;
@@ -279,34 +291,29 @@ export class SqlResultWebView {
                 .sticky-column {
                     position: sticky;
                     left: 0;
-                    background-color: inherit;
+                    background-color: #f0f0f0;
                     border-right: 2px solid #ccc;
                     z-index: 5;
-                    width: 180px;
-                    min-width: 100px;
+                    width: 70px;
+                    min-width: 70px;
+                }
+                tbody .sticky-column {
+                    background-color: #f0f0f0;
                 }
                 th.filter-header.sticky-column {
                     background-color: #f5f5f5;
-                }
-                .action-buttons {
-                    display: flex;
-                    gap: 6px;
-                    align-items: center;
-                    justify-content: center;
-                    height: 100%;
                 }
                 .action-btn {
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
-                    width: 28px;
-                    height: 28px;
+                    width: 18px;
+                    height: 18px;
                     border: 1px solid #bbb;
-                    border-radius: 4px;
                     background-color: var(--vscode-button-secondaryBackground);
                     color: var(--vscode-button-secondaryForeground);
                     cursor: pointer;
-                    font-size: 16px;
+                    font-size: 8px;
                     transition: all 0.2s;
                 }
                 .action-btn:hover {
@@ -320,6 +327,7 @@ export class SqlResultWebView {
                     background-color: #f44336;
                     color: white;
                     border-color: #d32f2f;
+                    font-size: 10px;
                 }
                 .action-btn.danger:hover {
                     background-color: #d32f2f;
@@ -328,31 +336,69 @@ export class SqlResultWebView {
                     background-color: #4caf50;
                     color: white;
                     border-color: #388e3c;
+                    font-size: 10px;
                 }
                 .action-btn.success:hover {
+                    background-color: #388e3c;
+                }
+                .action-btn-group {
+                    display: inline-flex;
+                    border: 1px solid #bbb;
+                    border-radius: 4px;
+                    overflow: hidden;
+                }
+                .action-btn-group .action-btn {
+                    border: none;
+                    border-radius: 0;
+                    border-right: 1px solid #bbb;
+                }
+                .action-btn-group .action-btn:last-child {
+                    border-right: none;
+                }
+                .action-btn-group .action-btn:hover {
+                    background-color: var(--vscode-button-hoverBackground);
+                }
+                .action-btn-group .action-btn.danger {
+                    border-right: 1px solid #d32f2f;
+                }
+                .action-btn-group .action-btn.danger:hover {
+                    background-color: #d32f2f;
+                }
+                .action-btn-group .action-btn.success {
+                    border-right: 1px solid #388e3c;
+                }
+                .action-btn-group .action-btn.success:hover {
                     background-color: #388e3c;
                 }
                 .action-btn.hidden {
                     display: none;
                 }
                 .row-checkbox {
-                    width: 16px;
-                    height: 16px;
+                    width: 14px;
+                    height: 14px;
                     cursor: pointer;
+                    margin-right: 4px;
+                }
+                .row-number {
+                    font-size: 11px;
+                    color: #888;
+                    margin-right: 2px;
+                    min-width: 16px;
+                    display: inline-block;
                 }
                 .save-row-btn {
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
-                    width: 20px;
-                    height: 20px;
-                    margin-left: 4px;
+                    width: 18px;
+                    height: 18px;
+                    margin-left: 2px;
                     border: 1px solid #4caf50;
                     border-radius: 3px;
                     background-color: #4caf50;
                     color: white;
                     cursor: pointer;
-                    font-size: 14px;
+                    font-size: 12px;
                     font-weight: bold;
                     transition: all 0.2s;
                 }
@@ -364,15 +410,15 @@ export class SqlResultWebView {
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
-                    width: 20px;
-                    height: 20px;
-                    margin-left: 4px;
+                    width: 18px;
+                    height: 18px;
+                    margin-left: 2px;
                     border: 1px solid #4caf50;
                     border-radius: 3px;
                     background-color: #4caf50;
                     color: white;
                     cursor: pointer;
-                    font-size: 14px;
+                    font-size: 12px;
                     font-weight: bold;
                     transition: all 0.2s;
                 }
@@ -386,8 +432,17 @@ export class SqlResultWebView {
                 tr.selected {
                     background-color: rgba(0, 122, 204, 0.1);
                 }
+                tr.selected .sticky-column {
+                    background-color: #d8e8f0;
+                }
                 tr.editing {
                     background-color: rgba(255, 193, 7, 0.1);
+                }
+                tr.editing .sticky-column {
+                    background-color: #f8f0d8;
+                }
+                tr.new-row .sticky-column {
+                    background-color: #e8f8e8;
                 }
                 td.editing {
                     padding: 0 !important;
@@ -444,6 +499,9 @@ export class SqlResultWebView {
                 }
                 tr:hover {
                     background-color: var(--vscode-editor-hoverHighlightBackground);
+                }
+                tr:hover .sticky-column {
+                    background-color: #e8e8e8;
                 }
                 .cell-wrapper {
                     display: inline-block;
@@ -679,7 +737,7 @@ export class SqlResultWebView {
                         if (!isResizing) return;
 
                         const diff = e.clientX - startX;
-                        const newWidth = Math.max(100, startWidth + diff); // Minimum 100px
+                        const newWidth = Math.max(60, startWidth + diff); // Minimum 60px
 
                         // Update filter header width
                         filterHeader.style.width = newWidth + 'px';
@@ -1412,6 +1470,7 @@ export class SqlResultWebView {
             "<head>",
             '<meta http-equiv="Content-type" content="text/html;charset=UTF-8">',
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+            '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">',
             style,
             "</head>",
             "<body>",
@@ -1444,7 +1503,7 @@ export class SqlResultWebView {
 
         // Generate header row with field filter column
         let head = `<th class="column-filter-header">
-            <input type="text" id="columnFilterInput" class="column-filter-input" placeholder="🔍 Filter columns...">
+            <input type="text" id="columnFilterInput" class="column-filter-input" placeholder="🔍">
         </th>`;
         fields.forEach((field, index) => {
             const escapedField = this.escapeHtml(field);
@@ -1455,11 +1514,11 @@ export class SqlResultWebView {
 
         // Generate filter row (first column has action buttons)
         let filterRow = `<th class="filter-header sticky-column">
-            <div class="action-buttons">
-                <button class="action-btn" id="selectAllBtn" title="Select All">☑️</button>
-                <button class="action-btn danger" id="deleteBtn" title="Delete Selected">🗑️</button>
-                <button class="action-btn success" id="addBtn" title="Add Row">➕</button>
-                <button class="action-btn" id="refreshBtn" title="Refresh">🔄</button>
+            <div class="action-btn-group">
+                <button class="action-btn" id="selectAllBtn" title="Select All"><i class="fa-solid fa-check"></i></button>
+                <button class="action-btn danger" id="deleteBtn" title="Delete Selected"><i class="fa-solid fa-remove"></i></button>
+                <button class="action-btn success" id="addBtn" title="Add Row"><i class="fa-solid fa-plus"></i></button>
+                <button class="action-btn" id="refreshBtn" title="Refresh"><i class="fa-solid fa-refresh"></i></button>
             </div>
         </th>`;
         fields.forEach((field, index) => {
@@ -1475,6 +1534,7 @@ export class SqlResultWebView {
             // Add checkbox cell with visible checkbox and save button
             body += `<td class='sticky-column'>
                 <input type='checkbox' class='row-checkbox' data-row-index='${rowIndex}'>
+                <span class='row-number'>${rowIndex + 1}</span>
                 <button class='save-row-btn hidden' data-row-index='${rowIndex}' title='Save changes'>✓</button>
             </td>`;
             for (const field in row) {
