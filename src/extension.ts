@@ -15,6 +15,7 @@ import { SqlResultWebView } from "./sqlResultWebView";
 import { RunNowCodeLensProvider } from "./runButtonProvider";
 import { ErdWebView } from "./erdWebView";
 import { Constants } from "./common/constants";
+import { OutputChannel } from "./common/outputChannel";
 import { IConnection } from "./model/connection";
 
 export function activate(context: vscode.ExtensionContext) {
@@ -29,6 +30,14 @@ export function activate(context: vscode.ExtensionContext) {
 
     // 启动时自动选中第一个连接的第一个用户数据库
     autoSelectFirstDatabase(context);
+
+    // 注册 URI Handler，支持通过外部链接打开表并执行查询
+    // 格式: cursor://meetrice.mysql-instant-query/<table>?db=xxx&prefix=xxx&limit=xxx
+    context.subscriptions.push(vscode.window.registerUriHandler({
+        handleUri(uri: vscode.Uri) {
+            handleExternalUri(uri, context);
+        }
+    }));
 
     // Set context keys to help prevent other extensions' menus from showing
     vscode.commands.executeCommand('setContext', 'mysqlInstantQuery.sidebarActive', true);
@@ -934,5 +943,127 @@ async function autoSelectFirstDatabase(context: vscode.ExtensionContext) {
         }
     } catch {
         // 启动时静默失败，不影响正常使用（可能数据库未启动等）
+    }
+}
+
+/**
+ * 处理外部 URI 请求，通过链接直接打开表并执行 SELECT 查询。
+ *
+ * URI 格式: cursor://meetrice.mysql-instant-query/<tableName>
+ * 可选参数:
+ *   - db: 指定数据库名（默认使用当前活动连接的数据库）
+ *   - prefix: 表名前缀（覆盖配置中的 uriTablePrefix）
+ *   - limit: 查询行数限制（覆盖配置中的 uriDefaultLimit）
+ *   - sql: 自定义完整 SQL（忽略 tableName 和其他参数）
+ *
+ * 示例:
+ *   cursor://meetrice.mysql-instant-query/mediamonitoring
+ *     → 当配置 uriTablePrefix = "fa_uran_" 时执行:
+ *       SELECT * FROM fa_uran_mediamonitoring LIMIT 100
+ *
+ *   cursor://meetrice.mysql-instant-query/users?db=mydb&limit=50
+ *     → SELECT * FROM mydb.users LIMIT 50
+ */
+async function handleExternalUri(uri: vscode.Uri, context: vscode.ExtensionContext) {
+    AppInsightsClient.sendEvent("uriHandler.open");
+    OutputChannel.appendLine("[URI] handleExternalUri called");
+    OutputChannel.appendLine("[URI] uri.path = " + uri.path);
+    OutputChannel.appendLine("[URI] uri.query = " + uri.query);
+    OutputChannel.appendLine("[URI] Global.activeConnection = " + (Global.activeConnection ? "exists" : "null"));
+
+    const config = Utility.getConfiguration();
+    const queryParams = parseQueryString(uri.query);
+    OutputChannel.appendLine("[URI] queryParams = " + JSON.stringify(queryParams));
+
+    // 支持自定义 SQL 直接执行
+    const customSql = queryParams['sql'];
+    if (customSql) {
+        OutputChannel.appendLine("[URI] Using custom SQL: " + customSql);
+        await ensureActiveConnection(context);
+        if (!Global.activeConnection) {
+            OutputChannel.appendLine("[URI] No active connection, aborting");
+            vscode.window.showWarningMessage("没有可用的 MySQL 连接，请先添加连接");
+            return;
+        }
+        OutputChannel.appendLine("[URI] Running custom SQL...");
+        await Utility.runQueryWithTotal(customSql, undefined, undefined, false, false);
+        OutputChannel.appendLine("[URI] Custom SQL completed");
+        return;
+    }
+
+    // 从 URI path 中提取表名（去掉前导 /）
+    const pathSegment = uri.path.replace(/^\/+/, '').trim();
+    OutputChannel.appendLine("[URI] pathSegment = " + pathSegment);
+    if (!pathSegment) {
+        OutputChannel.appendLine("[URI] No table name in path");
+        vscode.window.showWarningMessage("URI 中未指定表名");
+        return;
+    }
+
+    // 确保有活动连接
+    OutputChannel.appendLine("[URI] Calling ensureActiveConnection...");
+    await ensureActiveConnection(context);
+    OutputChannel.appendLine("[URI] After ensureActiveConnection, Global.activeConnection = " + (Global.activeConnection ? "exists" : "null"));
+
+    if (!Global.activeConnection) {
+        OutputChannel.appendLine("[URI] Still no active connection, aborting");
+        vscode.window.showWarningMessage("没有可用的 MySQL 连接，请先添加连接");
+        return;
+    }
+
+    // 解析参数
+    const prefix = queryParams['prefix'] || config.get<string>("uriTablePrefix", "");
+    const limit = parseInt(queryParams['limit'] || String(config.get<number>("uriDefaultLimit", 100)), 10);
+    const dbParam = queryParams['db'];
+
+    const fullTableName = prefix + pathSegment;
+    const database = dbParam || Global.activeConnection.database;
+
+    OutputChannel.appendLine("[URI] fullTableName = " + fullTableName);
+    OutputChannel.appendLine("[URI] database = " + database);
+
+    if (!database) {
+        OutputChannel.appendLine("[URI] No database specified");
+        vscode.window.showWarningMessage("未指定数据库，请通过 ?db= 参数指定或先选择一个数据库");
+        return;
+    }
+
+    const sql = `SELECT * FROM \`${database}\`.\`${fullTableName}\` LIMIT ${limit}`;
+    OutputChannel.appendLine("[URI] Executing SQL: " + sql);
+
+    await Utility.runQueryWithTotal(sql, database, fullTableName, false, false);
+    OutputChannel.appendLine("[URI] runQueryWithTotal completed");
+}
+
+function parseQueryString(queryString: string): { [key: string]: string } {
+    const params: { [key: string]: string } = {};
+    if (!queryString) {
+        return params;
+    }
+    queryString.split('&').forEach(pair => {
+        const [key, ...rest] = pair.split('=');
+        if (key) {
+            params[decodeURIComponent(key)] = decodeURIComponent(rest.join('=') || '');
+        }
+    });
+    return params;
+}
+
+/**
+ * 确保存在活动连接，若没有则尝试自动选中第一个连接。
+ * 等待最多 2 秒让 autoSelectFirstDatabase 完成。
+ */
+async function ensureActiveConnection(context: vscode.ExtensionContext) {
+    if (Global.activeConnection) {
+        return;
+    }
+    // 尝试触发自动选择
+    await autoSelectFirstDatabase(context);
+
+    // 再等待一小段时间
+    let retries = 10;
+    while (!Global.activeConnection && retries > 0) {
+        await new Promise(r => setTimeout(r, 200));
+        retries--;
     }
 }

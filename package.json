@@ -30,6 +30,7 @@
     },
     "activationEvents": [
         "onStartupFinished",
+        "onUri",
         "onView:mysqlInstantQuery",
         "onCommand:mysqlInstantQuery.addConnection",
         "onCommand:mysqlInstantQuery.runQuery",
@@ -37,6 +38,7 @@
     ],
     "main": "./out/extension",
     "contributes": {
+        "uriSchemes": ["cursor://meetrice.mysql-instant-query"],
         "viewsContainers": {
             "activitybar": [
                 {
@@ -475,6 +477,16 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Enable 'Run Now' button in SQL editor"
+                },
+                "mysql-instant-query.uriTablePrefix": {
+                    "type": "string",
+                    "default": "",
+                    "description": "通过 URI 打开表时自动添加的表名前缀，例如 'fa_uran_'"
+                },
+                "mysql-instant-query.uriDefaultLimit": {
+                    "type": "integer",
+                    "default": 100,
+                    "description": "通过 URI 打开表时默认的 LIMIT 行数"
                 }
             }
         },
