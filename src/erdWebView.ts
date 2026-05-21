@@ -1193,17 +1193,21 @@ export class ErdWebView {
             z-index: 1000;
         }
         .action-btn {
-            width: 40px;
+            width: auto;
+            min-width: 40px;
             height: 40px;
+            padding: 0 12px;
+            gap: 6px;
             background-color: var(--vscode-editor-background);
             border: 1px solid var(--vscode-button-border);
             border-radius: 6px;
             color: var(--vscode-editor-foreground);
-            font-size: 13px;
+            font-size: 12px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
+            white-space: nowrap;
             transition: background 0.2s;
         }
         .action-btn:hover {
@@ -1452,10 +1456,10 @@ export class ErdWebView {
 
     <!-- Action buttons -->
     <div class="action-buttons">
-        <button class="action-btn" id="newErdBtn" title="Create new ERD">✨</button>
-        <button class="action-btn" id="saveBtn" title="Save ERD to file">💾</button>
-        <button class="action-btn" id="openBtn" title="Open ERD from file">📂</button>
-        <button class="action-btn" id="addCommentBtn" title="Add comment">📝</button>
+        <button class="action-btn" id="newErdBtn" title="新建 ERD">✨ 新建</button>
+        <button class="action-btn" id="saveBtn" title="保存 ERD 到文件">💾 保存</button>
+        <button class="action-btn" id="openBtn" title="打开 ERD 文件">📂 打开</button>
+        <button class="action-btn" id="addCommentBtn" title="添加注释">📝 注释</button>
     </div>
 
     <!-- Context menu -->
