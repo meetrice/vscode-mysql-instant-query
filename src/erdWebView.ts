@@ -163,6 +163,9 @@ export class ErdWebView {
                 case 'open':
                     await ErdWebView.openFromFile();
                     break;
+                case 'exportImage':
+                    await ErdWebView.exportImage(message.format, message.data, message.width, message.height);
+                    break;
             }
         }, undefined);
     }
@@ -239,6 +242,9 @@ export class ErdWebView {
                         break;
                     case 'open':
                         await ErdWebView.openFromFile();
+                        break;
+                    case 'exportImage':
+                        await ErdWebView.exportImage(message.format, message.data, message.width, message.height);
                         break;
                 }
             }, undefined);
@@ -457,6 +463,9 @@ export class ErdWebView {
                         case 'open':
                             await ErdWebView.openFromFile();
                             break;
+                        case 'exportImage':
+                            await ErdWebView.exportImage(message.format, message.data, message.width, message.height);
+                            break;
                     }
                 }, undefined);
 
@@ -671,6 +680,91 @@ export class ErdWebView {
         }
     }
 
+    public static async exportImage(format: 'jpg' | 'pdf', dataUrl: string, width: number, height: number) {
+        if (!dataUrl) {
+            vscode.window.showWarningMessage("没有可导出的图像数据");
+            return;
+        }
+
+        const isJpg = format === 'jpg';
+        const uri = await vscode.window.showSaveDialog({
+            filters: isJpg
+                ? { 'JPEG 图片': ['jpg', 'jpeg'] }
+                : { 'PDF 文档': ['pdf'] },
+            defaultUri: vscode.Uri.file(isJpg ? 'erd.jpg' : 'erd.pdf')
+        });
+
+        if (!uri) {
+            return;
+        }
+
+        try {
+            const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+            const imageBuffer = Buffer.from(base64, 'base64');
+
+            if (isJpg) {
+                await vscode.workspace.fs.writeFile(uri, imageBuffer);
+            } else {
+                const pdfBuffer = ErdWebView.createPdfFromJpeg(imageBuffer, width, height);
+                await vscode.workspace.fs.writeFile(uri, pdfBuffer);
+            }
+
+            vscode.window.showInformationMessage(`已导出到 ${uri.fsPath}`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`导出失败: ${error}`);
+        }
+    }
+
+    private static createPdfFromJpeg(jpegBuffer: Buffer, widthPx: number, heightPx: number): Buffer {
+        const widthPt = Math.max(1, Math.round(widthPx * 0.75));
+        const heightPt = Math.max(1, Math.round(heightPx * 0.75));
+        const chunks: Buffer[] = [];
+        const offsets: number[] = [0];
+        let offset = 0;
+
+        const append = (content: string | Buffer) => {
+            const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'binary');
+            chunks.push(buf);
+            offset += buf.length;
+        };
+
+        append('%PDF-1.4\n');
+
+        offsets.push(offset);
+        append('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+
+        offsets.push(offset);
+        append('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+
+        offsets.push(offset);
+        append(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${widthPt} ${heightPt}] /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`);
+
+        offsets.push(offset);
+        append(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${widthPx} /Height ${heightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBuffer.length} >>\nstream\n`);
+        chunks.push(jpegBuffer);
+        offset += jpegBuffer.length;
+        append('\nendstream\nendobj\n');
+
+        const contentStream = `q ${widthPt} 0 0 ${heightPt} 0 0 cm /Im1 Do Q`;
+        offsets.push(offset);
+        append(`5 0 obj\n<< /Length ${contentStream.length} >>\nstream\n${contentStream}\nendstream\nendobj\n`);
+
+        const xrefOffset = offset;
+        append(`xref\n0 ${offsets.length}\n`);
+        append('0000000000 65535 f \n');
+        for (let i = 1; i < offsets.length; i++) {
+            const padded = ('0000000000' + offsets[i]).slice(-10);
+            append(`${padded} 00000 n \n`);
+        }
+        append('trailer\n');
+        append(`<< /Size ${offsets.length} /Root 1 0 R >>\n`);
+        append('startxref\n');
+        append(`${xrefOffset}\n`);
+        append('%%EOF');
+
+        return Buffer.concat(chunks);
+    }
+
     public static async openFromFile() {
         const uri = await vscode.window.showOpenDialog({
             filters: {
@@ -784,6 +878,9 @@ export class ErdWebView {
                         case 'open':
                             await ErdWebView.openFromFile();
                             break;
+                        case 'exportImage':
+                            await ErdWebView.exportImage(message.format, message.data, message.width, message.height);
+                            break;
                     }
                 }, undefined);
 
@@ -828,13 +925,14 @@ export class ErdWebView {
             color: var(--vscode-editor-foreground);
             overflow: hidden;
             cursor: grab;
+            padding-top: 52px;
         }
         body.panning {
             cursor: grabbing;
         }
         #canvas-container {
             width: 100%;
-            height: 100vh;
+            height: calc(100vh - 52px);
             overflow: hidden;
             position: relative;
         }
@@ -845,7 +943,7 @@ export class ErdWebView {
             transform-origin: 0 0;
             transition: transform 0.1s ease-out;
         }
-        svg {
+        #relationships {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none;
             z-index: 1;
@@ -1182,35 +1280,95 @@ export class ErdWebView {
             color: var(--vscode-editor-foreground);
             z-index: 1000;
         }
-        /* Action buttons */
-        .action-buttons {
+        /* Top toolbar */
+        .erd-toolbar {
             position: fixed;
-            top: 20px;
-            right: 20px;
+            top: 8px;
+            left: 50%;
+            transform: translateX(-50%);
             display: flex;
-            flex-direction: column;
-            gap: 8px;
+            flex-direction: row;
+            align-items: center;
+            gap: 2px;
+            padding: 4px 8px;
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
             z-index: 1000;
         }
-        .action-btn {
-            width: auto;
-            min-width: 40px;
-            height: 40px;
-            padding: 0 12px;
+        .toolbar-btn {
+            display: inline-flex;
+            align-items: center;
             gap: 6px;
-            background-color: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-button-border);
-            border-radius: 6px;
+            height: 32px;
+            padding: 0 10px;
+            border: none;
+            border-radius: 4px;
+            background: transparent;
             color: var(--vscode-editor-foreground);
             font-size: 12px;
             cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             white-space: nowrap;
-            transition: background 0.2s;
+            transition: background 0.15s;
         }
-        .action-btn:hover {
+        .toolbar-btn:hover {
+            background-color: var(--vscode-toolbar-hoverBackground);
+        }
+        .toolbar-icon {
+            display: block;
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            position: static;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            pointer-events: none;
+        }
+        .toolbar-btn span {
+            line-height: 1;
+        }
+        .toolbar-divider {
+            width: 1px;
+            height: 20px;
+            margin: 0 4px;
+            background-color: var(--vscode-panel-border);
+        }
+        .toolbar-menu-wrapper {
+            position: relative;
+        }
+        .toolbar-dropdown {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            min-width: 120px;
+            padding: 4px 0;
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+            z-index: 1001;
+        }
+        .toolbar-dropdown.show {
+            display: block;
+        }
+        .toolbar-dropdown-item {
+            display: block;
+            width: 100%;
+            padding: 8px 14px;
+            border: none;
+            background: transparent;
+            color: var(--vscode-editor-foreground);
+            font-size: 12px;
+            text-align: left;
+            cursor: pointer;
+        }
+        .toolbar-dropdown-item:hover {
             background-color: var(--vscode-toolbar-hoverBackground);
         }
         
@@ -1454,12 +1612,35 @@ export class ErdWebView {
     </div>
     <div class="zoom-level" id="zoomLevel">100%</div>
 
-    <!-- Action buttons -->
-    <div class="action-buttons">
-        <button class="action-btn" id="newErdBtn" title="新建 ERD">✨ 新建</button>
-        <button class="action-btn" id="saveBtn" title="保存 ERD 到文件">💾 保存</button>
-        <button class="action-btn" id="openBtn" title="打开 ERD 文件">📂 打开</button>
-        <button class="action-btn" id="addCommentBtn" title="添加注释">📝 注释</button>
+    <!-- Toolbar -->
+    <div class="erd-toolbar">
+        <button class="toolbar-btn" id="newErdBtn" title="新建 ERD">
+            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+            <span>新建</span>
+        </button>
+        <button class="toolbar-btn" id="saveBtn" title="保存 ERD 到文件">
+            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v8"/><path d="m16 6-4 4-4-4"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h.01"/><path d="M10 18h.01"/></svg>
+            <span>保存</span>
+        </button>
+        <button class="toolbar-btn" id="openBtn" title="打开 ERD 文件">
+            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m16 6-4-4-4 4"/><path d="M12 2v8"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h.01"/><path d="M10 18h.01"/></svg>
+            <span>打开</span>
+        </button>
+        <button class="toolbar-btn" id="addCommentBtn" title="添加注释">
+            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M7 11h10"/><path d="M7 15h6"/><path d="M7 7h8"/></svg>
+            <span>注释</span>
+        </button>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-menu-wrapper">
+            <button class="toolbar-btn" id="exportBtn" title="导出">
+                <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10l-3.1-3.1a2 2 0 0 0-2.814.014L6 21"/><path d="m14 19 3 3v-5.5"/><path d="m17 22 3-3"/><circle cx="9" cy="9" r="2"/></svg>
+                <span>导出</span>
+            </button>
+            <div class="toolbar-dropdown" id="exportMenu">
+                <button class="toolbar-dropdown-item" data-format="jpg">导出 JPG</button>
+                <button class="toolbar-dropdown-item" data-format="pdf">导出 PDF</button>
+            </div>
+        </div>
     </div>
 
     <!-- Context menu -->
@@ -1709,6 +1890,183 @@ export class ErdWebView {
                 textarea.focus();
             }
         });
+
+        // Export menu
+        const exportMenu = document.getElementById('exportMenu');
+        document.getElementById('exportBtn').addEventListener('click', function(e) {
+            e.stopPropagation();
+            exportMenu.classList.toggle('show');
+        });
+
+        exportMenu.querySelectorAll('.toolbar-dropdown-item').forEach(function(item) {
+            item.addEventListener('click', function(e) {
+                e.stopPropagation();
+                exportMenu.classList.remove('show');
+                exportErd(item.dataset.format);
+            });
+        });
+
+        function getExportBounds() {
+            const padding = 40;
+            let minX = Infinity;
+            let minY = Infinity;
+            let maxX = -Infinity;
+            let maxY = -Infinity;
+
+            document.querySelectorAll('.table-node, .comment-node').forEach(function(el) {
+                const x = parseFloat(el.style.left) || 0;
+                const y = parseFloat(el.style.top) || 0;
+                const w = el.offsetWidth;
+                const h = el.offsetHeight;
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x + w);
+                maxY = Math.max(maxY, y + h);
+            });
+
+            if (minX === Infinity) {
+                return null;
+            }
+
+            return {
+                minX: minX - padding,
+                minY: minY - padding,
+                width: maxX - minX + padding * 2,
+                height: maxY - minY + padding * 2
+            };
+        }
+
+        function buildExportRoot(bounds) {
+            const bgColor = getComputedStyle(document.body).backgroundColor || '#1e1e1e';
+            const exportRoot = document.createElement('div');
+            exportRoot.style.cssText = 'position:relative;width:' + bounds.width + 'px;height:' + bounds.height + 'px;background:' + bgColor + ';overflow:hidden;';
+
+            const svgOrig = document.getElementById('relationships');
+            if (svgOrig) {
+                const svgClone = svgOrig.cloneNode(true);
+                svgClone.removeAttribute('style');
+                svgClone.setAttribute('width', bounds.width);
+                svgClone.setAttribute('height', bounds.height);
+                svgClone.setAttribute('viewBox', bounds.minX + ' ' + bounds.minY + ' ' + bounds.width + ' ' + bounds.height);
+                svgClone.style.position = 'absolute';
+                svgClone.style.left = '0';
+                svgClone.style.top = '0';
+                svgClone.style.width = bounds.width + 'px';
+                svgClone.style.height = bounds.height + 'px';
+                svgClone.style.pointerEvents = 'none';
+                exportRoot.appendChild(svgClone);
+            }
+
+            document.querySelectorAll('.table-node').forEach(function(el) {
+                const clone = el.cloneNode(true);
+                clone.style.left = ((parseFloat(el.style.left) || 0) - bounds.minX) + 'px';
+                clone.style.top = ((parseFloat(el.style.top) || 0) - bounds.minY) + 'px';
+                clone.classList.remove('selected');
+                exportRoot.appendChild(clone);
+            });
+
+            document.querySelectorAll('.comment-node').forEach(function(el) {
+                const clone = el.cloneNode(true);
+                clone.style.left = ((parseFloat(el.style.left) || 0) - bounds.minX) + 'px';
+                clone.style.top = ((parseFloat(el.style.top) || 0) - bounds.minY) + 'px';
+                clone.classList.remove('selected');
+                const textarea = clone.querySelector('.comment-textarea');
+                if (textarea) {
+                    const textDiv = document.createElement('div');
+                    textDiv.className = 'comment-export-text';
+                    textDiv.textContent = textarea.value || '';
+                    textDiv.style.cssText = 'white-space:pre-wrap;font-size:13px;line-height:1.4;color:#333;';
+                    textarea.replaceWith(textDiv);
+                }
+                exportRoot.appendChild(clone);
+            });
+
+            return exportRoot;
+        }
+
+        function renderExportToDataUrl(element, width, height, format) {
+            return new Promise(function(resolve, reject) {
+                const scale = Math.min(1, 8000 / Math.max(width, height));
+                const outputWidth = Math.max(1, Math.round(width * scale));
+                const outputHeight = Math.max(1, Math.round(height * scale));
+                const bgColor = getComputedStyle(document.body).backgroundColor || '#1e1e1e';
+                const xmlns = 'http://www.w3.org/2000/svg';
+                const wrapper = document.createElementNS(xmlns, 'svg');
+                wrapper.setAttribute('xmlns', xmlns);
+                wrapper.setAttribute('width', outputWidth);
+                wrapper.setAttribute('height', outputHeight);
+
+                const foreignObject = document.createElementNS(xmlns, 'foreignObject');
+                foreignObject.setAttribute('width', '100%');
+                foreignObject.setAttribute('height', '100%');
+
+                const exportClone = element.cloneNode(true);
+                exportClone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+                if (scale !== 1) {
+                    exportClone.style.transform = 'scale(' + scale + ')';
+                    exportClone.style.transformOrigin = 'top left';
+                    exportClone.style.width = width + 'px';
+                    exportClone.style.height = height + 'px';
+                }
+                foreignObject.appendChild(exportClone);
+                wrapper.appendChild(foreignObject);
+
+                const svgString = new XMLSerializer().serializeToString(wrapper);
+                const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const img = new Image();
+
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = outputWidth;
+                    canvas.height = outputHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = bgColor;
+                    ctx.fillRect(0, 0, outputWidth, outputHeight);
+                    ctx.drawImage(img, 0, 0, outputWidth, outputHeight);
+                    URL.revokeObjectURL(url);
+                    const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
+                    resolve(canvas.toDataURL(mime, 0.92));
+                };
+                img.onerror = function() {
+                    URL.revokeObjectURL(url);
+                    reject(new Error('Failed to render export image'));
+                };
+                img.src = url;
+            });
+        }
+
+        function exportErd(format) {
+            const bounds = getExportBounds();
+            if (!bounds) {
+                alert('没有可导出的内容');
+                return;
+            }
+
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'position:fixed;left:-100000px;top:0;';
+            const exportRoot = buildExportRoot(bounds);
+            wrapper.appendChild(exportRoot);
+            document.body.appendChild(wrapper);
+
+            renderExportToDataUrl(exportRoot, bounds.width, bounds.height, format === 'pdf' ? 'jpg' : format)
+                .then(function(dataUrl) {
+                    vscode.postMessage({
+                        command: 'exportImage',
+                        format: format,
+                        data: dataUrl,
+                        width: bounds.width,
+                        height: bounds.height
+                    });
+                })
+                .catch(function(err) {
+                    console.error('[Export] Failed:', err);
+                    alert('导出失败，请重试');
+                })
+                .finally(function() {
+                    wrapper.remove();
+                });
+        }
 // Initialize comment events
 function initCommentEvents(commentEl) {
     const textarea = commentEl.querySelector('.comment-textarea');
@@ -2698,6 +3056,10 @@ function initCommentEvents(commentEl) {
                 // Hide context menu
                 if (!e.target.closest('.context-menu')) {
                     document.getElementById('contextMenu').style.display = 'none';
+                }
+                // Hide export menu
+                if (!e.target.closest('.toolbar-menu-wrapper')) {
+                    exportMenu.classList.remove('show');
                 }
                 // Hide relationship context menu
                 if (!e.target.closest('.relationship-context-menu') && !e.target.closest('.relationship-line') && !e.target.closest('.relationship-hit-area')) {
