@@ -1265,6 +1265,10 @@ export class ErdWebView {
             justify-content: center;
             transition: background 0.2s;
         }
+        .zoom-btn .toolbar-icon {
+            width: 18px;
+            height: 18px;
+        }
         .zoom-btn:hover {
             background-color: var(--vscode-toolbar-hoverBackground);
         }
@@ -1532,6 +1536,10 @@ export class ErdWebView {
         .thumbnail-toggle:hover {
             background-color: var(--vscode-toolbar-hoverBackground);
         }
+        .thumbnail-toggle .toolbar-icon {
+            width: 18px;
+            height: 18px;
+        }
         /* Thumbnail panel */
         .thumbnail-panel {
             position: fixed;
@@ -1608,7 +1616,9 @@ export class ErdWebView {
     <div class="zoom-controls">
         <button class="zoom-btn" id="zoomInBtn" title="Zoom In">+</button>
         <button class="zoom-btn" id="zoomOutBtn" title="Zoom Out">−</button>
-        <button class="zoom-btn" id="resetZoomBtn" title="Reset">⟲</button>
+        <button class="zoom-btn" id="resetZoomBtn" title="重置缩放并居中">
+            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/><path d="m16 16-1.9-1.9"/></svg>
+        </button>
     </div>
     <div class="zoom-level" id="zoomLevel">100%</div>
 
@@ -1660,7 +1670,9 @@ export class ErdWebView {
     </div>
 
     <!-- Thumbnail toggle button -->
-    <button class="thumbnail-toggle" id="thumbnailToggle" title="Toggle Thumbnail">🗺️</button>
+    <button class="thumbnail-toggle" id="thumbnailToggle" title="缩略图">
+        <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/></svg>
+    </button>
 
     <!-- Thumbnail panel -->
     <div class="thumbnail-panel" id="thumbnailPanel">
@@ -1697,6 +1709,66 @@ export class ErdWebView {
         function updateCanvasTransform() {
             const canvas = document.getElementById('canvas');
             canvas.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + zoom + ')';
+        }
+
+        function getDiagramBounds() {
+            let minX = Infinity;
+            let minY = Infinity;
+            let maxX = -Infinity;
+            let maxY = -Infinity;
+
+            document.querySelectorAll('.table-node, .comment-node').forEach(function(el) {
+                const x = parseFloat(el.style.left) || 0;
+                const y = parseFloat(el.style.top) || 0;
+                const w = el.offsetWidth;
+                const h = el.offsetHeight;
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x + w);
+                maxY = Math.max(maxY, y + h);
+            });
+
+            const svg = document.getElementById('relationships');
+            if (svg && svg.childNodes.length > 0) {
+                try {
+                    const bbox = svg.getBBox();
+                    if (bbox.width > 0 && bbox.height > 0) {
+                        minX = Math.min(minX, bbox.x);
+                        minY = Math.min(minY, bbox.y);
+                        maxX = Math.max(maxX, bbox.x + bbox.width);
+                        maxY = Math.max(maxY, bbox.y + bbox.height);
+                    }
+                } catch (e) {
+                    // ignore empty or invalid svg bbox
+                }
+            }
+
+            if (minX === Infinity) {
+                return null;
+            }
+
+            return {
+                minX: minX,
+                minY: minY,
+                maxX: maxX,
+                maxY: maxY,
+                centerX: (minX + maxX) / 2,
+                centerY: (minY + maxY) / 2
+            };
+        }
+
+        function resetViewAndCenter() {
+            zoom = 1;
+            const bounds = getDiagramBounds();
+            const container = document.getElementById('canvas-container');
+            if (bounds && container) {
+                panX = container.clientWidth / 2 - bounds.centerX * zoom;
+                panY = container.clientHeight / 2 - bounds.centerY * zoom;
+            } else {
+                panX = 0;
+                panY = 0;
+            }
+            updateZoom();
         }
 
         // Initialize canvas panning
@@ -1773,8 +1845,7 @@ export class ErdWebView {
         });
 
         document.getElementById('resetZoomBtn').addEventListener('click', function() {
-            zoom = 1;
-            updateZoom();
+            resetViewAndCenter();
         });
 
         // Save button - send current state to extension
@@ -1924,6 +1995,21 @@ export class ErdWebView {
                 maxY = Math.max(maxY, y + h);
             });
 
+            const relSvg = document.getElementById('relationships');
+            if (relSvg && relSvg.childNodes.length > 0) {
+                try {
+                    const bbox = relSvg.getBBox();
+                    if (bbox.width > 0 && bbox.height > 0) {
+                        minX = Math.min(minX, bbox.x);
+                        minY = Math.min(minY, bbox.y);
+                        maxX = Math.max(maxX, bbox.x + bbox.width);
+                        maxY = Math.max(maxY, bbox.y + bbox.height);
+                    }
+                } catch (e) {
+                    // ignore invalid svg bbox
+                }
+            }
+
             if (minX === Infinity) {
                 return null;
             }
@@ -1936,103 +2022,193 @@ export class ErdWebView {
             };
         }
 
-        function buildExportRoot(bounds) {
-            const bgColor = getComputedStyle(document.body).backgroundColor || '#1e1e1e';
-            const exportRoot = document.createElement('div');
-            exportRoot.style.cssText = 'position:relative;width:' + bounds.width + 'px;height:' + bounds.height + 'px;background:' + bgColor + ';overflow:hidden;';
+        function escapeXml(text) {
+            return String(text || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
 
-            const svgOrig = document.getElementById('relationships');
-            if (svgOrig) {
-                const svgClone = svgOrig.cloneNode(true);
-                svgClone.removeAttribute('style');
-                svgClone.setAttribute('width', bounds.width);
-                svgClone.setAttribute('height', bounds.height);
-                svgClone.setAttribute('viewBox', bounds.minX + ' ' + bounds.minY + ' ' + bounds.width + ' ' + bounds.height);
-                svgClone.style.position = 'absolute';
-                svgClone.style.left = '0';
-                svgClone.style.top = '0';
-                svgClone.style.width = bounds.width + 'px';
-                svgClone.style.height = bounds.height + 'px';
-                svgClone.style.pointerEvents = 'none';
-                exportRoot.appendChild(svgClone);
+        function buildRelationshipsSvg(minX, minY) {
+            const relSvg = document.getElementById('relationships');
+            if (!relSvg) {
+                return '';
             }
 
+            let svg = '<g transform="translate(' + (-minX) + ',' + (-minY) + ')">';
+            relSvg.querySelectorAll('path, polygon').forEach(function(el) {
+                const className = el.getAttribute('class') || '';
+                if (className.indexOf('relationship-hit-area') >= 0 ||
+                    className.indexOf('relationship-selection-box') >= 0) {
+                    return;
+                }
+                if (className.indexOf('relationship-line') < 0 &&
+                    className.indexOf('relationship-arrow') < 0) {
+                    return;
+                }
+
+                const tag = el.tagName.toLowerCase();
+                const d = el.getAttribute('d') || '';
+                const points = el.getAttribute('points') || '';
+                if (tag === 'path' && className.indexOf('relationship-line') >= 0) {
+                    svg += '<path d="' + escapeXml(d) + '" stroke="#007acc" stroke-width="2" fill="none"/>';
+                } else if (tag === 'polygon' && className.indexOf('relationship-arrow') >= 0) {
+                    svg += '<polygon points="' + escapeXml(points) + '" fill="#007acc"/>';
+                }
+            });
+            svg += '</g>';
+            return svg;
+        }
+
+        function getExportScale(width, height) {
+            const maxDim = Math.max(width, height, 1);
+            const maxOutput = 8000;
+            let scale = 3;
+            if (maxDim * scale > maxOutput) {
+                scale = maxOutput / maxDim;
+            }
+            return Math.max(1, scale);
+        }
+
+        function getColumnCommentFromRow(row, tableName) {
+            const commentEl = row.querySelector('.column-comment');
+            if (commentEl && commentEl.textContent.trim()) {
+                return commentEl.textContent.trim();
+            }
+            const columnName = row.getAttribute('data-column');
+            if (!columnName) {
+                return '';
+            }
+            const tableData = tables.find(function(t) { return t.tableName === tableName; });
+            if (!tableData) {
+                return '';
+            }
+            const columnData = tableData.columns.find(function(c) { return c.name === columnName; });
+            return columnData && columnData.comment ? columnData.comment : '';
+        }
+
+        function buildTableSvgFromDom(el, offsetX, offsetY) {
+            const x = offsetX;
+            const y = offsetY;
+            const w = el.offsetWidth;
+            const h = el.offsetHeight;
+            const headerEl = el.querySelector('.table-header');
+            const headerHeight = headerEl ? headerEl.offsetHeight : 40;
+            const isMainTable = el.classList.contains('main-table');
+            const headerColor = isMainTable ? '#007acc' : '#4caf50';
+            const tableBg = getComputedStyle(document.body).backgroundColor || '#1e1e1e';
+            const textColor = getComputedStyle(document.body).color || '#cccccc';
+            const mutedColor = '#999999';
+            const borderColor = '#555555';
+            const fontFamily = '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif';
+            const tableName = el.getAttribute('data-table') || '';
+
+            const nameEl = el.querySelector('.table-header-left > span');
+            const tableTitle = nameEl ? nameEl.textContent.trim() : tableName;
+            const tableCommentEl = el.querySelector('.table-comment');
+            let tableComment = tableCommentEl ? tableCommentEl.textContent.trim() : '';
+            if (!tableComment) {
+                const tableData = tables.find(function(t) { return t.tableName === tableName; });
+                tableComment = tableData && tableData.comment ? tableData.comment : '';
+            }
+
+            let svg = '<g>';
+            svg += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="8" fill="' + escapeXml(tableBg) + '" stroke="' + borderColor + '" stroke-width="2"/>';
+            svg += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + headerHeight + '" rx="8" fill="' + headerColor + '"/>';
+            svg += '<rect x="' + x + '" y="' + (y + headerHeight - 8) + '" width="' + w + '" height="8" fill="' + headerColor + '"/>';
+            const headerMidY = y + headerHeight / 2 + 5;
+            svg += '<text x="' + (x + 12) + '" y="' + headerMidY + '" fill="white" font-size="14" font-weight="600" font-family="' + fontFamily + '">' + escapeXml(tableTitle) + '</text>';
+            if (tableComment) {
+                svg += '<text x="' + (x + w - 12) + '" y="' + headerMidY + '" fill="rgba(255,255,255,0.85)" font-size="11" text-anchor="end" font-family="' + fontFamily + '">' + escapeXml(tableComment) + '</text>';
+            }
+
+            let rowY = y + headerHeight + 8;
+            el.querySelectorAll('.column-row').forEach(function(row) {
+                const rowH = row.offsetHeight || 30;
+                const colNameEl = row.querySelector('.column-name-text');
+                const typeEl = row.querySelector('.column-type');
+                const colName = colNameEl ? colNameEl.textContent.trim() : '';
+                const colType = typeEl ? typeEl.textContent.trim() : '';
+                const colComment = getColumnCommentFromRow(row, tableName);
+                const midY = rowY + rowH / 2 + 4;
+                const rightText = colComment ? colType + '  ' + colComment : colType;
+
+                svg += '<text x="' + (x + 12) + '" y="' + midY + '" fill="' + escapeXml(textColor) + '" font-size="13" font-weight="500" font-family="' + fontFamily + '">' + escapeXml(colName) + '</text>';
+                svg += '<text x="' + (x + w - 12) + '" y="' + midY + '" fill="' + mutedColor + '" font-size="11" text-anchor="end" font-family="' + fontFamily + '">' + escapeXml(rightText) + '</text>';
+                rowY += rowH;
+            });
+            svg += '</g>';
+            return svg;
+        }
+
+        function buildCommentSvgFromDom(el, offsetX, offsetY) {
+            const x = offsetX;
+            const y = offsetY;
+            const w = el.offsetWidth;
+            const h = el.offsetHeight;
+            const textarea = el.querySelector('.comment-textarea');
+            const text = textarea ? textarea.value : '';
+            const fontFamily = '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif';
+
+            let svg = '<g>';
+            svg += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="8" fill="#fff3cd" stroke="#ffc107" stroke-width="2"/>';
+            text.split('\\n').forEach(function(line, index) {
+                svg += '<text x="' + (x + 12) + '" y="' + (y + 24 + index * 16) + '" fill="#333333" font-size="13" font-family="' + fontFamily + '">' + escapeXml(line) + '</text>';
+            });
+            svg += '</g>';
+            return svg;
+        }
+
+        function buildExportSvg(bounds, exportScale) {
+            const bgColor = getComputedStyle(document.body).backgroundColor || '#1e1e1e';
+            const pixelWidth = Math.round(bounds.width * exportScale);
+            const pixelHeight = Math.round(bounds.height * exportScale);
+            let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + pixelWidth + '" height="' + pixelHeight + '" viewBox="0 0 ' + bounds.width + ' ' + bounds.height + '">';
+            svg += '<rect x="0" y="0" width="' + bounds.width + '" height="' + bounds.height + '" fill="' + escapeXml(bgColor) + '"/>';
+            svg += buildRelationshipsSvg(bounds.minX, bounds.minY);
+
             document.querySelectorAll('.table-node').forEach(function(el) {
-                const clone = el.cloneNode(true);
-                clone.style.left = ((parseFloat(el.style.left) || 0) - bounds.minX) + 'px';
-                clone.style.top = ((parseFloat(el.style.top) || 0) - bounds.minY) + 'px';
-                clone.classList.remove('selected');
-                exportRoot.appendChild(clone);
+                const x = (parseFloat(el.style.left) || 0) - bounds.minX;
+                const y = (parseFloat(el.style.top) || 0) - bounds.minY;
+                svg += buildTableSvgFromDom(el, x, y);
             });
 
             document.querySelectorAll('.comment-node').forEach(function(el) {
-                const clone = el.cloneNode(true);
-                clone.style.left = ((parseFloat(el.style.left) || 0) - bounds.minX) + 'px';
-                clone.style.top = ((parseFloat(el.style.top) || 0) - bounds.minY) + 'px';
-                clone.classList.remove('selected');
-                const textarea = clone.querySelector('.comment-textarea');
-                if (textarea) {
-                    const textDiv = document.createElement('div');
-                    textDiv.className = 'comment-export-text';
-                    textDiv.textContent = textarea.value || '';
-                    textDiv.style.cssText = 'white-space:pre-wrap;font-size:13px;line-height:1.4;color:#333;';
-                    textarea.replaceWith(textDiv);
-                }
-                exportRoot.appendChild(clone);
+                const x = (parseFloat(el.style.left) || 0) - bounds.minX;
+                const y = (parseFloat(el.style.top) || 0) - bounds.minY;
+                svg += buildCommentSvgFromDom(el, x, y);
             });
 
-            return exportRoot;
+            svg += '</svg>';
+            return svg;
         }
 
-        function renderExportToDataUrl(element, width, height, format) {
+        function renderSvgToDataUrl(svgString, pixelWidth, pixelHeight, format) {
             return new Promise(function(resolve, reject) {
-                const scale = Math.min(1, 8000 / Math.max(width, height));
-                const outputWidth = Math.max(1, Math.round(width * scale));
-                const outputHeight = Math.max(1, Math.round(height * scale));
                 const bgColor = getComputedStyle(document.body).backgroundColor || '#1e1e1e';
-                const xmlns = 'http://www.w3.org/2000/svg';
-                const wrapper = document.createElementNS(xmlns, 'svg');
-                wrapper.setAttribute('xmlns', xmlns);
-                wrapper.setAttribute('width', outputWidth);
-                wrapper.setAttribute('height', outputHeight);
-
-                const foreignObject = document.createElementNS(xmlns, 'foreignObject');
-                foreignObject.setAttribute('width', '100%');
-                foreignObject.setAttribute('height', '100%');
-
-                const exportClone = element.cloneNode(true);
-                exportClone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-                if (scale !== 1) {
-                    exportClone.style.transform = 'scale(' + scale + ')';
-                    exportClone.style.transformOrigin = 'top left';
-                    exportClone.style.width = width + 'px';
-                    exportClone.style.height = height + 'px';
-                }
-                foreignObject.appendChild(exportClone);
-                wrapper.appendChild(foreignObject);
-
-                const svgString = new XMLSerializer().serializeToString(wrapper);
-                const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
+                const dataUri = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
                 const img = new Image();
 
                 img.onload = function() {
                     const canvas = document.createElement('canvas');
-                    canvas.width = outputWidth;
-                    canvas.height = outputHeight;
+                    canvas.width = pixelWidth;
+                    canvas.height = pixelHeight;
                     const ctx = canvas.getContext('2d');
                     ctx.fillStyle = bgColor;
-                    ctx.fillRect(0, 0, outputWidth, outputHeight);
-                    ctx.drawImage(img, 0, 0, outputWidth, outputHeight);
-                    URL.revokeObjectURL(url);
-                    const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
-                    resolve(canvas.toDataURL(mime, 0.92));
+                    ctx.fillRect(0, 0, pixelWidth, pixelHeight);
+                    ctx.drawImage(img, 0, 0, pixelWidth, pixelHeight);
+                    try {
+                        const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
+                        resolve(canvas.toDataURL(mime, 0.95));
+                    } catch (err) {
+                        reject(err);
+                    }
                 };
                 img.onerror = function() {
-                    URL.revokeObjectURL(url);
                     reject(new Error('Failed to render export image'));
                 };
-                img.src = url;
+                img.src = dataUri;
             });
         }
 
@@ -2043,28 +2219,23 @@ export class ErdWebView {
                 return;
             }
 
-            const wrapper = document.createElement('div');
-            wrapper.style.cssText = 'position:fixed;left:-100000px;top:0;';
-            const exportRoot = buildExportRoot(bounds);
-            wrapper.appendChild(exportRoot);
-            document.body.appendChild(wrapper);
-
-            renderExportToDataUrl(exportRoot, bounds.width, bounds.height, format === 'pdf' ? 'jpg' : format)
+            const exportScale = getExportScale(bounds.width, bounds.height);
+            const pixelWidth = Math.round(bounds.width * exportScale);
+            const pixelHeight = Math.round(bounds.height * exportScale);
+            const svgString = buildExportSvg(bounds, exportScale);
+            renderSvgToDataUrl(svgString, pixelWidth, pixelHeight, format === 'pdf' ? 'jpg' : format)
                 .then(function(dataUrl) {
                     vscode.postMessage({
                         command: 'exportImage',
                         format: format,
                         data: dataUrl,
-                        width: bounds.width,
-                        height: bounds.height
+                        width: pixelWidth,
+                        height: pixelHeight
                     });
                 })
                 .catch(function(err) {
                     console.error('[Export] Failed:', err);
                     alert('导出失败，请重试');
-                })
-                .finally(function() {
-                    wrapper.remove();
                 });
         }
 // Initialize comment events
