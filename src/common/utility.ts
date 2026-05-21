@@ -13,7 +13,7 @@ import { OutputChannel } from "./outputChannel";
 export class Utility {
     public static readonly maxTableCount = Utility.getConfiguration().get<number>("maxTableCount");
 
-    private static columnCommentsCache = new LRU<string, { [key: string]: string }>({
+    private static columnMetadataCache = new LRU<string, { comments: { [key: string]: string }; types: { [key: string]: string } }>({
         max: 100,
         maxAge: 1000 * 60 * 30,
     });
@@ -507,28 +507,33 @@ export class Utility {
 
         console.log('[showQueryResult] Final database and table:', { database, table });
 
-        if (updatePanel) {
-            SqlResultWebView.updatePanel(data, sql, database, table, undefined, totalRows);
-        } else {
-            SqlResultWebView.show(data, title, sql, database, table, undefined, updateSQLEditor, appendSQLEditor, totalRows);
+        let columnComments: { [key: string]: string } | undefined;
+        let columnTypes: { [key: string]: string } | undefined;
+        if (database && table && data && data.length > 0) {
+            try {
+                const metadata = await Utility.fetchColumnMetadata(database, table);
+                if (metadata) {
+                    columnComments = metadata.comments;
+                    columnTypes = metadata.types;
+                }
+            } catch (err) {
+                console.error("Error fetching column metadata:", err);
+            }
         }
 
-        if (database && table && data && data.length > 0) {
-            Utility.fetchColumnComments(database, table)
-                .then((comments) => {
-                    if (comments) {
-                        SqlResultWebView.updateComments(comments);
-                    }
-                })
-                .catch((err) => {
-                    console.error("Error fetching column comments:", err);
-                });
+        if (updatePanel) {
+            SqlResultWebView.updatePanel(data, sql, database, table, columnComments, totalRows, columnTypes);
+        } else {
+            SqlResultWebView.show(data, title, sql, database, table, columnComments, columnTypes, updateSQLEditor, appendSQLEditor, totalRows);
         }
     }
 
-    public static async fetchColumnComments(database: string, table: string): Promise<{ [key: string]: string } | undefined> {
+    public static async fetchColumnMetadata(
+        database: string,
+        table: string,
+    ): Promise<{ comments: { [key: string]: string }; types: { [key: string]: string } } | undefined> {
         const cacheKey = `${database}.${table}`;
-        const cached = Utility.columnCommentsCache.get(cacheKey);
+        const cached = Utility.columnMetadataCache.get(cacheKey);
         if (cached) {
             return cached;
         }
@@ -548,7 +553,7 @@ export class Utility {
 
         const connection = Utility.createConnection(connectionOptions);
         const columns = await Utility.queryPromise<any[]>(connection,
-            `SELECT COLUMN_NAME, COLUMN_COMMENT
+            `SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_COMMENT
              FROM information_schema.COLUMNS
              WHERE TABLE_SCHEMA = '${database}' AND TABLE_NAME = '${table}';`);
 
@@ -556,15 +561,20 @@ export class Utility {
             return undefined;
         }
 
-        const columnComments: { [key: string]: string } = {};
+        const comments: { [key: string]: string } = {};
+        const types: { [key: string]: string } = {};
         columns.forEach((col) => {
             if (col.COLUMN_COMMENT) {
-                columnComments[col.COLUMN_NAME] = col.COLUMN_COMMENT;
+                comments[col.COLUMN_NAME] = col.COLUMN_COMMENT;
+            }
+            if (col.COLUMN_TYPE) {
+                types[col.COLUMN_NAME] = col.COLUMN_TYPE;
             }
         });
 
-        Utility.columnCommentsCache.set(cacheKey, columnComments);
-        return columnComments;
+        const metadata = { comments, types };
+        Utility.columnMetadataCache.set(cacheKey, metadata);
+        return metadata;
     }
 
     private static async maybeFetchTotalRowCount(

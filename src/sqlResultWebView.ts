@@ -5,6 +5,7 @@ export interface QueryResultPayload {
     rows: any[];
     fields?: string[];
     columnComments?: { [key: string]: string };
+    columnTypes?: { [key: string]: string };
     totalRows?: number;
     sql?: string;
     database?: string;
@@ -13,10 +14,11 @@ export interface QueryResultPayload {
 
 export class SqlResultWebView {
     private static currentPanel: vscode.WebviewPanel | undefined;
-    private static lastQueryInfo: { sql?: string; database?: string; table?: string; columnComments?: { [key: string]: string } } | undefined;
+    private static lastQueryInfo: { sql?: string; database?: string; table?: string; columnComments?: { [key: string]: string }; columnTypes?: { [key: string]: string } } | undefined;
     private static layoutInitialized = false;
     private static pendingPayload: QueryResultPayload | undefined;
     private static messageDisposable: vscode.Disposable | undefined;
+    private static webviewReady = false;
 
     public static async show(
         data: any[],
@@ -25,6 +27,7 @@ export class SqlResultWebView {
         database?: string,
         table?: string,
         columnComments?: { [key: string]: string },
+        columnTypes?: { [key: string]: string },
         updateSQLEditor: boolean = true,
         appendSQLEditor: boolean = true,
         totalRows?: number,
@@ -63,13 +66,14 @@ export class SqlResultWebView {
             rows: data,
             fields: SqlResultWebView.extractFields(data),
             columnComments,
+            columnTypes,
             totalRows,
             sql,
             database,
             table,
         };
 
-        SqlResultWebView.lastQueryInfo = { sql, database, table, columnComments };
+        SqlResultWebView.lastQueryInfo = { sql, database, table, columnComments, columnTypes };
 
         if (SqlResultWebView.currentPanel) {
             SqlResultWebView.currentPanel.title = panelTitle;
@@ -77,6 +81,7 @@ export class SqlResultWebView {
             return;
         }
 
+        SqlResultWebView.webviewReady = false;
         const panel = vscode.window.createWebviewPanel("MySQL", panelTitle, vscode.ViewColumn.Two, {
             retainContextWhenHidden: true,
             enableScripts: true,
@@ -90,6 +95,7 @@ export class SqlResultWebView {
         panel.onDidDispose(() => {
             SqlResultWebView.currentPanel = undefined;
             SqlResultWebView.pendingPayload = undefined;
+            SqlResultWebView.webviewReady = false;
             if (SqlResultWebView.messageDisposable) {
                 SqlResultWebView.messageDisposable.dispose();
                 SqlResultWebView.messageDisposable = undefined;
@@ -104,6 +110,7 @@ export class SqlResultWebView {
         table?: string,
         columnComments?: { [key: string]: string },
         totalRows?: number,
+        columnTypes?: { [key: string]: string },
     ) {
         if (!SqlResultWebView.currentPanel) {
             return;
@@ -123,12 +130,13 @@ export class SqlResultWebView {
             }
         }
 
-        if (sql || database || table || columnComments) {
+        if (sql || database || table || columnComments || columnTypes) {
             SqlResultWebView.lastQueryInfo = {
                 sql: sql || SqlResultWebView.lastQueryInfo?.sql,
                 database: database || SqlResultWebView.lastQueryInfo?.database,
                 table: table || SqlResultWebView.lastQueryInfo?.table,
                 columnComments: columnComments || SqlResultWebView.lastQueryInfo?.columnComments,
+                columnTypes: columnTypes || SqlResultWebView.lastQueryInfo?.columnTypes,
             };
         }
 
@@ -136,6 +144,7 @@ export class SqlResultWebView {
             rows: data,
             fields: SqlResultWebView.extractFields(data),
             columnComments: columnComments || SqlResultWebView.lastQueryInfo?.columnComments,
+            columnTypes: columnTypes || SqlResultWebView.lastQueryInfo?.columnTypes,
             totalRows,
             sql: sql || SqlResultWebView.lastQueryInfo?.sql,
             database: database || SqlResultWebView.lastQueryInfo?.database,
@@ -143,17 +152,54 @@ export class SqlResultWebView {
         });
     }
 
-    public static updateComments(columnComments: { [key: string]: string }) {
+    public static updateColumnMetadata(
+        columnComments: { [key: string]: string },
+        columnTypes?: { [key: string]: string },
+    ) {
         if (!SqlResultWebView.currentPanel) {
             return;
         }
         if (SqlResultWebView.lastQueryInfo) {
             SqlResultWebView.lastQueryInfo.columnComments = columnComments;
+            if (columnTypes) {
+                SqlResultWebView.lastQueryInfo.columnTypes = columnTypes;
+            }
+        }
+        if (SqlResultWebView.pendingPayload) {
+            SqlResultWebView.pendingPayload.columnComments = columnComments;
+            if (columnTypes) {
+                SqlResultWebView.pendingPayload.columnTypes = columnTypes;
+            }
+            return;
+        }
+        if (!SqlResultWebView.webviewReady) {
+            return;
         }
         SqlResultWebView.currentPanel.webview.postMessage({
-            command: "updateComments",
+            command: "updateColumnMetadata",
             columnComments,
+            columnTypes,
         });
+    }
+
+    private static flushColumnMetadata() {
+        if (!SqlResultWebView.currentPanel || !SqlResultWebView.webviewReady) {
+            return;
+        }
+        const info = SqlResultWebView.lastQueryInfo;
+        if (!info?.columnComments && !info?.columnTypes) {
+            return;
+        }
+        SqlResultWebView.currentPanel.webview.postMessage({
+            command: "updateColumnMetadata",
+            columnComments: info.columnComments || {},
+            columnTypes: info.columnTypes,
+        });
+    }
+
+    /** @deprecated use updateColumnMetadata */
+    public static updateComments(columnComments: { [key: string]: string }) {
+        SqlResultWebView.updateColumnMetadata(columnComments);
     }
 
     public static getLastQueryInfo(): { sql?: string; database?: string; table?: string } | undefined {
@@ -183,10 +229,19 @@ export class SqlResultWebView {
         }
         SqlResultWebView.messageDisposable = panel.webview.onDidReceiveMessage((message) => {
             if (message.command === "ready") {
+                SqlResultWebView.webviewReady = true;
                 if (SqlResultWebView.pendingPayload) {
+                    const info = SqlResultWebView.lastQueryInfo;
+                    if (info?.columnComments) {
+                        SqlResultWebView.pendingPayload.columnComments = info.columnComments;
+                    }
+                    if (info?.columnTypes) {
+                        SqlResultWebView.pendingPayload.columnTypes = info.columnTypes;
+                    }
                     SqlResultWebView.sendData(SqlResultWebView.pendingPayload);
                     SqlResultWebView.pendingPayload = undefined;
                 }
+                SqlResultWebView.flushColumnMetadata();
                 return;
             }
             if (message.command === "refreshData") {
@@ -212,28 +267,44 @@ export class SqlResultWebView {
     <style>${SqlResultWebView.getStyles()}</style>
 </head>
 <body>
-    <div id="noData" class="no-data" style="display:none;">No data</div>
-    <div class="table-wrapper" id="tableWrapper" style="display:none;">
-        <table>
-            <thead id="tableHead"></thead>
-            <tbody id="dataBody"></tbody>
-        </table>
-    </div>
-    <div class="pagination-container" id="paginationContainer" style="display:none;">
-        <div class="pagination-info" id="paginationInfo">0-0 / 0</div>
-        <div class="pagination-controls">
-            <div class="page-size-selector">
-                <select id="pageSizeSelect" class="page-size-select">
-                    <option value="5">5</option>
-                    <option value="10" selected>10</option>
-                    <option value="20">20</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                </select>
+    <div class="main-layout">
+        <div id="columnVisibilityPanel" class="column-visibility-panel" style="display:none;">
+            <div class="column-panel-header">
+                <label class="column-panel-header-label">
+                    <input type="checkbox" id="columnPanelSelectAll" class="column-panel-select-all" checked>
+                    <span>字段列表</span>
+                </label>
+                <button type="button" class="column-panel-close-btn" id="columnPanelCloseBtn" title="关闭">&times;</button>
             </div>
-            <div class="pagination-pages" id="paginationPages"></div>
+            <input type="text" id="columnPanelSearch" class="column-panel-search" placeholder="搜索字段...">
+            <div id="columnPanelList" class="column-panel-list"></div>
+        </div>
+        <div class="table-area">
+            <div id="noData" class="no-data" style="display:none;">No data</div>
+            <div class="table-wrapper" id="tableWrapper" style="display:none;">
+                <table>
+                    <thead id="tableHead"></thead>
+                    <tbody id="dataBody"></tbody>
+                </table>
+            </div>
+            <div class="pagination-container" id="paginationContainer" style="display:none;">
+                <div class="pagination-info" id="paginationInfo">0-0 / 0</div>
+                <div class="pagination-controls">
+                    <div class="page-size-selector">
+                        <select id="pageSizeSelect" class="page-size-select">
+                            <option value="5">5</option>
+                            <option value="10" selected>10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                    <div class="pagination-pages" id="paginationPages"></div>
+                </div>
+            </div>
         </div>
     </div>
+    <div id="columnContextMenu" class="column-context-menu" style="display:none;"></div>
     <div id="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -273,7 +344,20 @@ export class SqlResultWebView {
                     vertical-align: top;
                     position: relative;
                 }
-                .column-name { display: block; font-weight: 600; }
+                .column-name-row {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 2px;
+                    max-width: 100%;
+                }
+                .column-name {
+                    display: inline;
+                    font-weight: 600;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
                 .column-comment {
                     display: block;
                     font-size: 11px;
@@ -497,6 +581,194 @@ export class SqlResultWebView {
                     cursor: pointer;
                 }
                 .pagination-pages { display: flex; gap: 4px; }
+                .main-layout { display: flex; flex: 1; overflow: hidden; height: 100%; }
+                .table-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+                .column-visibility-panel {
+                    width: 260px;
+                    min-width: 200px;
+                    max-width: 360px;
+                    border-right: 1px solid var(--vscode-panel-border);
+                    background-color: var(--vscode-sideBar-background);
+                    display: flex;
+                    flex-direction: column;
+                    flex-shrink: 0;
+                    overflow: hidden;
+                }
+                .column-panel-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 8px;
+                    padding: 6px 8px 6px 12px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    border-bottom: 1px solid var(--vscode-panel-border);
+                    color: var(--vscode-sideBarTitle-foreground);
+                }
+                .column-panel-header-label {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    cursor: pointer;
+                    user-select: none;
+                    min-width: 0;
+                    flex: 1;
+                }
+                .column-panel-close-btn {
+                    flex-shrink: 0;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 20px;
+                    height: 20px;
+                    padding: 0;
+                    border: none;
+                    border-radius: 3px;
+                    background: transparent;
+                    color: var(--vscode-sideBarTitle-foreground);
+                    font-size: 16px;
+                    line-height: 1;
+                    cursor: pointer;
+                }
+                .column-panel-close-btn:hover {
+                    background-color: var(--vscode-toolbar-hoverBackground);
+                }
+                .column-panel-select-all { cursor: pointer; flex-shrink: 0; }
+                .column-panel-search {
+                    margin: 8px;
+                    padding: 4px 8px;
+                    font-size: 12px;
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 2px;
+                    background-color: var(--vscode-input-background);
+                    color: var(--vscode-input-foreground);
+                    box-sizing: border-box;
+                }
+                .column-panel-list {
+                    flex: 1;
+                    overflow-y: auto;
+                    padding: 0 4px 8px;
+                }
+                .column-panel-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 4px 8px;
+                    font-size: 12px;
+                    cursor: pointer;
+                    border-radius: 3px;
+                }
+                .column-panel-item:hover { background-color: var(--vscode-list-hoverBackground); }
+                .column-panel-item.matched { background-color: rgba(0, 122, 204, 0.08); }
+                .column-panel-checkbox { flex-shrink: 0; cursor: pointer; }
+                .column-panel-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .column-panel-name .highlight { background-color: rgba(255, 193, 7, 0.5); font-weight: 600; }
+                .column-panel-pin { flex-shrink: 0; font-size: 10px; }
+                .column-panel-comment {
+                    flex-shrink: 1;
+                    max-width: 90px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    color: var(--vscode-descriptionForeground);
+                    font-size: 11px;
+                }
+                .column-pin {
+                    display: inline-flex;
+                    align-items: center;
+                    flex-shrink: 0;
+                    color: #0066aa;
+                    margin-right: 1px;
+                }
+                .column-pin-icon {
+                    width: 7px;
+                    height: 7px;
+                    display: block;
+                }
+                .column-type {
+                    display: block;
+                    font-size: 11px;
+                    color: #007acc;
+                    font-weight: normal;
+                    margin-top: 2px;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    max-width: 100%;
+                }
+                .column-context-menu {
+                    position: fixed;
+                    z-index: 2000;
+                    min-width: 160px;
+                    background-color: var(--vscode-menu-background);
+                    color: var(--vscode-menu-foreground);
+                    border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+                    border-radius: 4px;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+                    padding: 4px 0;
+                    font-size: 13px;
+                }
+                .ctx-item {
+                    padding: 6px 16px;
+                    cursor: pointer;
+                    white-space: nowrap;
+                }
+                .ctx-item:hover { background-color: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+                .ctx-separator {
+                    height: 1px;
+                    margin: 4px 0;
+                    background-color: var(--vscode-panel-border);
+                }
+                th.data-column.pinned { background-color: #d4e8f7; }
+                th.data-column.pinned .column-name { color: #0066aa; }
+                thead tr:first-child th.data-column { overflow: hidden; }
+                th.data-column.column-flash::after {
+                    content: '';
+                    position: absolute;
+                    inset: 0;
+                    pointer-events: none;
+                    background: linear-gradient(
+                        90deg,
+                        transparent 0%,
+                        rgba(0, 122, 204, 0.15) 25%,
+                        rgba(0, 180, 255, 0.45) 50%,
+                        rgba(0, 122, 204, 0.15) 75%,
+                        transparent 100%
+                    );
+                    animation: column-header-gradient-sweep 0.75s ease-out forwards;
+                }
+                th.data-column.pinned.column-flash::after {
+                    background: linear-gradient(
+                        90deg,
+                        transparent 0%,
+                        rgba(0, 102, 170, 0.2) 25%,
+                        rgba(0, 160, 230, 0.5) 50%,
+                        rgba(0, 102, 170, 0.2) 75%,
+                        transparent 100%
+                    );
+                }
+                @keyframes column-header-gradient-sweep {
+                    0% { transform: translateX(-100%); opacity: 0.6; }
+                    40% { opacity: 1; }
+                    100% { transform: translateX(100%); opacity: 0; }
+                }
+                .column-panel-item.field-flash {
+                    animation: column-panel-field-flash 0.75s ease-out;
+                }
+                .column-panel-item.field-flash .column-panel-name {
+                    animation: column-panel-name-pulse 0.75s ease-out;
+                }
+                @keyframes column-panel-field-flash {
+                    0% { background-color: transparent; }
+                    30% { background-color: rgba(0, 122, 204, 0.18); }
+                    60% { background-color: rgba(0, 180, 255, 0.28); }
+                    100% { background-color: transparent; }
+                }
+                @keyframes column-panel-name-pulse {
+                    0% { color: inherit; }
+                    40% { color: #007acc; font-weight: 700; }
+                    100% { color: inherit; font-weight: inherit; }
+                }
         `;
     }
 
@@ -507,6 +779,14 @@ export class SqlResultWebView {
     let allRows = [];
     let fields = [];
     let columnComments = {};
+    let columnTypes = {};
+    let pinnedColumns = new Set();
+    let hiddenColumns = new Set();
+    let showTypes = false;
+    let showComments = true;
+    let columnPanelOpen = false;
+    let contextMenuColumn = null;
+    let pendingColumnMetadata = null;
     let filteredIndices = null;
     let currentPage = 1;
     let pageSize = 10;
@@ -578,15 +858,88 @@ export class SqlResultWebView {
         return indices;
     }
 
+    function fuzzyMatch(text, query) {
+        if (!query) return true;
+        const t = text.toLowerCase();
+        const q = query.toLowerCase();
+        let ti = 0;
+        for (let qi = 0; qi < q.length; qi++) {
+            const idx = t.indexOf(q[qi], ti);
+            if (idx === -1) return false;
+            ti = idx + 1;
+        }
+        return true;
+    }
+
+    function highlightFuzzy(text, query) {
+        if (!query) return escapeHtml(text);
+        const t = text;
+        const q = query.toLowerCase();
+        let ti = 0;
+        let html = '';
+        let qi = 0;
+        while (qi < q.length && ti < t.length) {
+            const idx = t.toLowerCase().indexOf(q[qi], ti);
+            if (idx === -1) break;
+            html += escapeHtml(t.substring(ti, idx));
+            html += '<span class="highlight">' + escapeHtml(t.charAt(idx)) + '</span>';
+            ti = idx + 1;
+            qi++;
+        }
+        html += escapeHtml(t.substring(ti));
+        return html;
+    }
+
+    function isColumnVisible(field) {
+        if (pinnedColumns.has(field)) return true;
+        if (hiddenColumns.has(field)) return false;
+        const input = document.getElementById('columnFilterInput');
+        const filterText = input ? input.value.toLowerCase().trim() : '';
+        if (!filterText) return true;
+        const name = field.toLowerCase();
+        const comment = (columnComments[field] || '').toLowerCase();
+        return name.includes(filterText) || comment.includes(filterText);
+    }
+
+    function applyColumnVisibility() {
+        document.querySelectorAll('th.data-column, td.data-column').forEach(function(el) {
+            const name = el.getAttribute('data-column-name');
+            if (!name) return;
+            el.classList.toggle('hidden', !isColumnVisible(name));
+        });
+        renderColumnPanel();
+    }
+
+    function buildColumnHeaderContent(field) {
+        const comment = columnComments[field] || '';
+        const colType = columnTypes[field] || '';
+        const isPinned = pinnedColumns.has(field);
+        const showComment = showComments;
+        const showType = showTypes;
+        const pinHtml = isPinned
+            ? '<span class="column-pin" title="固定显示"><svg class="column-pin-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M8 1.2 12.5 5.7v2.8L8 16 3.5 8.5V5.7L8 1.2z"/></svg></span>'
+            : '';
+        let subHtml = '';
+        if (showType && colType) {
+            subHtml += '<span class="column-type" title="' + escapeHtml(colType) + '">' + escapeHtml(colType) + '</span>';
+        }
+        if (showComment && comment) {
+            subHtml += '<span class="column-comment" title="' + escapeHtml(comment) + '">' + escapeHtml(comment) + '</span>';
+        }
+        return '<span class="column-name-row">' + pinHtml + '<span class="column-name">' + escapeHtml(field) + '</span></span>' + subHtml;
+    }
+
     function buildTableHead() {
         const thead = document.getElementById('tableHead');
         if (!thead) return;
         let head = '<tr><th class="column-filter-header"><input type="text" id="columnFilterInput" class="column-filter-input" placeholder="🔍"></th>';
         fields.forEach(function(field, index) {
             const comment = columnComments[field] || '';
-            const commentHtml = comment ? '<span class="column-comment" title="' + escapeHtml(comment) + '">' + escapeHtml(comment) + '</span>' : '';
-            head += '<th class="data-column" data-column-name="' + escapeHtml(field) + '" data-column-comment="' + escapeHtml(comment) + '" data-column-index="' + index + '">' +
-                '<span class="column-name">' + escapeHtml(field) + '</span>' + commentHtml +
+            const isPinned = pinnedColumns.has(field);
+            const hiddenClass = !isColumnVisible(field) ? ' hidden' : '';
+            const pinnedClass = isPinned ? ' pinned' : '';
+            head += '<th class="data-column' + hiddenClass + pinnedClass + '" data-column-name="' + escapeHtml(field) + '" data-column-comment="' + escapeHtml(comment) + '" data-column-index="' + index + '">' +
+                buildColumnHeaderContent(field) +
                 '<div class="resize-handle" data-column-index="' + index + '"></div></th>';
         });
         head += '</tr>';
@@ -598,31 +951,196 @@ export class SqlResultWebView {
             '<button class="action-btn" id="refreshBtn" title="Refresh">↻</button>' +
             '</div></th>';
         fields.forEach(function(field, index) {
-            filterRow += '<th class="filter-header data-column" data-column-name="' + escapeHtml(field) + '">' +
+            const hiddenClass = !isColumnVisible(field) ? ' hidden' : '';
+            filterRow += '<th class="filter-header data-column' + hiddenClass + '" data-column-name="' + escapeHtml(field) + '">' +
                 '<input type="text" class="filter-input" data-column-index="' + index + '" placeholder=""></th>';
         });
         filterRow += '</tr>';
         thead.innerHTML = head + filterRow;
     }
 
-    function updateHeaderComments() {
+    function updateHeaderMetadata() {
         document.querySelectorAll('thead tr:first-child th.data-column').forEach(function(th) {
             const name = th.getAttribute('data-column-name');
+            if (!name) return;
             const comment = columnComments[name] || '';
+            const idx = th.getAttribute('data-column-index');
             th.setAttribute('data-column-comment', comment);
-            let commentEl = th.querySelector('.column-comment');
-            if (comment) {
-                if (!commentEl) {
-                    commentEl = document.createElement('span');
-                    commentEl.className = 'column-comment';
-                    th.insertBefore(commentEl, th.querySelector('.resize-handle'));
-                }
-                commentEl.textContent = comment;
-                commentEl.title = comment;
-            } else if (commentEl) {
-                commentEl.remove();
+            th.innerHTML = buildColumnHeaderContent(name) +
+                '<div class="resize-handle" data-column-index="' + (idx || '0') + '"></div>';
+            th.classList.toggle('pinned', pinnedColumns.has(name));
+            th.classList.toggle('hidden', !isColumnVisible(name));
+        });
+        applyColumnVisibility();
+    }
+
+    function renderColumnPanel() {
+        const list = document.getElementById('columnPanelList');
+        if (!list) return;
+        const search = document.getElementById('columnPanelSearch');
+        const query = search ? search.value.trim() : '';
+        let html = '';
+        fields.forEach(function(field) {
+            const comment = columnComments[field] || '';
+            const isChecked = !hiddenColumns.has(field) || pinnedColumns.has(field);
+            const isPinned = pinnedColumns.has(field);
+            const matched = !query || fuzzyMatch(field, query) || fuzzyMatch(comment, query);
+            const nameHtml = query && fuzzyMatch(field, query) ? highlightFuzzy(field, query) : escapeHtml(field);
+            html += '<label class="column-panel-item' + (matched && query ? ' matched' : '') + '" data-field="' + escapeHtml(field) + '"' + (matched ? '' : ' style="display:none"') + '>' +
+                '<input type="checkbox" class="column-panel-checkbox" data-field="' + escapeHtml(field) + '"' +
+                (isChecked ? ' checked' : '') + (isPinned ? ' disabled' : '') + '>' +
+                '<span class="column-panel-name" title="' + escapeHtml(field) + '">' + nameHtml + '</span>' +
+                (isPinned ? '<span class="column-panel-pin" title="固定显示">📌</span>' : '') +
+                '<span class="column-panel-comment" title="' + escapeHtml(comment) + '">' + escapeHtml(comment) + '</span></label>';
+        });
+        list.innerHTML = html;
+        updateSelectAllCheckbox();
+    }
+
+    function updateSelectAllCheckbox() {
+        const cb = document.getElementById('columnPanelSelectAll');
+        if (!cb) return;
+        const nonPinned = fields.filter(function(f) { return !pinnedColumns.has(f); });
+        if (nonPinned.length === 0) {
+            cb.checked = true;
+            cb.indeterminate = false;
+            cb.disabled = pinnedColumns.size > 0;
+            return;
+        }
+        cb.disabled = false;
+        const visibleCount = nonPinned.filter(function(f) { return !hiddenColumns.has(f); }).length;
+        if (visibleCount === nonPinned.length) {
+            cb.checked = true;
+            cb.indeterminate = false;
+        } else if (visibleCount === 0) {
+            cb.checked = false;
+            cb.indeterminate = false;
+        } else {
+            cb.checked = false;
+            cb.indeterminate = true;
+        }
+    }
+
+    function setAllColumnsVisible(visible) {
+        fields.forEach(function(field) {
+            if (pinnedColumns.has(field)) return;
+            if (visible) {
+                hiddenColumns.delete(field);
+            } else {
+                hiddenColumns.add(field);
             }
         });
+        applyColumnVisibility();
+    }
+
+    function flashColumnSelection(columnName) {
+        document.querySelectorAll('thead tr:first-child th.data-column').forEach(function(th) {
+            if (th.getAttribute('data-column-name') !== columnName) return;
+            th.classList.remove('column-flash');
+            void th.offsetWidth;
+            th.classList.add('column-flash');
+            setTimeout(function() { th.classList.remove('column-flash'); }, 750);
+        });
+
+        if (!columnPanelOpen) return;
+        document.querySelectorAll('#columnPanelList .column-panel-item').forEach(function(item) {
+            if (item.getAttribute('data-field') !== columnName) return;
+            item.classList.remove('field-flash');
+            void item.offsetWidth;
+            item.classList.add('field-flash');
+            item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            item.addEventListener('animationend', function handler() {
+                item.classList.remove('field-flash');
+                item.removeEventListener('animationend', handler);
+            });
+        });
+    }
+
+    function toggleColumnPanel(show) {
+        columnPanelOpen = show !== undefined ? show : !columnPanelOpen;
+        const panel = document.getElementById('columnVisibilityPanel');
+        if (panel) panel.style.display = columnPanelOpen ? 'flex' : 'none';
+        if (columnPanelOpen) renderColumnPanel();
+    }
+
+    function hideContextMenu() {
+        const menu = document.getElementById('columnContextMenu');
+        if (menu) menu.style.display = 'none';
+        contextMenuColumn = null;
+    }
+
+    function showColumnContextMenu(x, y, columnName) {
+        hideContextMenu();
+        const menu = document.getElementById('columnContextMenu');
+        if (!menu) return;
+        contextMenuColumn = columnName;
+        const isPinned = pinnedColumns.has(columnName);
+        menu.innerHTML =
+            '<div class="ctx-item" data-action="togglePanel">显示隐藏列</div>' +
+            '<div class="ctx-item" data-action="pin">' + (isPinned ? '取消固定' : '固定显示') + '</div>' +
+            '<div class="ctx-item" data-action="hideOthers">隐藏其他</div>' +
+            '<div class="ctx-item" data-action="showAll">显示全部字段</div>' +
+            '<div class="ctx-separator"></div>' +
+            '<div class="ctx-item" data-action="copy">复制列名</div>' +
+            '<div class="ctx-item" data-action="toggleType">' + (showTypes ? '隐藏类型' : '显示类型') + '</div>' +
+            '<div class="ctx-item" data-action="toggleComment">' + (showComments ? '隐藏注释' : '显示注释') + '</div>';
+        menu.style.display = 'block';
+        menu.style.left = Math.min(x, window.innerWidth - 180) + 'px';
+        menu.style.top = Math.min(y, window.innerHeight - 280) + 'px';
+    }
+
+    function handleContextMenuAction(action, columnName) {
+        if (!columnName) return;
+        switch (action) {
+            case 'togglePanel':
+                toggleColumnPanel();
+                break;
+            case 'pin':
+                if (pinnedColumns.has(columnName)) {
+                    pinnedColumns.delete(columnName);
+                } else {
+                    pinnedColumns.add(columnName);
+                    hiddenColumns.delete(columnName);
+                }
+                updateHeaderMetadata();
+                break;
+            case 'hideOthers':
+                fields.forEach(function(f) {
+                    if (f !== columnName && !pinnedColumns.has(f)) {
+                        hiddenColumns.add(f);
+                    } else {
+                        hiddenColumns.delete(f);
+                    }
+                });
+                applyColumnVisibility();
+                break;
+            case 'showAll':
+                hiddenColumns.clear();
+                applyColumnVisibility();
+                break;
+            case 'copy':
+                navigator.clipboard.writeText(columnName);
+                break;
+            case 'toggleType':
+                showTypes = !showTypes;
+                updateHeaderMetadata();
+                break;
+            case 'toggleComment':
+                showComments = !showComments;
+                updateHeaderMetadata();
+                break;
+        }
+        hideContextMenu();
+    }
+
+    function setColumnVisible(field, visible) {
+        if (pinnedColumns.has(field)) return;
+        if (visible) {
+            hiddenColumns.delete(field);
+        } else {
+            hiddenColumns.add(field);
+        }
+        applyColumnVisibility();
     }
 
     function createRowElement(row, globalIndex) {
@@ -641,6 +1159,7 @@ export class SqlResultWebView {
             const td = document.createElement('td');
             td.className = 'data-column';
             td.setAttribute('data-column-name', field);
+            if (!isColumnVisible(field)) td.classList.add('hidden');
             td.innerHTML = '<div class="cell-wrapper">' + formatCellHtml(row[field]) + '</div>';
             tr.appendChild(td);
         });
@@ -732,21 +1251,7 @@ export class SqlResultWebView {
     }
 
     function filterColumns() {
-        const input = document.getElementById('columnFilterInput');
-        const filterText = input ? input.value.toLowerCase().trim() : '';
-        const visible = new Set();
-        document.querySelectorAll('thead tr:first-child th.data-column').forEach(function(th) {
-            const name = th.getAttribute('data-column-name') || '';
-            const comment = th.getAttribute('data-column-comment') || '';
-            if (!filterText || name.toLowerCase().includes(filterText) || comment.toLowerCase().includes(filterText)) {
-                visible.add(name);
-            }
-        });
-        document.querySelectorAll('th.data-column, td.data-column').forEach(function(el) {
-            const name = el.getAttribute('data-column-name');
-            if (!name) return;
-            el.classList.toggle('hidden', !visible.has(name));
-        });
+        applyColumnVisibility();
     }
 
     function showModal(value) {
@@ -891,7 +1396,41 @@ export class SqlResultWebView {
 
         document.addEventListener('input', function(e) {
             if (e.target.id === 'columnFilterInput') filterColumns();
+            if (e.target.id === 'columnPanelSearch') renderColumnPanel();
             if (e.target.classList.contains('filter-input')) applyFilters();
+        });
+
+        document.getElementById('columnPanelList').addEventListener('change', function(e) {
+            if (!e.target.classList.contains('column-panel-checkbox')) return;
+            const field = e.target.getAttribute('data-field');
+            if (field) setColumnVisible(field, e.target.checked);
+        });
+
+        document.getElementById('columnPanelSelectAll').addEventListener('change', function(e) {
+            setAllColumnsVisible(e.target.checked);
+        });
+
+        document.getElementById('columnPanelCloseBtn').addEventListener('click', function() {
+            toggleColumnPanel(false);
+        });
+
+        document.getElementById('columnContextMenu').addEventListener('click', function(e) {
+            const item = e.target.closest('.ctx-item');
+            if (!item) return;
+            const action = item.getAttribute('data-action');
+            handleContextMenuAction(action, contextMenuColumn);
+        });
+
+        document.getElementById('tableHead').addEventListener('contextmenu', function(e) {
+            const th = e.target.closest('th.data-column');
+            if (!th || th.classList.contains('filter-header')) return;
+            e.preventDefault();
+            const name = th.getAttribute('data-column-name');
+            if (name) showColumnContextMenu(e.clientX, e.clientY, name);
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('#columnContextMenu')) hideContextMenu();
         });
 
         document.getElementById('tableHead').addEventListener('click', function(e) {
@@ -899,10 +1438,13 @@ export class SqlResultWebView {
             else if (e.target.closest('#deleteBtn')) deleteSelectedRows();
             else if (e.target.closest('#addBtn')) addNewRow();
             else if (e.target.closest('#refreshBtn')) vscode.postMessage({ command: 'refreshData' });
-            else if (e.target.closest('th.data-column') && !e.target.closest('.resize-handle') && !e.target.closest('input')) {
+            else if (e.target.closest('th.data-column') && !e.target.closest('.filter-header') && !e.target.closest('.resize-handle') && !e.target.closest('input')) {
                 const th = e.target.closest('th.data-column');
                 const name = th.getAttribute('data-column-name');
-                if (name) navigator.clipboard.writeText(name);
+                if (name) {
+                    navigator.clipboard.writeText(name);
+                    flashColumnSelection(name);
+                }
             }
         });
 
@@ -1020,14 +1562,34 @@ export class SqlResultWebView {
         });
     }
 
+    function applyColumnMetadata(message) {
+        columnComments = message.columnComments || {};
+        if (message.columnTypes) columnTypes = message.columnTypes;
+        if (fields.length === 0) return;
+        updateHeaderMetadata();
+        if (columnPanelOpen) renderColumnPanel();
+    }
+
     function setData(payload) {
         allRows = payload.rows || [];
         fields = payload.fields && payload.fields.length ? payload.fields : (allRows.length ? Object.keys(allRows[0]) : []);
         columnComments = payload.columnComments || {};
+        columnTypes = payload.columnTypes || {};
+        if (pendingColumnMetadata) {
+            columnComments = pendingColumnMetadata.columnComments || columnComments;
+            if (pendingColumnMetadata.columnTypes) {
+                columnTypes = pendingColumnMetadata.columnTypes;
+            }
+            pendingColumnMetadata = null;
+        }
         totalRowsHint = payload.totalRows || null;
         filteredIndices = null;
         currentPage = 1;
         editingCell = null;
+        pinnedColumns = new Set();
+        hiddenColumns = new Set();
+        showTypes = false;
+        showComments = true;
 
         const noData = document.getElementById('noData');
         const wrapper = document.getElementById('tableWrapper');
@@ -1036,6 +1598,7 @@ export class SqlResultWebView {
             noData.style.display = 'block';
             wrapper.style.display = 'none';
             pagination.style.display = 'none';
+            toggleColumnPanel(false);
             return;
         }
         noData.style.display = 'none';
@@ -1044,15 +1607,19 @@ export class SqlResultWebView {
         buildTableHead();
         bindStaticUiEvents();
         initStickyColumnResize();
+        if (columnPanelOpen) renderColumnPanel();
         updatePagination();
     }
 
     window.addEventListener('message', function(event) {
         const message = event.data;
         if (message.command === 'setData') setData(message);
-        else if (message.command === 'updateComments') {
-            columnComments = message.columnComments || {};
-            updateHeaderComments();
+        else if (message.command === 'updateColumnMetadata' || message.command === 'updateComments') {
+            if (fields.length === 0) {
+                pendingColumnMetadata = message;
+                return;
+            }
+            applyColumnMetadata(message);
         }
     });
 
