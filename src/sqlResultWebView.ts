@@ -278,6 +278,7 @@ export class SqlResultWebView {
             </div>
             <input type="text" id="columnPanelSearch" class="column-panel-search" placeholder="搜索字段...">
             <div id="columnPanelList" class="column-panel-list"></div>
+            <div class="column-panel-resize-handle" title="拖动调整宽度"></div>
         </div>
         <div class="table-area">
             <div id="noData" class="no-data" style="display:none;">No data</div>
@@ -585,14 +586,28 @@ export class SqlResultWebView {
                 .table-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
                 .column-visibility-panel {
                     width: 260px;
-                    min-width: 200px;
-                    max-width: 360px;
+                    min-width: 180px;
+                    max-width: 70vw;
                     border-right: 1px solid var(--vscode-panel-border);
                     background-color: var(--vscode-sideBar-background);
                     display: flex;
                     flex-direction: column;
                     flex-shrink: 0;
                     overflow: hidden;
+                    position: relative;
+                }
+                .column-panel-resize-handle {
+                    position: absolute;
+                    right: 0;
+                    top: 0;
+                    width: 5px;
+                    height: 100%;
+                    cursor: col-resize;
+                    z-index: 20;
+                }
+                .column-panel-resize-handle:hover,
+                .column-panel-resize-handle.active {
+                    background-color: rgba(0, 122, 204, 0.35);
                 }
                 .column-panel-header {
                     display: flex;
@@ -652,27 +667,64 @@ export class SqlResultWebView {
                 .column-panel-item {
                     display: flex;
                     align-items: center;
-                    gap: 6px;
-                    padding: 4px 8px;
+                    gap: 4px;
+                    padding: 4px 8px 4px 6px;
                     font-size: 12px;
-                    cursor: pointer;
                     border-radius: 3px;
                 }
                 .column-panel-item:hover { background-color: var(--vscode-list-hoverBackground); }
                 .column-panel-item.matched { background-color: rgba(0, 122, 204, 0.08); }
                 .column-panel-checkbox { flex-shrink: 0; cursor: pointer; }
-                .column-panel-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-                .column-panel-name .highlight { background-color: rgba(255, 193, 7, 0.5); font-weight: 600; }
-                .column-panel-pin { flex-shrink: 0; font-size: 10px; }
-                .column-panel-comment {
-                    flex-shrink: 1;
-                    max-width: 90px;
+                .column-panel-name {
+                    flex: 0 1 38%;
+                    min-width: 48px;
+                    max-width: 38%;
                     overflow: hidden;
                     text-overflow: ellipsis;
                     white-space: nowrap;
-                    color: var(--vscode-descriptionForeground);
-                    font-size: 11px;
                 }
+                .column-panel-name .highlight { background-color: rgba(255, 193, 7, 0.5); font-weight: 600; }
+                .column-panel-pin { flex-shrink: 0; font-size: 10px; }
+                .column-panel-filter-wrap {
+                    flex: 1;
+                    min-width: 0;
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                }
+                .column-panel-filter {
+                    flex: 1;
+                    min-width: 0;
+                    padding: 2px 6px;
+                    font-size: 11px;
+                    border: 1px solid transparent;
+                    border-radius: 2px;
+                    background-color: transparent;
+                    color: var(--vscode-input-foreground);
+                    box-sizing: border-box;
+                }
+                .column-panel-filter:hover {
+                    border-color: var(--vscode-input-border);
+                    background-color: var(--vscode-input-background);
+                }
+                .column-panel-filter:focus {
+                    outline: none;
+                    border-color: var(--vscode-focusBorder, #007acc);
+                    background-color: var(--vscode-input-background);
+                }
+                .column-panel-filter::placeholder {
+                    color: var(--vscode-descriptionForeground);
+                    opacity: 0.85;
+                }
+                .column-panel-filter-result {
+                    flex-shrink: 0;
+                    font-size: 10px;
+                    color: #007acc;
+                    min-width: 32px;
+                    text-align: right;
+                    white-space: nowrap;
+                }
+                .column-panel-filter-result:empty { display: none; }
                 .column-pin {
                     display: inline-flex;
                     align-items: center;
@@ -785,6 +837,7 @@ export class SqlResultWebView {
     let showTypes = false;
     let showComments = true;
     let columnPanelOpen = false;
+    let columnFilterValues = {};
     let contextMenuColumn = null;
     let pendingColumnMetadata = null;
     let filteredIndices = null;
@@ -974,24 +1027,110 @@ export class SqlResultWebView {
         applyColumnVisibility();
     }
 
+    function getColumnFilterMatchCount(field, filterValue) {
+        if (!filterValue || !filterValue.trim()) return allRows.length;
+        const v = filterValue.toLowerCase().trim();
+        let count = 0;
+        allRows.forEach(function(row) {
+            const cellValue = row[field];
+            const text = (cellValue === null || cellValue === undefined) ? 'null' : String(cellValue);
+            if (text.toLowerCase().indexOf(v) !== -1) count++;
+        });
+        return count;
+    }
+
+    function syncFilterInputPair(field, value) {
+        const idx = fields.indexOf(field);
+        if (idx !== -1) {
+            document.querySelectorAll('.filter-input').forEach(function(input) {
+                if (parseInt(input.getAttribute('data-column-index'), 10) === idx && input.value !== value) {
+                    input.value = value;
+                }
+            });
+        }
+        document.querySelectorAll('.column-panel-filter').forEach(function(input) {
+            if (input.getAttribute('data-field') === field && input.value !== value) {
+                input.value = value;
+            }
+        });
+    }
+
+    function updatePanelFilterResultCounts() {
+        document.querySelectorAll('.column-panel-filter').forEach(function(input) {
+            const field = input.getAttribute('data-field');
+            const resultEl = input.parentElement ? input.parentElement.querySelector('.column-panel-filter-result') : null;
+            if (!resultEl || !field) return;
+            const value = input.value.trim();
+            if (!value) {
+                resultEl.textContent = '';
+                return;
+            }
+            const count = getColumnFilterMatchCount(field, value);
+            resultEl.textContent = count + '/' + allRows.length;
+        });
+    }
+
+    function applyFiltersFromValues() {
+        const filters = [];
+        fields.forEach(function(field) {
+            const value = (columnFilterValues[field] || '').toLowerCase().trim();
+            if (value) filters.push({ field: field, value: value });
+        });
+        if (filters.length === 0) {
+            filteredIndices = null;
+        } else {
+            filteredIndices = [];
+            allRows.forEach(function(row, index) {
+                let match = true;
+                for (let i = 0; i < filters.length; i++) {
+                    const cellValue = row[filters[i].field];
+                    const text = (cellValue === null || cellValue === undefined) ? 'null' : String(cellValue);
+                    if (text.toLowerCase().indexOf(filters[i].value) === -1) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) filteredIndices.push(index);
+            });
+        }
+        currentPage = 1;
+        updatePagination();
+        updatePanelFilterResultCounts();
+    }
+
+    function onFilterInputChange(field, value) {
+        if (!field) return;
+        columnFilterValues[field] = value;
+        syncFilterInputPair(field, value);
+        applyFiltersFromValues();
+    }
+
     function renderColumnPanel() {
         const list = document.getElementById('columnPanelList');
         if (!list) return;
         const search = document.getElementById('columnPanelSearch');
         const query = search ? search.value.trim() : '';
         let html = '';
-        fields.forEach(function(field) {
+        fields.forEach(function(field, index) {
             const comment = columnComments[field] || '';
             const isChecked = !hiddenColumns.has(field) || pinnedColumns.has(field);
             const isPinned = pinnedColumns.has(field);
             const matched = !query || fuzzyMatch(field, query) || fuzzyMatch(comment, query);
             const nameHtml = query && fuzzyMatch(field, query) ? highlightFuzzy(field, query) : escapeHtml(field);
-            html += '<label class="column-panel-item' + (matched && query ? ' matched' : '') + '" data-field="' + escapeHtml(field) + '"' + (matched ? '' : ' style="display:none"') + '>' +
+            const filterValue = columnFilterValues[field] || '';
+            const filterPlaceholder = comment || '过滤...';
+            const resultText = filterValue.trim()
+                ? getColumnFilterMatchCount(field, filterValue) + '/' + allRows.length
+                : '';
+            html += '<div class="column-panel-item' + (matched && query ? ' matched' : '') + '" data-field="' + escapeHtml(field) + '"' + (matched ? '' : ' style="display:none"') + '>' +
                 '<input type="checkbox" class="column-panel-checkbox" data-field="' + escapeHtml(field) + '"' +
                 (isChecked ? ' checked' : '') + (isPinned ? ' disabled' : '') + '>' +
                 '<span class="column-panel-name" title="' + escapeHtml(field) + '">' + nameHtml + '</span>' +
                 (isPinned ? '<span class="column-panel-pin" title="固定显示">📌</span>' : '') +
-                '<span class="column-panel-comment" title="' + escapeHtml(comment) + '">' + escapeHtml(comment) + '</span></label>';
+                '<div class="column-panel-filter-wrap">' +
+                '<input type="text" class="column-panel-filter" data-field="' + escapeHtml(field) + '" data-column-index="' + index + '" value="' + escapeHtml(filterValue) + '" placeholder="' + escapeHtml(filterPlaceholder) + '">' +
+                '<span class="column-panel-filter-result">' + escapeHtml(resultText) + '</span>' +
+                '</div></div>';
         });
         list.innerHTML = html;
         updateSelectAllCheckbox();
@@ -1221,33 +1360,16 @@ export class SqlResultWebView {
     }
 
     function applyFilters() {
-        const filterInputs = document.querySelectorAll('.filter-input');
-        const filters = [];
-        filterInputs.forEach(function(input) {
-            const value = input.value.toLowerCase().trim();
-            if (value) {
-                filters.push({ field: fields[parseInt(input.getAttribute('data-column-index'), 10)], value: value });
-            }
+        document.querySelectorAll('.filter-input').forEach(function(input) {
+            const idx = parseInt(input.getAttribute('data-column-index'), 10);
+            const field = fields[idx];
+            if (field) columnFilterValues[field] = input.value;
         });
-        if (filters.length === 0) {
-            filteredIndices = null;
-        } else {
-            filteredIndices = [];
-            allRows.forEach(function(row, index) {
-                let match = true;
-                for (let i = 0; i < filters.length; i++) {
-                    const cellValue = row[filters[i].field];
-                    const text = (cellValue === null || cellValue === undefined) ? 'null' : String(cellValue);
-                    if (text.toLowerCase().indexOf(filters[i].value) === -1) {
-                        match = false;
-                        break;
-                    }
-                }
-                if (match) filteredIndices.push(index);
-            });
-        }
-        currentPage = 1;
-        updatePagination();
+        document.querySelectorAll('.column-panel-filter').forEach(function(input) {
+            const field = input.getAttribute('data-field');
+            if (field) columnFilterValues[field] = input.value;
+        });
+        applyFiltersFromValues();
     }
 
     function filterColumns() {
@@ -1397,7 +1519,19 @@ export class SqlResultWebView {
         document.addEventListener('input', function(e) {
             if (e.target.id === 'columnFilterInput') filterColumns();
             if (e.target.id === 'columnPanelSearch') renderColumnPanel();
-            if (e.target.classList.contains('filter-input')) applyFilters();
+            if (e.target.classList.contains('filter-input')) {
+                const idx = parseInt(e.target.getAttribute('data-column-index'), 10);
+                const field = fields[idx];
+                if (field) onFilterInputChange(field, e.target.value);
+            }
+            if (e.target.classList.contains('column-panel-filter')) {
+                const field = e.target.getAttribute('data-field');
+                if (field) onFilterInputChange(field, e.target.value);
+            }
+        });
+
+        document.getElementById('columnPanelList').addEventListener('click', function(e) {
+            if (e.target.classList.contains('column-panel-filter')) e.stopPropagation();
         });
 
         document.getElementById('columnPanelList').addEventListener('change', function(e) {
@@ -1497,6 +1631,34 @@ export class SqlResultWebView {
         document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
 
         initColumnResize();
+        initColumnPanelResize();
+    }
+
+    function initColumnPanelResize() {
+        const panel = document.getElementById('columnVisibilityPanel');
+        const handle = document.querySelector('.column-panel-resize-handle');
+        if (!panel || !handle || handle.dataset.bound) return;
+        handle.dataset.bound = '1';
+        let isResizing = false, startX = 0, startWidth = 0;
+        handle.addEventListener('mousedown', function(e) {
+            isResizing = true;
+            startX = e.clientX;
+            startWidth = panel.offsetWidth;
+            handle.classList.add('active');
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', function(e) {
+            if (!isResizing) return;
+            const maxWidth = Math.max(320, window.innerWidth * 0.7);
+            const newWidth = Math.max(180, Math.min(maxWidth, startWidth + (e.clientX - startX)));
+            panel.style.width = newWidth + 'px';
+        });
+        document.addEventListener('mouseup', function() {
+            if (isResizing) {
+                isResizing = false;
+                handle.classList.remove('active');
+            }
+        });
     }
 
     function initStickyColumnResize() {
@@ -1588,6 +1750,7 @@ export class SqlResultWebView {
         editingCell = null;
         pinnedColumns = new Set();
         hiddenColumns = new Set();
+        columnFilterValues = {};
         showTypes = false;
         showComments = true;
 
