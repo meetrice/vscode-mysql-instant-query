@@ -18,6 +18,8 @@ export class TableFilterState {
     private _allExpanded: boolean = false;
     private _expandVersion: number = 0; // Version to force TreeItem recreation
     private _onDidChangeFilter: vscode.EventEmitter<INode> = new vscode.EventEmitter<INode>();
+    // Per-table expand state: table key -> expanded (true) / collapsed (false)
+    private _tableExpandState: Map<string, boolean> = new Map();
     public readonly onDidChangeFilter: vscode.Event<INode> = this._onDidChangeFilter.event;
 
     private constructor() {}
@@ -48,6 +50,25 @@ export class TableFilterState {
             this._allExpanded = value;
             this._expandVersion++; // Increment version to force TreeItem recreation
         }
+    }
+
+    // Per-table expand state management
+    public getTableExpanded(tableKey: string): boolean {
+        if (this._allExpanded) return true;
+        return this._tableExpandState.get(tableKey) ?? false;
+    }
+
+    public toggleTableExpanded(tableKey: string): boolean {
+        const current = this.getTableExpanded(tableKey);
+        const next = !current;
+        this._tableExpandState.set(tableKey, next);
+        this._expandVersion++;
+        return next;
+    }
+
+    public clearTableExpandState(): void {
+        this._tableExpandState.clear();
+        this._expandVersion++;
     }
 
     public get filterText(): string {
@@ -118,6 +139,10 @@ export class MySQLTreeDataProvider implements vscode.TreeDataProvider<INode> {
 
     public getExpandVersion(): number {
         return this.filterState.getExpandVersion();
+    }
+
+    public getFilterState(): TableFilterState {
+        return this.filterState;
     }
 
     public getTreeItem(element: INode): Promise<vscode.TreeItem> | vscode.TreeItem {

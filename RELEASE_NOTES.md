@@ -1,4 +1,51 @@
-# Release Notes - Version 0.7.1
+# Release Notes - Version 0.8.2
+
+## 🔧 Improvements
+
+### 1. Auto-Limit for Large Result Sets
+- Automatically applies LIMIT when query result exceeds configured threshold
+- Improves table UX performance for large datasets
+- Configurable limit via `mysql-instant-query.uriDefaultLimit` setting
+
+### 2. URI Handler for External Table Queries
+- Added support for `cursor://meetrice.mysql-instant-query` URI scheme
+- Open tables directly via URL with configurable parameters (table name, prefix, limit)
+- Enables deep linking to specific tables
+
+### 3. Enhanced Row Deletion
+- Added connection validation before row deletion
+- Real-time UI updates after deletion operations
+
+### 4. Table UI Refinements
+- Refined table header and pagination styling
+- Updated table container layout
+- Adjusted column filter layout
+
+### 5. Improved Logging & Startup
+- Output channel logging implementation
+- Auto-select first connection database on startup
+- Auto-select first user database when none selected
+
+### 6. Build Improvements
+- Added Cursor extension sync support
+- Removed unused output channel
+
+## 📝 Modified Files
+- `src/query.ts` - Auto-limit logic and query improvements
+- `src/tableWebView.ts` - Table UI refinements
+- `src/sqlResultWebView.ts` - Result panel layout improvements
+- `src/extension.ts` - URI handler and startup logic
+- `package.json` - URI scheme registration, new configuration options
+- `publish.sh` - Version update to 0.8.2
+
+## 📋 Compatibility
+- Requires VS Code version 1.83.0 or higher
+- Compatible with MySQL 5.x, 8.x, and 9.x
+- Supports both SSL and non-SSL connections
+
+---
+
+# Release Notes - Version 0.8.1
 
 ## 🎨 UI Improvements
 

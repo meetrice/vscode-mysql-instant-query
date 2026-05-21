@@ -111,30 +111,39 @@ export function activate(context: vscode.ExtensionContext) {
     }));
 
     treeView.onDidChangeSelection(async (e) => {
+        console.log('[DEBUG] onDidChangeSelection fired, selection length:', e.selection.length);
         if (e.selection.length === 1) {
             const node = e.selection[0];
             const now = Date.now();
 
-            // Check node type using contextValue instead of instanceof for better compatibility
             const treeItem = await node.getTreeItem();
             const contextValue = treeItem.contextValue || "";
+            console.log('[DEBUG] node type:', contextValue, 'lastClickedNode:', lastClickedNode ? 'exists' : 'null');
 
-            // Handle TableNode double-click
             if (contextValue === "table" || contextValue === "pinnedTable") {
                 const isDoubleClick = lastClickedNode &&
                     lastClickedNode.node === node &&
                     (now - lastClickedNode.timestamp) < DOUBLE_CLICK_THRESHOLD;
 
+                console.log('[DEBUG] isDoubleClick:', isDoubleClick, 'timeDiff:', lastClickedNode ? now - lastClickedNode.timestamp : 'N/A');
+
                 if (isDoubleClick) {
-                    // Double click: execute Select Top 100
-                    await vscode.commands.executeCommand("mysqlInstantQuery.selectTop1000", node);
+                    console.log('[DEBUG] EXECUTING SELECT (double-click)');
                     lastClickedNode = undefined;
+                    vscode.commands.executeCommand("mysqlInstantQuery.selectTop1000", node);
                 } else {
-                    // Single click: just track it
                     lastClickedNode = { node, timestamp: now };
                     setTimeout(() => {
-                        if (lastClickedNode && (Date.now() - lastClickedNode.timestamp) >= DOUBLE_CLICK_THRESHOLD) {
-                            lastClickedNode = undefined;
+                        if (lastClickedNode && lastClickedNode.node === node) {
+                            console.log('[DEBUG] TIMEOUT: single-click detected, toggling expand');
+                            const tableNode = lastClickedNode.node as TableNode;
+                            const tableKey = tableNode.getKey();
+                            const filterState = mysqlTreeDataProvider.getFilterState();
+                            const isExpanded = filterState.toggleTableExpanded(tableKey);
+                            treeView.reveal(tableNode, { expand: isExpanded });
+                            mysqlTreeDataProvider.refresh(tableNode);
+                        } else {
+                            console.log('[DEBUG] TIMEOUT: lastClickedNode is null or node mismatch');
                         }
                     }, DOUBLE_CLICK_THRESHOLD);
                 }

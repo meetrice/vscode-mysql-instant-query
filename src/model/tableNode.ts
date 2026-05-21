@@ -73,8 +73,20 @@ export class TableNode implements INode {
             // Ignore
         }
 
-        // Auto-expand if column filter is active or global expand is on
-        const collapsibleState = this.autoExpand ?
+        // Get expand state from TableFilterState (per-table toggle)
+        const isExpanded = (() => {
+            try {
+                if (this.treeDataProvider && (this.treeDataProvider as any).filterState) {
+                    const filterState = (this.treeDataProvider as any).filterState;
+                    return filterState.getTableExpanded(this.getKey());
+                }
+            } catch (e) {
+                // Ignore
+            }
+            return false;
+        })();
+
+        const collapsibleState = isExpanded ?
             vscode.TreeItemCollapsibleState.Expanded :
             vscode.TreeItemCollapsibleState.Collapsed;
         const treeItem = new vscode.TreeItem(label, collapsibleState);
