@@ -37,5 +37,9 @@
     "configuration.title": "Mysql 即时查询",
     "configuration.enableTelemetry.description": "是否启用匿名使用情况收集。",
     "configuration.maxTableCount.description": "树视图中显示的最大表数量",
-    "configuration.enableDelimiterOperator.description": "启用对 DELIMITER 运算符的支持。"
+    "configuration.enableDelimiterOperator.description": "启用对 DELIMITER 运算符的支持。",
+    "configuration.enableCountQuery.description": "执行 SELECT 前先运行 COUNT(*) 以决定自动 LIMIT。默认关闭以加快查询。",
+    "configuration.defaultQueryLimit.description": "启用 COUNT 时，小表的自动 LIMIT 行数。",
+    "configuration.largeTableQueryLimit.description": "大表的自动 LIMIT 行数；关闭 COUNT 时也使用此值。",
+    "configuration.largeTableThreshold.description": "超过此行数时使用 largeTableQueryLimit（需启用 enableCountQuery）。"
 }

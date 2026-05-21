@@ -3,6 +3,7 @@ import * as asciitable from "asciitable";
 import * as fs from "fs";
 import * as mysql from "mysql2";
 import * as vscode from "vscode";
+import LRU = require("lru-cache");
 import { IConnection } from "../model/connection";
 import { SqlResultWebView } from "../sqlResultWebView";
 import { AppInsightsClient } from "./appInsightsClient";
@@ -11,6 +12,11 @@ import { OutputChannel } from "./outputChannel";
 
 export class Utility {
     public static readonly maxTableCount = Utility.getConfiguration().get<number>("maxTableCount");
+
+    private static columnCommentsCache = new LRU<string, { [key: string]: string }>({
+        max: 100,
+        maxAge: 1000 * 60 * 30,
+    });
 
     public static getConfiguration(): vscode.WorkspaceConfiguration {
         return vscode.workspace.getConfiguration("mysql-instant-query");
@@ -108,29 +114,8 @@ export class Utility {
             parsedDatabase = Global.activeConnection.database;
         }
 
-        // Get total row count if database and table are available
-        let totalRowCount: number | undefined = undefined;
-        if (parsedDatabase && parsedTable) {
-            try {
-                const countConnection = Utility.createConnection(connectionOptions);
-                const countResult = await Utility.queryPromise<any[]>(countConnection, `SELECT COUNT(*) as total FROM \`${parsedDatabase}\`.\`${parsedTable}\`;`);
-                totalRowCount = countResult && countResult[0] ? countResult[0].total : undefined;
-            } catch (err) {
-                // Ignore count query errors
-            }
-        }
-
-        // Auto add LIMIT if SQL is SELECT and doesn't have LIMIT
-        const upperSql = sql.trim().toUpperCase();
-        if (upperSql.startsWith('SELECT') && !upperSql.includes('LIMIT')) {
-            // Strip trailing semicolon before appending LIMIT
-            sql = sql.trim().replace(/;\s*$/, '');
-            if (totalRowCount !== undefined && totalRowCount > 1000) {
-                sql = sql + ' LIMIT 5000';
-            } else {
-                sql = sql + ' LIMIT 100';
-            }
-        }
+        const totalRowCount = await Utility.maybeFetchTotalRowCount(connectionOptions, parsedDatabase, parsedTable);
+        sql = Utility.applyAutoLimit(sql, totalRowCount);
 
         OutputChannel.appendLine("[Start] Executing MySQL query...");
         connection.query(sql, (err, rows) => {
@@ -366,29 +351,8 @@ export class Utility {
             }
         }
 
-        // Get total row count if database and table are available
-        let totalRows: number | undefined = undefined;
-        if (parsedDatabase && parsedTable) {
-            try {
-                const countConnection = Utility.createConnection(connectionOptions);
-                const countResult = await Utility.queryPromise<any[]>(countConnection, `SELECT COUNT(*) as total FROM \`${parsedDatabase}\`.\`${parsedTable}\`;`);
-                totalRows = countResult && countResult[0] ? countResult[0].total : undefined;
-            } catch (err) {
-                // Ignore count query errors
-            }
-        }
-
-        // Auto add LIMIT if SQL is SELECT and doesn't have LIMIT
-        const upperSql = sql.trim().toUpperCase();
-        if (upperSql.startsWith('SELECT') && !upperSql.includes('LIMIT')) {
-            // Strip trailing semicolon before appending LIMIT
-            sql = sql.trim().replace(/;\s*$/, '');
-            if (totalRows !== undefined && totalRows > 1000) {
-                sql = sql + ' LIMIT 1000';
-            } else {
-                sql = sql + ' LIMIT 100';
-            }
-        }
+        const totalRows = await Utility.maybeFetchTotalRowCount(connectionOptions, parsedDatabase, parsedTable);
+        sql = Utility.applyAutoLimit(sql, totalRows);
 
         OutputChannel.appendLine("[Start] Executing MySQL query...");
         connection.query(sql, (err, rows) => {
@@ -543,54 +507,110 @@ export class Utility {
 
         console.log('[showQueryResult] Final database and table:', { database, table });
 
-        // Get column comments if database and table are available
-        let columnComments: { [key: string]: string } | undefined = undefined;
-        if (database && table && data && data.length > 0) {
-            try {
-                // Get connection options from global active connection
-                if (Global.activeConnection) {
-                    const connectionOptions = {
-                        host: Global.activeConnection.host,
-                        user: Global.activeConnection.user,
-                        password: Global.activeConnection.password,
-                        port: Global.activeConnection.port,
-                        database: database,
-                        certPath: Global.activeConnection.certPath,
-                    };
-
-                    const connection = Utility.createConnection(connectionOptions);
-                    const columns = await Utility.queryPromise<any[]>(connection,
-                        `SELECT COLUMN_NAME, COLUMN_COMMENT
-                         FROM information_schema.COLUMNS
-                         WHERE TABLE_SCHEMA = '${database}' AND TABLE_NAME = '${table}';`);
-
-                    if (columns && columns.length > 0) {
-                        columnComments = {};
-                        columns.forEach(col => {
-                            if (col.COLUMN_COMMENT) {
-                                columnComments[col.COLUMN_NAME] = col.COLUMN_COMMENT;
-                            }
-                        });
-                    }
-                }
-            } catch (err) {
-                // Ignore errors fetching column comments
-                console.error('Error fetching column comments:', err);
-            }
-        }
-
-        // vscode.commands.executeCommand(
-        //     "vscode.previewHtml",
-        //     Utility.getPreviewUri(JSON.stringify(data)),
-        //     vscode.ViewColumn.Two,
-        //     title).then(() => { }, (e) => {
-        //         OutputChannel.appendLine(e);
-        //     });
         if (updatePanel) {
-            SqlResultWebView.updatePanel(data, sql, database, table, columnComments);
+            SqlResultWebView.updatePanel(data, sql, database, table, undefined, totalRows);
         } else {
-            SqlResultWebView.show(data, title, sql, database, table, columnComments, updateSQLEditor, appendSQLEditor);
+            SqlResultWebView.show(data, title, sql, database, table, undefined, updateSQLEditor, appendSQLEditor, totalRows);
         }
+
+        if (database && table && data && data.length > 0) {
+            Utility.fetchColumnComments(database, table)
+                .then((comments) => {
+                    if (comments) {
+                        SqlResultWebView.updateComments(comments);
+                    }
+                })
+                .catch((err) => {
+                    console.error("Error fetching column comments:", err);
+                });
+        }
+    }
+
+    public static async fetchColumnComments(database: string, table: string): Promise<{ [key: string]: string } | undefined> {
+        const cacheKey = `${database}.${table}`;
+        const cached = Utility.columnCommentsCache.get(cacheKey);
+        if (cached) {
+            return cached;
+        }
+
+        if (!Global.activeConnection) {
+            return undefined;
+        }
+
+        const connectionOptions = {
+            host: Global.activeConnection.host,
+            user: Global.activeConnection.user,
+            password: Global.activeConnection.password,
+            port: Global.activeConnection.port,
+            database,
+            certPath: Global.activeConnection.certPath,
+        };
+
+        const connection = Utility.createConnection(connectionOptions);
+        const columns = await Utility.queryPromise<any[]>(connection,
+            `SELECT COLUMN_NAME, COLUMN_COMMENT
+             FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = '${database}' AND TABLE_NAME = '${table}';`);
+
+        if (!columns || columns.length === 0) {
+            return undefined;
+        }
+
+        const columnComments: { [key: string]: string } = {};
+        columns.forEach((col) => {
+            if (col.COLUMN_COMMENT) {
+                columnComments[col.COLUMN_NAME] = col.COLUMN_COMMENT;
+            }
+        });
+
+        Utility.columnCommentsCache.set(cacheKey, columnComments);
+        return columnComments;
+    }
+
+    private static async maybeFetchTotalRowCount(
+        connectionOptions: IConnection,
+        database?: string,
+        table?: string,
+    ): Promise<number | undefined> {
+        const enableCountQuery = Utility.getConfiguration().get<boolean>("enableCountQuery", false);
+        if (!enableCountQuery || !database || !table) {
+            return undefined;
+        }
+
+        try {
+            const countConnection = Utility.createConnection(connectionOptions);
+            const countResult = await Utility.queryPromise<any[]>(
+                countConnection,
+                `SELECT COUNT(*) as total FROM \`${database}\`.\`${table}\`;`,
+            );
+            return countResult && countResult[0] ? countResult[0].total : undefined;
+        } catch (err) {
+            return undefined;
+        }
+    }
+
+    private static applyAutoLimit(sql: string, totalRowCount?: number): string {
+        const upperSql = sql.trim().toUpperCase();
+        if (!upperSql.startsWith("SELECT") || upperSql.includes("LIMIT")) {
+            return sql;
+        }
+
+        const config = Utility.getConfiguration();
+        const defaultLimit = config.get<number>("defaultQueryLimit", 100);
+        const largeLimit = config.get<number>("largeTableQueryLimit", 5000);
+        const largeThreshold = config.get<number>("largeTableThreshold", 1000);
+        const enableCountQuery = config.get<boolean>("enableCountQuery", false);
+
+        let limit: number;
+        if (enableCountQuery && totalRowCount !== undefined && totalRowCount > largeThreshold) {
+            limit = largeLimit;
+        } else if (enableCountQuery && totalRowCount !== undefined) {
+            limit = defaultLimit;
+        } else {
+            limit = largeLimit;
+        }
+
+        return sql.trim().replace(/;\s*$/, "") + ` LIMIT ${limit}`;
     }
 
     private static async hasActiveConnection(): Promise<boolean> {

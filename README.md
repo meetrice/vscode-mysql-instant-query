@@ -108,14 +108,47 @@ Use the **Filter & Snippets** panel at the top of the sidebar:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `vscode-mysql.maxTableCount` | `500` | Maximum number of tables shown in tree view |
-| `vscode-mysql.enableDelimiterOperator` | `true` | Enable support for DELIMITER operator |
-| `vscode-mysql.enableTelemetry` | `true` | Anonymous usage collection |
+| `mysql-instant-query.maxTableCount` | `500` | Maximum number of tables shown in tree view |
+| `mysql-instant-query.enableDelimiterOperator` | `true` | Enable support for DELIMITER operator |
+| `mysql-instant-query.enableTelemetry` | `true` | Anonymous usage collection |
+| `mysql-instant-query.enableCountQuery` | `false` | Run COUNT(*) before SELECT to choose auto LIMIT |
+| `mysql-instant-query.defaultQueryLimit` | `100` | Auto LIMIT for small tables (when count query enabled) |
+| `mysql-instant-query.largeTableQueryLimit` | `5000` | Auto LIMIT for large tables or when count query disabled |
+| `mysql-instant-query.largeTableThreshold` | `1000` | Row count threshold for large table LIMIT |
+| `mysql-instant-query.uriDefaultLimit` | `100` | Default LIMIT when opening table via URI |
 
 ## Requirements
 
 - Visual Studio Code 1.83.0 or higher
 - MySQL 5.0 or higher (including MySQL 8.0+)
+
+## Publishing
+
+This extension is published to the Visual Studio Marketplace as [`meetrice.mysql-instant-query`](https://marketplace.visualstudio.com/items?itemName=meetrice.mysql-instant-query).
+
+### Quick publish
+
+```bash
+export VSCE_PAT="your_azure_devops_pat"   # Marketplace → Manage scope
+./publish.sh
+```
+
+The script compiles TypeScript, packages a `.vsix`, and uploads to the marketplace.
+
+### Local install only (no marketplace)
+
+```bash
+./build-and-install.sh
+```
+
+### Full guide
+
+See **[docs/publishing.md](docs/publishing.md)** for:
+
+- Creating a Publisher and Personal Access Token (PAT)
+- Pre-release checklist
+- Manual step-by-step publish commands
+- Troubleshooting (expired PAT, duplicate version, etc.)
 
 ## Repository
 
@@ -131,7 +164,7 @@ MIT
 
 ## Marketplace
 
-Available on Visual Studio Code Marketplace.
+Available on [Visual Studio Code Marketplace](https://marketplace.visualstudio.com/items?itemName=meetrice.mysql-instant-query) and installable in Cursor.
 
 ---
 

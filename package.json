@@ -2,7 +2,7 @@
     "name": "mysql-instant-query",
     "displayName": "%displayName%",
     "description": "%description%",
-    "version": "0.8.3",
+    "version": "0.8.4",
     "publisher": "meetrice",
     "icon": "logo.png",
     "engines": {
@@ -487,6 +487,29 @@
                     "type": "integer",
                     "default": 100,
                     "description": "通过 URI 打开表时默认的 LIMIT 行数"
+                },
+                "mysql-instant-query.enableCountQuery": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%configuration.enableCountQuery.description%"
+                },
+                "mysql-instant-query.defaultQueryLimit": {
+                    "type": "integer",
+                    "default": 100,
+                    "minimum": 1,
+                    "description": "%configuration.defaultQueryLimit.description%"
+                },
+                "mysql-instant-query.largeTableQueryLimit": {
+                    "type": "integer",
+                    "default": 5000,
+                    "minimum": 1,
+                    "description": "%configuration.largeTableQueryLimit.description%"
+                },
+                "mysql-instant-query.largeTableThreshold": {
+                    "type": "integer",
+                    "default": 1000,
+                    "minimum": 1,
+                    "description": "%configuration.largeTableThreshold.description%"
                 }
             }
         },

@@ -1,151 +1,255 @@
 import * as vscode from "vscode";
 import { Utility } from "./common/utility";
 
-// Helper function to calculate string length (Chinese characters count as 2)
-function getStringLength(str: string): number {
-    let length = 0;
-    for (let i = 0; i < str.length; i++) {
-        const charCode = str.charCodeAt(i);
-        // Chinese, Japanese, Korean characters are usually in ranges:
-        // CJK Unified Ideographs: U+4E00–U+9FFF
-        // CJK Extension A: U+3400–U+4DBF
-        // CJK Extension B-F: U+20000–U+2EBEF (surrogate pairs)
-        // Fullwidth ASCII variants: U+FF01–U+FF60
-        if (charCode >= 0x4E00 && charCode <= 0x9FFF ||
-            charCode >= 0x3400 && charCode <= 0x4DBF ||
-            charCode >= 0xFF01 && charCode <= 0xFF60) {
-            length += 2;
-        } else {
-            length += 1;
-        }
-    }
-    return length;
+export interface QueryResultPayload {
+    rows: any[];
+    fields?: string[];
+    columnComments?: { [key: string]: string };
+    totalRows?: number;
+    sql?: string;
+    database?: string;
+    table?: string;
 }
 
 export class SqlResultWebView {
-    private static currentPanel: vscode.WebviewPanel | undefined = null;
-    private static lastQueryInfo: { sql?: string; database?: string; table?: string; columnComments?: { [key: string]: string } } | undefined = undefined;
+    private static currentPanel: vscode.WebviewPanel | undefined;
+    private static lastQueryInfo: { sql?: string; database?: string; table?: string; columnComments?: { [key: string]: string } } | undefined;
+    private static layoutInitialized = false;
+    private static pendingPayload: QueryResultPayload | undefined;
+    private static messageDisposable: vscode.Disposable | undefined;
 
-    public static async show(data, title, sql?: string, database?: string, table?: string, columnComments?: { [key: string]: string }, updateSQLEditor: boolean = true, appendSQLEditor: boolean = true) {
-        // Update or create SQL document with the new SQL (only if updateSQLEditor is true)
+    public static async show(
+        data: any[],
+        title: string,
+        sql?: string,
+        database?: string,
+        table?: string,
+        columnComments?: { [key: string]: string },
+        updateSQLEditor: boolean = true,
+        appendSQLEditor: boolean = true,
+        totalRows?: number,
+    ) {
         if (updateSQLEditor) {
             if (appendSQLEditor) {
-                // Append to existing SQL editor
                 await Utility.appendSQLToEditor(sql || "");
             } else {
-                // Replace SQL editor content (original behavior)
                 const activeEditor = vscode.window.activeTextEditor;
-                if (activeEditor && activeEditor.document.languageId === 'sql') {
-                    // Update existing SQL document (add empty line at beginning for consistency)
+                if (activeEditor && activeEditor.document.languageId === "sql") {
                     const editor = vscode.window.activeTextEditor;
                     const fullRange = new vscode.Range(
                         editor.document.positionAt(0),
-                        editor.document.positionAt(editor.document.getText().length)
+                        editor.document.positionAt(editor.document.getText().length),
                     );
-                    await editor.edit(editBuilder => {
-                        editBuilder.replace(fullRange, (sql ? "\n" + sql : "\n"));
+                    await editor.edit((editBuilder) => {
+                        editBuilder.replace(fullRange, sql ? "\n" + sql : "\n");
                     });
                 } else {
-                    // Create new SQL document
                     await Utility.createSQLTextDocument(sql || "");
                 }
             }
         }
 
-        // Split editor into two rows (上下分栏)
-        await vscode.commands.executeCommand('workbench.action.editorLayoutTwoRows');
+        if (!SqlResultWebView.layoutInitialized) {
+            await vscode.commands.executeCommand("workbench.action.editorLayoutTwoRows");
+            await vscode.commands.executeCommand("workbench.action.focusFirstEditorGroup");
+            for (let i = 0; i < 2; i++) {
+                await vscode.commands.executeCommand("workbench.action.decreaseViewHeight");
+            }
+            SqlResultWebView.layoutInitialized = true;
+        }
 
-        // Create panel title with database.table format
         const panelTitle = database && table ? `\`${database}\`.\`${table}\`` : title;
+        const payload: QueryResultPayload = {
+            rows: data,
+            fields: SqlResultWebView.extractFields(data),
+            columnComments,
+            totalRows,
+            sql,
+            database,
+            table,
+        };
 
-        // Create webview panel in the bottom group (ViewColumn.Two in two-row layout)
+        SqlResultWebView.lastQueryInfo = { sql, database, table, columnComments };
+
+        if (SqlResultWebView.currentPanel) {
+            SqlResultWebView.currentPanel.title = panelTitle;
+            SqlResultWebView.sendData(payload);
+            return;
+        }
+
         const panel = vscode.window.createWebviewPanel("MySQL", panelTitle, vscode.ViewColumn.Two, {
             retainContextWhenHidden: true,
             enableScripts: true,
         });
 
-        // Store query info for refresh functionality
-        SqlResultWebView.lastQueryInfo = { sql, database, table, columnComments };
-
         SqlResultWebView.currentPanel = panel;
-        panel.webview.html = SqlResultWebView.getWebviewContent(data, columnComments);
+        SqlResultWebView.pendingPayload = payload;
+        SqlResultWebView.registerMessageHandler(panel);
+        panel.webview.html = SqlResultWebView.getShellHtml();
 
-        // Focus the top editor (SQL) group and resize to ~40%
-        await vscode.commands.executeCommand('workbench.action.focusFirstEditorGroup');
-        // Decrease editor height to ~40% (each decrease is ~5%)
-        for (let i = 0; i < 2; i++) {
-            await vscode.commands.executeCommand('workbench.action.decreaseViewHeight');
-        }
-
-        // Handle panel close event
         panel.onDidDispose(() => {
             SqlResultWebView.currentPanel = undefined;
+            SqlResultWebView.pendingPayload = undefined;
+            if (SqlResultWebView.messageDisposable) {
+                SqlResultWebView.messageDisposable.dispose();
+                SqlResultWebView.messageDisposable = undefined;
+            }
         });
-
-        // Handle messages from webview
-        panel.webview.onDidReceiveMessage(
-            message => {
-                if (message.command === 'refreshData') {
-                    // Notify extension to refresh data
-                    vscode.commands.executeCommand('mysqlInstantQuery.refreshResults');
-                } else if (message.command === 'deleteRows') {
-                    // Handle delete rows
-                    vscode.commands.executeCommand('mysqlInstantQuery.deleteSelectedRows', message.rows);
-                } else if (message.command === 'showWarning') {
-                    // Show warning message
-                    vscode.window.showWarningMessage(message.message);
-                } else if (message.command === 'generateUpdateSQL') {
-                    // Generate UPDATE SQL
-                    vscode.commands.executeCommand('mysqlInstantQuery.generateUpdateSQL', message);
-                } else if (message.command === 'generateInsertSQL') {
-                    // Generate INSERT SQL
-                    vscode.commands.executeCommand('mysqlInstantQuery.generateInsertSQL', message);
-                }
-            },
-            undefined,
-            undefined
-        );
-
     }
 
-    public static updatePanel(data: any, sql?: string, database?: string, table?: string, columnComments?: { [key: string]: string }) {
-        if (SqlResultWebView.currentPanel) {
-            // Update SQL editor if SQL is provided
-            if (sql) {
-                const activeEditor = vscode.window.activeTextEditor;
-                if (activeEditor && activeEditor.document.languageId === 'sql') {
-                    const editor = vscode.window.activeTextEditor;
-                    const fullRange = new vscode.Range(
-                        editor.document.positionAt(0),
-                        editor.document.positionAt(editor.document.getText().length)
-                    );
-                    editor.edit(editBuilder => {
-                        editBuilder.replace(fullRange, (sql ? "\n" + sql : "\n"));
-                    });
-                }
-            }
-            // Update stored query info
-            if (sql || database || table || columnComments) {
-                SqlResultWebView.lastQueryInfo = {
-                    sql: sql || SqlResultWebView.lastQueryInfo?.sql,
-                    database: database || SqlResultWebView.lastQueryInfo?.database,
-                    table: table || SqlResultWebView.lastQueryInfo?.table,
-                    columnComments: columnComments || SqlResultWebView.lastQueryInfo?.columnComments
-                };
-            }
-            // Update webview content，优先使用传入的 columnComments，否则使用已存储的
-            const effectiveComments = columnComments || SqlResultWebView.lastQueryInfo?.columnComments;
-            SqlResultWebView.currentPanel.webview.html = SqlResultWebView.getWebviewContent(data, effectiveComments);
+    public static updatePanel(
+        data: any[],
+        sql?: string,
+        database?: string,
+        table?: string,
+        columnComments?: { [key: string]: string },
+        totalRows?: number,
+    ) {
+        if (!SqlResultWebView.currentPanel) {
+            return;
         }
+
+        if (sql) {
+            const activeEditor = vscode.window.activeTextEditor;
+            if (activeEditor && activeEditor.document.languageId === "sql") {
+                const editor = vscode.window.activeTextEditor;
+                const fullRange = new vscode.Range(
+                    editor.document.positionAt(0),
+                    editor.document.positionAt(editor.document.getText().length),
+                );
+                editor.edit((editBuilder) => {
+                    editBuilder.replace(fullRange, sql ? "\n" + sql : "\n");
+                });
+            }
+        }
+
+        if (sql || database || table || columnComments) {
+            SqlResultWebView.lastQueryInfo = {
+                sql: sql || SqlResultWebView.lastQueryInfo?.sql,
+                database: database || SqlResultWebView.lastQueryInfo?.database,
+                table: table || SqlResultWebView.lastQueryInfo?.table,
+                columnComments: columnComments || SqlResultWebView.lastQueryInfo?.columnComments,
+            };
+        }
+
+        SqlResultWebView.sendData({
+            rows: data,
+            fields: SqlResultWebView.extractFields(data),
+            columnComments: columnComments || SqlResultWebView.lastQueryInfo?.columnComments,
+            totalRows,
+            sql: sql || SqlResultWebView.lastQueryInfo?.sql,
+            database: database || SqlResultWebView.lastQueryInfo?.database,
+            table: table || SqlResultWebView.lastQueryInfo?.table,
+        });
+    }
+
+    public static updateComments(columnComments: { [key: string]: string }) {
+        if (!SqlResultWebView.currentPanel) {
+            return;
+        }
+        if (SqlResultWebView.lastQueryInfo) {
+            SqlResultWebView.lastQueryInfo.columnComments = columnComments;
+        }
+        SqlResultWebView.currentPanel.webview.postMessage({
+            command: "updateComments",
+            columnComments,
+        });
     }
 
     public static getLastQueryInfo(): { sql?: string; database?: string; table?: string } | undefined {
         return SqlResultWebView.lastQueryInfo;
     }
 
-    public static getWebviewContent(data, columnComments?: { [key: string]: string }): string {
-        const style = `
-            <style>
+    private static extractFields(rows: any[]): string[] {
+        if (!rows || rows.length === 0) {
+            return [];
+        }
+        return Object.keys(rows[0]);
+    }
+
+    private static sendData(payload: QueryResultPayload) {
+        if (!SqlResultWebView.currentPanel) {
+            return;
+        }
+        SqlResultWebView.currentPanel.webview.postMessage({
+            command: "setData",
+            ...payload,
+        });
+    }
+
+    private static registerMessageHandler(panel: vscode.WebviewPanel) {
+        if (SqlResultWebView.messageDisposable) {
+            SqlResultWebView.messageDisposable.dispose();
+        }
+        SqlResultWebView.messageDisposable = panel.webview.onDidReceiveMessage((message) => {
+            if (message.command === "ready") {
+                if (SqlResultWebView.pendingPayload) {
+                    SqlResultWebView.sendData(SqlResultWebView.pendingPayload);
+                    SqlResultWebView.pendingPayload = undefined;
+                }
+                return;
+            }
+            if (message.command === "refreshData") {
+                vscode.commands.executeCommand("mysqlInstantQuery.refreshResults");
+            } else if (message.command === "deleteRows") {
+                vscode.commands.executeCommand("mysqlInstantQuery.deleteSelectedRows", message.rows);
+            } else if (message.command === "showWarning") {
+                vscode.window.showWarningMessage(message.message);
+            } else if (message.command === "generateUpdateSQL") {
+                vscode.commands.executeCommand("mysqlInstantQuery.generateUpdateSQL", message);
+            } else if (message.command === "generateInsertSQL") {
+                vscode.commands.executeCommand("mysqlInstantQuery.generateInsertSQL", message);
+            }
+        });
+    }
+
+    private static getShellHtml(): string {
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>${SqlResultWebView.getStyles()}</style>
+</head>
+<body>
+    <div id="noData" class="no-data" style="display:none;">No data</div>
+    <div class="table-wrapper" id="tableWrapper" style="display:none;">
+        <table>
+            <thead id="tableHead"></thead>
+            <tbody id="dataBody"></tbody>
+        </table>
+    </div>
+    <div class="pagination-container" id="paginationContainer" style="display:none;">
+        <div class="pagination-info" id="paginationInfo">0-0 / 0</div>
+        <div class="pagination-controls">
+            <div class="page-size-selector">
+                <select id="pageSizeSelect" class="page-size-select">
+                    <option value="5">5</option>
+                    <option value="10" selected>10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+            </div>
+            <div class="pagination-pages" id="paginationPages"></div>
+        </div>
+    </div>
+    <div id="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title">Cell Content</span>
+                <button class="close-btn" id="modalCloseBtn">&times;</button>
+            </div>
+            <div class="modal-value" id="modalValue"></div>
+        </div>
+    </div>
+    <script>${SqlResultWebView.getClientScript()}</script>
+</body>
+</html>`;
+    }
+
+    private static getStyles(): string {
+        return `
                 body {
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                     margin: 0;
@@ -156,26 +260,8 @@ export class SqlResultWebView {
                     display: flex;
                     flex-direction: column;
                 }
-                .table-wrapper {
-                    flex: 1;
-                    overflow-y: auto;
-                    overflow-x: auto;
-                }
-                .table-info {
-                    padding: 10px 16px;
-                    margin-bottom: 16px;
-                    background-color: var(--vscode-editor-selectionBackground);
-                    border-left: 4px solid #007acc;
-                    border-radius: 4px;
-                    font-size: 14px;
-                    font-weight: 600;
-                    color: var(--vscode-editor-foreground);
-                }
-                table {
-                    border-collapse: collapse;
-                    width: 100%;
-                    font-size: 13px;
-                }
+                .table-wrapper { flex: 1; overflow: auto; }
+                table { border-collapse: collapse; width: 100%; font-size: 13px; }
                 th {
                     background-color: #e0e0e0;
                     border: 1px solid #d0d0d0;
@@ -185,11 +271,9 @@ export class SqlResultWebView {
                     cursor: pointer;
                     user-select: none;
                     vertical-align: top;
+                    position: relative;
                 }
-                .column-name {
-                    display: block;
-                    font-weight: 600;
-                }
+                .column-name { display: block; font-weight: 600; }
                 .column-comment {
                     display: block;
                     font-size: 11px;
@@ -200,28 +284,10 @@ export class SqlResultWebView {
                     overflow: hidden;
                     text-overflow: ellipsis;
                     max-width: 100%;
-                    cursor: default;
                 }
-                thead {
-                    position: sticky;
-                    top: 0;
-                    z-index: 100;
-                    background-color: #e0e0e0;
-                }
-                thead tr:first-child th {
-                    padding: 2px 2px;
-                    background-color: #e0e0e0;
-                }
-                thead tr:first-child th:hover {
-                    background-color: #e0e0e0;
-                }
-                th.filter-header:hover {
-                    background-color: #e0e0e0;
-                }
-                th.filter-header {
-                    background-color: #f5f5f5;
-                    padding: 4px 8px;
-                }
+                thead { position: sticky; top: 0; z-index: 100; background-color: #e0e0e0; }
+                thead tr:first-child th { padding: 2px; background-color: #e0e0e0; }
+                th.filter-header { background-color: #f5f5f5; padding: 4px 8px; cursor: default; }
                 th.filter-header input {
                     width: 100%;
                     padding: 4px 6px;
@@ -232,10 +298,6 @@ export class SqlResultWebView {
                     background-color: var(--vscode-input-background);
                     color: var(--vscode-input-foreground);
                 }
-                th.filter-header input:focus {
-                    outline: none;
-                    border-color: var(--vscode-focusBorder);
-                }
                 .column-filter-header {
                     position: sticky;
                     left: 0;
@@ -243,11 +305,10 @@ export class SqlResultWebView {
                     z-index: 20;
                     width: 70px;
                     min-width: 70px;
-                    text-align: center;
                     border-right: 2px solid #ccc;
-                    padding: 4px 4px;
+                    padding: 4px;
                 }
-                th.filter-header.sticky-column {
+                th.filter-header.sticky-column, .sticky-column {
                     position: sticky;
                     left: 0;
                     z-index: 9;
@@ -256,6 +317,7 @@ export class SqlResultWebView {
                     border-right: 2px solid #ccc;
                     background-color: #f0f0f0;
                 }
+                tbody .sticky-column { padding: 4px; vertical-align: middle; text-align: center; }
                 .resize-handle {
                     position: absolute;
                     right: 0;
@@ -263,50 +325,19 @@ export class SqlResultWebView {
                     height: 100%;
                     width: 10px;
                     cursor: col-resize;
-                    background-color: transparent;
                     z-index: 100;
                 }
-                .resize-handle:hover, .resize-handle.active {
-                    background-color: rgba(0, 122, 204, 0.3);
-                }
+                .resize-handle:hover, .resize-handle.active { background-color: rgba(0, 122, 204, 0.3); }
                 .column-filter-input {
                     width: 80px;
-                    padding: 4px 4px 4px 4px;
-                    margin-top:4px;
+                    padding: 4px;
+                    margin-top: 4px;
                     font-size: 11px;
                     border: 1px solid #bbb;
                     border-radius: 3px;
                     box-sizing: border-box;
                     background-color: var(--vscode-input-background);
                     color: var(--vscode-input-foreground);
-                    pointer-events: auto;
-                }
-                .column-filter-input:focus {
-                    outline: none;
-                    border-color: var(--vscode-focusBorder);
-                    box-shadow: 0 0 3px rgba(0, 122, 255, 0.3);
-                }
-                .column-filter-input::placeholder {
-                    color: #999;
-                    font-size: 11px;
-                }
-                .sticky-column {
-                    position: sticky;
-                    left: 0;
-                    background-color: #f0f0f0;
-                    border-right: 2px solid #ccc;
-                    z-index: 5;
-                    width: 70px;
-                    min-width: 70px;
-                    vertical-align: middle;
-                    text-align: center;
-                }
-                tbody .sticky-column {
-                    background-color: #f0f0f0;
-                    padding: 4px 4px;
-                }
-                th.filter-header.sticky-column {
-                    background-color: #f5f5f5;
                 }
                 .action-btn {
                     display: inline-flex;
@@ -314,86 +345,23 @@ export class SqlResultWebView {
                     justify-content: center;
                     width: 18px;
                     height: 18px;
-                    border: 1px solid #bbb;
+                    border: none;
                     background-color: var(--vscode-button-secondaryBackground);
                     color: var(--vscode-button-secondaryForeground);
                     cursor: pointer;
-                    font-size: 8px;
-                    transition: all 0.2s;
-                }
-                .action-btn:hover {
-                    background-color: var(--vscode-button-hoverBackground);
-                    border-color: var(--vscode-button-border);
-                }
-                .action-btn:active {
-                    transform: scale(0.95);
-                }
-                .action-btn.danger {
-                    background-color: #f44336;
-                    color: white;
-                    border-color: #d32f2f;
-                    font-size: 10px;
-                }
-                .action-btn.danger:hover {
-                    background-color: #d32f2f;
-                }
-                .action-btn.success {
-                    background-color: #4caf50;
-                    color: white;
-                    border-color: #388e3c;
-                    font-size: 10px;
-                }
-                .action-btn.success:hover {
-                    background-color: #388e3c;
-                }
-                .action-btn-group {
-                    display: inline-flex;
-                    border: 1px solid #bbb;
-                    border-radius: 4px;
-                    overflow: hidden;
-                }
-                .action-btn-group .action-btn {
-                    border: none;
-                    border-radius: 0;
-                    border-right: 1px solid #bbb;
-                }
-                .action-btn-group .action-btn:last-child {
-                    border-right: none;
-                }
-                .action-btn-group .action-btn:hover {
-                    background-color: var(--vscode-button-hoverBackground);
-                }
-                .action-btn-group .action-btn.danger {
-                    border-right: 1px solid #d32f2f;
-                }
-                .action-btn-group .action-btn.danger:hover {
-                    background-color: #d32f2f;
-                }
-                .action-btn-group .action-btn.success {
-                    border-right: 1px solid #388e3c;
-                }
-                .action-btn-group .action-btn.success:hover {
-                    background-color: #388e3c;
-                }
-                .action-btn.hidden {
-                    display: none;
-                }
-                .row-checkbox {
-                    width: 14px;
-                    height: 14px;
-                    cursor: pointer;
-                    margin-right: 2px;
-                    vertical-align: middle;
-                }
-                .row-number {
                     font-size: 11px;
-                    color: #888;
-                    margin-right: 2px;
-                    min-width: 16px;
-                    display: inline-block;
-                    vertical-align: middle;
                 }
-                .save-row-btn, .cancel-row-btn {
+                .action-btn:hover { background-color: var(--vscode-button-hoverBackground); }
+                .action-btn.danger { background-color: #f44336; color: white; }
+                .action-btn.danger:hover { background-color: #d32f2f; }
+                .action-btn.success { background-color: #4caf50; color: white; }
+                .action-btn.success:hover { background-color: #388e3c; }
+                .action-btn-group { display: inline-flex; border: 1px solid #bbb; border-radius: 4px; overflow: hidden; }
+                .action-btn-group .action-btn { border-right: 1px solid #bbb; }
+                .action-btn-group .action-btn:last-child { border-right: none; }
+                .row-checkbox { width: 14px; height: 14px; cursor: pointer; margin-right: 2px; vertical-align: middle; }
+                .row-number { font-size: 11px; color: #888; margin-right: 2px; min-width: 16px; display: inline-block; vertical-align: middle; }
+                .save-row-btn, .cancel-row-btn, .save-new-row-btn {
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
@@ -402,53 +370,22 @@ export class SqlResultWebView {
                     border-radius: 2px;
                     cursor: pointer;
                     font-size: 8px;
-                    transition: all 0.15s;
                     padding: 0;
                     vertical-align: middle;
-                    line-height: 1;
                 }
-                .save-row-btn {
-                    border: 1px solid #4caf50;
-                    background-color: #4caf50;
-                    color: white;
-                }
-                .save-row-btn:hover {
-                    background-color: #45a049;
-                }
-                .cancel-row-btn {
-                    border: 1px solid #999;
-                    background-color: #f5f5f5;
-                    color: #666;
-                    margin-left: 2px;
-                }
-                .cancel-row-btn:hover {
-                    background-color: #e0e0e0;
-                }
-                .save-row-btn.hidden, .cancel-row-btn.hidden {
-                    display: none !important;
-                }
-                tr.selected {
-                    background-color: rgba(0, 122, 204, 0.1);
-                }
-                tr.selected .sticky-column {
-                    background-color: #d8e8f0;
-                }
-                tr.editing {
-                    background-color: rgba(255, 193, 7, 0.1);
-                }
-                tr.editing .sticky-column {
-                    background-color: #f8f0d8;
-                }
-                tr.new-row .sticky-column {
-                    background-color: #e8f8e8;
-                }
-                td.editing {
-                    padding: 0 !important;
-                }
-                td.editing input {
+                .save-row-btn, .save-new-row-btn { border: 1px solid #4caf50; background-color: #4caf50; color: white; }
+                .cancel-row-btn { border: 1px solid #999; background-color: #f5f5f5; color: #666; margin-left: 2px; }
+                .save-row-btn.hidden, .cancel-row-btn.hidden { display: none !important; }
+                tr.selected { background-color: rgba(0, 122, 204, 0.1); }
+                tr.selected .sticky-column { background-color: #d8e8f0; }
+                tr.editing { background-color: rgba(255, 193, 7, 0.1); }
+                tr.editing .sticky-column { background-color: #f8f0d8; }
+                tr.new-row .sticky-column { background-color: #e8f8e8; }
+                td.editing { padding: 0 !important; }
+                td.editing input, .edit-cell input {
                     width: 100%;
                     height: 100%;
-                    padding: 6px 10px;
+                    padding: 6px 8px;
                     border: 2px solid #007acc;
                     border-radius: 0;
                     font-size: 13px;
@@ -458,62 +395,14 @@ export class SqlResultWebView {
                     box-sizing: border-box;
                     outline: none;
                 }
-                td.editing input:focus {
-                    box-shadow: 0 0 3px rgba(0, 122, 255, 0.3);
-                }
-                .edit-cell {
-                    position: relative;
-                    padding: 0 !important;
-                }
-                .edit-cell input {
-                    width: 100%;
-                    height: 100%;
-                    padding: 6px 8px;
-                    border: none;
-                    border-radius: 0;
-                    font-size: 13px;
-                    font-family: inherit;
-                    background-color: var(--vscode-input-background);
-                    color: var(--vscode-input-foreground);
-                    box-sizing: border-box;
-                    outline: none;
-                }
-                .edit-cell input:focus {
-                    box-shadow: inset 0 0 0 1px #007acc;
-                }
-                .edit-cell input:focus {
-                    outline: none;
-                    box-shadow: 0 0 3px rgba(0, 122, 255, 0.3);
-                }
-                .data-column.hidden {
-                    display: none;
-                }
-                th.data-column.hidden, td.data-column.hidden {
-                    display: none;
-                }
-                td {
-                    border: 1px solid #e0e0e0;
-                    padding: 6px 6px;
-                }
-                tr:hover {
-                    background-color: var(--vscode-editor-hoverHighlightBackground);
-                }
-                tr:hover .sticky-column {
-                    background-color: #e8e8e8;
-                }
-                .cell-wrapper {
-                    display: inline-block;
-                    max-width: 100%;
-                }
-                .cell-content {
-                    white-space: nowrap;
-                    display: inline-block;
-                }
-                .cell-content.truncated {
-                    max-width: calc(100% - 30px);
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                }
+                .edit-cell { padding: 0 !important; }
+                .data-column.hidden { display: none; }
+                td { border: 1px solid #e0e0e0; padding: 6px; }
+                tr:hover { background-color: var(--vscode-editor-hoverHighlightBackground); }
+                tr:hover .sticky-column { background-color: #e8e8e8; }
+                .cell-wrapper { display: inline-block; max-width: 100%; }
+                .cell-content { white-space: nowrap; display: inline-block; }
+                .cell-content.truncated { max-width: calc(100% - 30px); overflow: hidden; text-overflow: ellipsis; }
                 .expand-btn {
                     background: none;
                     border: none;
@@ -524,31 +413,19 @@ export class SqlResultWebView {
                     display: none;
                     margin-left: 4px;
                 }
-                .expand-btn:hover {
-                    color: var(--vscode-textLink-foreground);
-                }
-                .cell-content.truncated + .expand-btn {
-                    display: inline-flex;
-                }
-                .empty-cell {
-                    color: #999;
-                    font-style: italic;
-                }
+                .expand-btn:hover { color: var(--vscode-textLink-foreground); }
+                .cell-content.truncated + .expand-btn { display: inline-flex; }
+                .empty-cell { color: #999; font-style: italic; }
                 #modal {
                     display: none;
                     position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
+                    inset: 0;
                     background-color: rgba(0, 0, 0, 0.5);
                     z-index: 1000;
                     justify-content: center;
                     align-items: center;
                 }
-                #modal.show {
-                    display: flex;
-                }
+                #modal.show { display: flex; }
                 .modal-content {
                     background-color: var(--vscode-editor-background);
                     border: 1px solid var(--vscode-panel-border);
@@ -558,7 +435,6 @@ export class SqlResultWebView {
                     max-height: 80%;
                     overflow: auto;
                     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-                    position: relative;
                 }
                 .modal-header {
                     display: flex;
@@ -568,23 +444,14 @@ export class SqlResultWebView {
                     padding-bottom: 12px;
                     border-bottom: 1px solid var(--vscode-panel-border);
                 }
-                .modal-title {
-                    font-weight: 600;
-                    font-size: 14px;
-                }
                 .close-btn {
                     background: none;
                     border: none;
                     font-size: 20px;
                     cursor: pointer;
                     color: var(--vscode-editor-foreground);
-                    padding: 0;
                     width: 28px;
                     height: 28px;
-                }
-                .close-btn:hover {
-                    background-color: var(--vscode-editor-hoverHighlightBackground);
-                    border-radius: 4px;
                 }
                 .modal-value {
                     word-wrap: break-word;
@@ -593,16 +460,7 @@ export class SqlResultWebView {
                     font-size: 13px;
                     line-height: 1.5;
                 }
-                .no-data {
-                    color: var(--vscode-descriptionForeground);
-                    padding: 20px;
-                    text-align: center;
-                }
-                .row-count {
-                    margin-bottom: 12px;
-                    color: var(--vscode-descriptionForeground);
-                    font-size: 12px;
-                }
+                .no-data { color: var(--vscode-descriptionForeground); padding: 20px; text-align: center; }
                 .pagination-container {
                     display: flex;
                     align-items: center;
@@ -614,15 +472,8 @@ export class SqlResultWebView {
                     gap: 12px;
                     flex-shrink: 0;
                 }
-                .pagination-info {
-                    color: var(--vscode-descriptionForeground);
-                    font-size: 12px;
-                }
-                .pagination-controls {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                }
+                .pagination-info { color: var(--vscode-descriptionForeground); font-size: 12px; }
+                .pagination-controls { display: flex; align-items: center; gap: 8px; }
                 .pagination-btn {
                     padding: 4px 12px;
                     font-size: 12px;
@@ -633,26 +484,9 @@ export class SqlResultWebView {
                     cursor: pointer;
                     min-width: 32px;
                 }
-                .pagination-btn:hover:not(:disabled) {
-                    background-color: var(--vscode-button-hoverBackground);
-                }
-                .pagination-btn:disabled {
-                    opacity: 0.4;
-                    cursor: not-allowed;
-                }
-                .pagination-btn.active {
-                    background-color: var(--vscode-button-hoverBackground);
-                    font-weight: 600;
-                }
-                .page-size-selector {
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                }
-                .page-size-label {
-                    color: var(--vscode-descriptionForeground);
-                    font-size: 12px;
-                }
+                .pagination-btn:hover:not(:disabled) { background-color: var(--vscode-button-hoverBackground); }
+                .pagination-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+                .pagination-btn.active { background-color: var(--vscode-button-hoverBackground); font-weight: 600; }
                 .page-size-select {
                     padding: 4px 8px;
                     font-size: 12px;
@@ -662,963 +496,568 @@ export class SqlResultWebView {
                     border-radius: 2px;
                     cursor: pointer;
                 }
-                .page-size-select:focus {
-                    outline: none;
-                    border-color: var(--vscode-focusBorder);
-                }
-                .pagination-pages {
-                    display: flex;
-                    gap: 4px;
-                }
-            </style>
+                .pagination-pages { display: flex; gap: 4px; }
         `;
-
-        const script = `
-            <script>
-                const vscode = acquireVsCodeApi();
-                let allTableData = [];
-                let currentPage = 1;
-                let pageSize = 10;
-                let filteredData = [];
-
-                // Initialize table data
-                window.addEventListener('load', function() {
-                    const tableRows = document.querySelectorAll('tbody tr');
-                    allTableData = Array.from(tableRows).map(row => {
-                        const cells = row.querySelectorAll('td');
-                        const rowData = {};
-                        cells.forEach((cell, index) => {
-                            rowData['col_' + index] = cell.textContent;
-                        });
-                        return rowData;
-                    });
-                    updatePagination();
-                    initColumnFilter();
-                    initResizableColumn();
-                    initFilters();
-                    initActionButtons();
-                    initRowCheckboxes();
-                });
-
-                // Column filter functionality
-                function initColumnFilter() {
-                    const columnFilterInput = document.getElementById('columnFilterInput');
-                    if (columnFilterInput) {
-                        columnFilterInput.addEventListener('input', filterColumns);
-                    }
-                }
-
-                // Resizable column functionality
-                function initResizableColumn() {
-                    const filterHeader = document.querySelector('.column-filter-header');
-                    if (!filterHeader) return;
-
-                    // Create resize handle
-                    const resizeHandle = document.createElement('div');
-                    resizeHandle.className = 'resize-handle';
-                    filterHeader.appendChild(resizeHandle);
-
-                    let isResizing = false;
-                    let startX = 0;
-                    let startWidth = 0;
-
-                    resizeHandle.addEventListener('mousedown', function(e) {
-                        isResizing = true;
-                        startX = e.clientX;
-                        startWidth = filterHeader.offsetWidth;
-                        resizeHandle.classList.add('active');
-                        e.preventDefault();
-                        e.stopPropagation();
-                    });
-
-                    document.addEventListener('mousemove', function(e) {
-                        if (!isResizing) return;
-
-                        const diff = e.clientX - startX;
-                        const newWidth = Math.max(60, startWidth + diff); // Minimum 60px
-
-                        // Update filter header width
-                        filterHeader.style.width = newWidth + 'px';
-                        filterHeader.style.minWidth = newWidth + 'px';
-
-                        // Update all sticky columns in tbody
-                        const stickyColumns = document.querySelectorAll('.sticky-column');
-                        stickyColumns.forEach(col => {
-                            col.style.width = newWidth + 'px';
-                            col.style.minWidth = newWidth + 'px';
-                        });
-                    });
-
-                    document.addEventListener('mouseup', function() {
-                        if (isResizing) {
-                            isResizing = false;
-                            resizeHandle.classList.remove('active');
-                        }
-                    });
-                }
-
-                function filterColumns() {
-                    const filterText = document.getElementById('columnFilterInput').value.toLowerCase().trim();
-
-                    // 先从表头行确定哪些列名匹配（同时匹配列名和列注释）
-                    const headerColumns = document.querySelectorAll('thead tr:first-child th.data-column');
-                    const visibleColumnNames = new Set();
-                    headerColumns.forEach(th => {
-                        const columnName = th.getAttribute('data-column-name');
-                        const columnComment = th.getAttribute('data-column-comment') || '';
-                        if (!filterText || columnName.toLowerCase().includes(filterText) || columnComment.toLowerCase().includes(filterText)) {
-                            visibleColumnNames.add(columnName);
-                        }
-                    });
-
-                    // 根据匹配结果显示/隐藏所有同名列（包括表头、过滤行、数据行）
-                    const allDataColumns = document.querySelectorAll('th.data-column, td.data-column');
-                    allDataColumns.forEach(column => {
-                        const columnName = column.getAttribute('data-column-name');
-                        if (columnName) {
-                            if (visibleColumnNames.has(columnName)) {
-                                column.classList.remove('hidden');
-                            } else {
-                                column.classList.add('hidden');
-                            }
-                        }
-                    });
-                }
-
-                function showModal(value) {
-                    document.getElementById('modalValue').textContent = value;
-                    document.getElementById('modal').classList.add('show');
-                }
-                function closeModal() {
-                    document.getElementById('modal').classList.remove('show');
-                }
-                document.getElementById('modal').addEventListener('click', function(e) {
-                    if (e.target.id === 'modal') {
-                        closeModal();
-                    }
-                });
-                document.addEventListener('keydown', function(e) {
-                    if (e.key === 'Escape') {
-                        closeModal();
-                    }
-                });
-
-// Copy header text to clipboard
-                function copyHeader(headerText, element) {
-                    navigator.clipboard.writeText(headerText).then(() => {
-                        // Show a brief visual feedback
-                        const originalBg = element.style.backgroundColor;
-                        element.style.backgroundColor = '#a8d5a8';
-                        setTimeout(() => {
-                            element.style.backgroundColor = originalBg;
-                        }, 200);
-                    }).catch(err => {
-                        console.error('Failed to copy: ', err);
-                    });
-                }
-
-                // Filter table based on filter inputs
-                function filterTable() {
-                    const table = document.querySelector('table');
-                    if (!table) return;
-
-                    const filterInputs = document.querySelectorAll('.filter-input');
-                    const filters = Array.from(filterInputs).map(input => ({
-                        columnIndex: parseInt(input.dataset.columnIndex),
-                        value: input.value.toLowerCase()
-                    }));
-
-                    const tbody = table.querySelector('tbody');
-                    if (!tbody) return;
-
-                    const rows = tbody.querySelectorAll('tr');
-
-                    // Reset filtered data
-                    filteredData = [];
-
-                    rows.forEach((row, index) => {
-                        const cells = row.querySelectorAll('td');
-                        let showRow = true;
-
-                        filters.forEach(filter => {
-                            if (filter.value && showRow) {
-                                // Add 1 to columnIndex to account for the sticky checkbox column
-                                const cellIndex = filter.columnIndex + 1;
-                                const cell = cells[cellIndex];
-                                if (cell) {
-                                    const cellText = cell.textContent.toLowerCase();
-                                    if (!cellText.includes(filter.value)) {
-                                        showRow = false;
-                                    }
-                                }
-                            }
-                        });
-
-                        row.style.display = showRow ? '' : 'none';
-                        if (showRow) {
-                            filteredData.push(index);
-                        }
-                    });
-
-                    // Reset to first page when filtering
-                    currentPage = 1;
-                    updatePagination();
-                }
-
-                // Pagination functions
-                function getTotalPages() {
-                    const totalRows = filteredData.length > 0 ? filteredData.length : allTableData.length;
-                    return Math.ceil(totalRows / pageSize);
-                }
-
-                function getCurrentPageData() {
-                    const totalRows = filteredData.length > 0 ? filteredData.length : allTableData.length;
-                    const startIndex = (currentPage - 1) * pageSize;
-                    const endIndex = Math.min(startIndex + pageSize, totalRows);
-                    
-                    if (filteredData.length > 0) {
-                        return filteredData.slice(startIndex, endIndex).map(index => allTableData[index]);
-                    }
-                    return allTableData.slice(startIndex, endIndex);
-                }
-
-                function updatePagination() {
-                    const totalPages = getTotalPages();
-                    const totalRows = filteredData.length > 0 ? filteredData.length : allTableData.length;
-                    const startRow = totalRows === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-                    const endRow = Math.min(currentPage * pageSize, totalRows);
-
-                    // Update pagination info
-                    const infoElement = document.getElementById('paginationInfo');
-                    if (infoElement) {
-                        infoElement.textContent = \`\${startRow}-\${endRow} / \${totalRows}\`;
-                    }
-
-                    // Update page buttons
-                    renderPageButtons(totalPages);
-
-                    // Update table display
-                    updateTableDisplay();
-                }
-
-                function renderPageButtons(totalPages) {
-                    const pagesContainer = document.getElementById('paginationPages');
-                    if (!pagesContainer) return;
-
-                    let html = '';
-
-                    // Previous button
-                    html += \`<button class="pagination-btn" onclick="goToPage(\${currentPage - 1})" \${currentPage === 1 ? 'disabled' : ''}>&lt;</button>\`;
-
-                    // Page number buttons
-                    const maxVisiblePages = 5;
-                    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
-                    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-
-                    if (endPage - startPage < maxVisiblePages - 1) {
-                        startPage = Math.max(1, endPage - maxVisiblePages + 1);
-                    }
-
-                    if (startPage > 1) {
-                        html += \`<button class="pagination-btn" onclick="goToPage(1)">1</button>\`;
-                        if (startPage > 2) {
-                            html += \`<span style="padding: 4px 8px;">...</span>\`;
-                        }
-                    }
-
-                    for (let i = startPage; i <= endPage; i++) {
-                        html += \`<button class="pagination-btn \${i === currentPage ? 'active' : ''}" onclick="goToPage(\${i})">\${i}</button>\`;
-                    }
-
-                    if (endPage < totalPages) {
-                        if (endPage < totalPages - 1) {
-                            html += \`<span style="padding: 4px 8px;">...</span>\`;
-                        }
-                        html += \`<button class="pagination-btn" onclick="goToPage(\${totalPages})">\${totalPages}</button>\`;
-                    }
-
-                    // Next button
-                    html += \`<button class="pagination-btn" onclick="goToPage(\${currentPage + 1})" \${currentPage === totalPages || totalPages === 0 ? 'disabled' : ''}>&gt;</button>\`;
-
-                    pagesContainer.innerHTML = html;
-                }
-
-                function goToPage(page) {
-                    const totalPages = getTotalPages();
-                    if (page < 1 || page > totalPages) return;
-                    currentPage = page;
-                    updatePagination();
-                }
-
-                function changePageSize() {
-                    const select = document.getElementById('pageSizeSelect');
-                    if (select) {
-                        pageSize = parseInt(select.value);
-                        currentPage = 1;
-                        updatePagination();
-                    }
-                }
-
-                function updateTableDisplay() {
-                    const table = document.querySelector('table');
-                    if (!table) return;
-
-                    const tbody = table.querySelector('tbody');
-                    if (!tbody) return;
-
-                    const allRows = tbody.querySelectorAll('tr');
-                    const pageData = getCurrentPageData();
-
-                    // Hide all rows first
-                    allRows.forEach(row => {
-                        row.style.display = 'none';
-                    });
-
-                    // Show only rows for current page
-                    if (filteredData.length > 0) {
-                        // When filtering, show rows based on filtered indices
-                        const startIndex = (currentPage - 1) * pageSize;
-                        const endIndex = Math.min(startIndex + pageSize, filteredData.length);
-                        for (let i = startIndex; i < endIndex; i++) {
-                            const rowIndex = filteredData[i];
-                            if (allRows[rowIndex]) {
-                                allRows[rowIndex].style.display = '';
-                            }
-                        }
-                    } else {
-                        // When not filtering, show rows based on page
-                        const startIndex = (currentPage - 1) * pageSize;
-                        const endIndex = Math.min(startIndex + pageSize, allTableData.length);
-                        for (let i = startIndex; i < endIndex; i++) {
-                            if (allRows[i]) {
-                                allRows[i].style.display = '';
-                            }
-                        }
-                    }
-                }
-
-                // Initialize filter event listeners
-                function initFilters() {
-                    const filterInputs = document.querySelectorAll('.filter-input');
-                    filterInputs.forEach(input => {
-                        input.addEventListener('input', filterTable);
-                    });
-                }
-
-                // Initialize action buttons
-                function initActionButtons() {
-                    const selectAllBtn = document.getElementById('selectAllBtn');
-                    const deleteBtn = document.getElementById('deleteBtn');
-                    const addBtn = document.getElementById('addBtn');
-                    const refreshBtn = document.getElementById('refreshBtn');
-
-                    console.log('initActionButtons called');
-                    console.log('selectAllBtn:', selectAllBtn);
-                    console.log('deleteBtn:', deleteBtn);
-                    console.log('addBtn:', addBtn);
-                    console.log('refreshBtn:', refreshBtn);
-
-                    if (selectAllBtn) {
-                        selectAllBtn.addEventListener('click', toggleSelectAll);
-                        console.log('selectAllBtn event attached');
-                    }
-                    if (deleteBtn) {
-                        deleteBtn.addEventListener('click', function(e) {
-                            console.log('deleteBtn clicked');
-                            deleteSelectedRows();
-                        });
-                        console.log('deleteBtn event attached');
-                    }
-                    if (addBtn) {
-                        addBtn.addEventListener('click', addNewRow);
-                        console.log('addBtn event attached');
-                    }
-                    if (refreshBtn) {
-                        refreshBtn.addEventListener('click', refreshData);
-                        console.log('refreshBtn event attached');
-                    }
-                }
-
-                // Initialize row checkboxes
-                function initRowCheckboxes() {
-                    // No header checkbox anymore
-                }
-
-                // Track editing state
-                let editingCell = null; // { row, cellIndex, originalValue, columnName }
-
-                // Handle double-click on cell to edit
-                document.addEventListener('dblclick', function(e) {
-                    const cell = e.target.closest('td.data-column');
-                    if (!cell) return;
-
-                    const row = cell.closest('tr');
-                    if (!row || row.classList.contains('new-row')) return; // Skip new rows
-
-                    // If already editing another cell, save it first
-                    if (editingCell) {
-                        saveEdit();
-                    }
-
-                    const cellIndex = Array.from(row.querySelectorAll('td')).indexOf(cell);
-                    const columnName = cell.getAttribute('data-column-name');
-                    const cellContent = cell.querySelector('.cell-content');
-
-                    if (!cellContent) return;
-
-                    const originalValue = cellContent.textContent;
-
-                    // Enter edit mode
-                    editingCell = {
-                        row: row,
-                        cellIndex: cellIndex,
-                        originalValue: originalValue,
-                        columnName: columnName
-                    };
-
-                    // Replace cell content with input
-                    cell.classList.add('editing');
-                    cell.innerHTML = '<input type="text" class="edit-input" value="' + originalValue + '" data-column-name="' + columnName + '">';
-
-                    const input = cell.querySelector('input');
-                    input.focus();
-                    input.select();
-
-                    // Show save and cancel buttons for this row
-                    const saveBtn = row.querySelector('.save-row-btn');
-                    const cancelBtn = row.querySelector('.cancel-row-btn');
-                    if (saveBtn) saveBtn.classList.remove('hidden');
-                    if (cancelBtn) cancelBtn.classList.remove('hidden');
-
-                    row.classList.add('editing');
-                });
-
-                // Handle Enter key to save, Escape to cancel
-                document.addEventListener('keydown', function(e) {
-                    if (!editingCell) return;
-
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        saveEdit();
-                    } else if (e.key === 'Escape') {
-                        e.preventDefault();
-                        cancelEdit();
-                    }
-                });
-
-                // Click outside to save
-                document.addEventListener('click', function(e) {
-                    if (!editingCell) return;
-
-                    const cell = e.target.closest('td.editing');
-                    const input = e.target.closest('.edit-input');
-                    const saveBtn = e.target.closest('.save-row-btn');
-                    const cancelBtn = e.target.closest('.cancel-row-btn');
-
-                    if (cancelBtn) return; // Cancel button has its own handler
-
-                    // If clicking outside the editing cell and not on save button
-                    if (!cell && !input && !saveBtn) {
-                        saveEdit();
-                    }
-                });
-
-                // Save button click handler for editing rows
-                document.addEventListener('click', function(e) {
-                    if (e.target.closest('.save-row-btn')) {
-                        saveEdit();
-                    } else if (e.target.closest('.cancel-row-btn')) {
-                        cancelEdit();
-                    }
-                });
-
-                // Save button click handler for new rows
-                document.addEventListener('click', function(e) {
-                    if (!e.target.classList.contains('save-new-row-btn')) return;
-
-                    const rowIndex = e.target.getAttribute('data-row-index');
-                    const row = document.querySelector('tr[data-row-index="' + rowIndex + '"]');
-
-                    if (row && row.classList.contains('new-row')) {
-                        saveNewRow(row);
-                    }
-                });
-
-                function saveEdit() {
-                    if (!editingCell) return;
-
-                    const { row, cellIndex, originalValue, columnName } = editingCell;
-                    const cell = row.querySelectorAll('td')[cellIndex];
-                    const input = cell.querySelector('input');
-
-                    if (!input) return;
-
-                    const newValue = input.value;
-
-                    // Restore cell display (will be replaced with UPDATE SQL generation)
-                    cell.classList.remove('editing');
-                    cell.innerHTML = '<div class="cell-wrapper"><span class="cell-content">' + newValue + '</span></div>';
-
-                    // Generate UPDATE SQL
-                    const rowData = JSON.parse(row.getAttribute('data-row-data'));
-                    generateUpdateSQL(rowData, columnName, originalValue, newValue);
-
-                    // Hide save and cancel buttons
-                    const saveBtn = row.querySelector('.save-row-btn');
-                    const cancelBtn = row.querySelector('.cancel-row-btn');
-                    if (saveBtn) saveBtn.classList.add('hidden');
-                    if (cancelBtn) cancelBtn.classList.add('hidden');
-
-                    row.classList.remove('editing');
-                    editingCell = null;
-                }
-
-                function cancelEdit() {
-                    if (!editingCell) return;
-
-                    const { row, cellIndex, originalValue } = editingCell;
-                    const cell = row.querySelectorAll('td')[cellIndex];
-
-                    // Restore original value
-                    cell.classList.remove('editing');
-                    cell.innerHTML = '<div class="cell-wrapper"><span class="cell-content">' + originalValue + '</span></div>';
-
-                    // Hide save and cancel buttons
-                    const saveBtn = row.querySelector('.save-row-btn');
-                    const cancelBtn = row.querySelector('.cancel-row-btn');
-                    if (saveBtn) saveBtn.classList.add('hidden');
-                    if (cancelBtn) cancelBtn.classList.add('hidden');
-
-                    row.classList.remove('editing');
-                    editingCell = null;
-                }
-
-                function generateUpdateSQL(rowData, columnName, originalValue, newValue) {
-                    // Collect all data and send to extension for SQL generation
-                    // This avoids complex string escaping issues
-                    vscode.postMessage({
-                        command: 'generateUpdateSQL',
-                        rowData: rowData,
-                        columnName: columnName,
-                        originalValue: originalValue,
-                        newValue: newValue
-                    });
-                }
-
-                function saveNewRow(row) {
-                    // Get all data columns in the row (including new row cells)
-                    const cells = row.querySelectorAll('td.data-column');
-                    const rowData = {};
-                    const fieldsWithValues = [];
-
-                    console.log('saveNewRow called');
-                    console.log('Row HTML:', row.innerHTML);
-                    console.log('Cells found:', cells.length);
-
-                    // Collect field names and values from visible cells only
-                    cells.forEach(cell => {
-                        // Skip hidden cells
-                        if (cell.classList.contains('hidden')) {
-                            console.log('Skipping hidden cell');
-                            return;
-                        }
-
-                        const fieldName = cell.getAttribute('data-column-name');
-                        const input = cell.querySelector('input');
-                        const value = input ? input.value.trim() : '';
-
-                        console.log('Field:', fieldName, 'Has input:', !!input, 'Value:', value, 'IsEmpty:', value === '');
-
-                        if (fieldName) {
-                            rowData[fieldName] = value;
-                            // Only add to fieldsWithValues if value is not empty
-                            if (value !== '') {
-                                fieldsWithValues.push(fieldName);
-                            }
-                        }
-                    });
-
-                    console.log('Final rowData:', JSON.stringify(rowData));
-                    console.log('Final fieldsWithValues:', JSON.stringify(fieldsWithValues));
-                    console.log('fieldsWithValues.length:', fieldsWithValues.length);
-
-                    // Only include fields that have values
-                    const filteredRowData = {};
-                    fieldsWithValues.forEach(field => {
-                        filteredRowData[field] = rowData[field];
-                    });
-
-                    console.log('Filtered rowData to send:', JSON.stringify(filteredRowData));
-
-                    // Generate INSERT SQL with only fields that have values
-                    if (fieldsWithValues.length === 0) {
-                        console.log('ERROR: fieldsWithValues is empty!');
-                        vscode.postMessage({
-                            command: 'showWarning',
-                            message: 'No values to insert. Please fill in at least one field.'
-                        });
-                        return;
-                    }
-
-                    console.log('Calling generateInsertSQL with:', JSON.stringify(filteredRowData), JSON.stringify(fieldsWithValues));
-                    generateInsertSQL(filteredRowData, fieldsWithValues);
-                }
-
-                function generateInsertSQL(rowData, fields) {
-                    // Collect all data and send to extension for SQL generation
-                    vscode.postMessage({
-                        command: 'generateInsertSQL',
-                        rowData: rowData,
-                        fields: fields
-                    });
-                }
-
-                function toggleSelectAll() {
-                    const checkboxes = document.querySelectorAll('.row-checkbox');
-                    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-                    checkboxes.forEach(cb => {
-                        cb.checked = !allChecked;
-                        cb.closest('tr').classList.toggle('selected', !allChecked);
-                    });
-                }
-
-                function deleteSelectedRows() {
-                    console.log('deleteSelectedRows called');
-                    const selectedCheckboxes = document.querySelectorAll('.row-checkbox:checked');
-                    console.log('selectedCheckboxes:', selectedCheckboxes.length);
-                    if (selectedCheckboxes.length === 0) {
-                        vscode.postMessage({
-                            command: 'showWarning',
-                            message: 'Please select at least one row to delete'
-                        });
-                        return;
-                    }
-
-                    // Collect row data for selected rows
-                    const selectedRows = [];
-                    selectedCheckboxes.forEach(checkbox => {
-                        const row = checkbox.closest('tr');
-                        if (row) {
-                            const rowData = row.getAttribute('data-row-data');
-                            console.log('rowData:', rowData);
-                            if (rowData) {
-                                selectedRows.push(JSON.parse(rowData));
-                            }
-                        }
-                    });
-
-                    console.log('selectedRows:', selectedRows);
-                    console.log('Sending deleteRows command');
-                    // Send to extension for SQL generation and confirmation
-                    vscode.postMessage({
-                        command: 'deleteRows',
-                        rows: JSON.stringify(selectedRows)
-                    });
-                }
-
-                function addNewRow() {
-                    const table = document.querySelector('table tbody');
-                    if (!table) return;
-
-                    // Get only visible data columns from the FIRST header row only (not filter row)
-                    const firstHeaderRow = document.querySelector('table thead tr:first-child');
-                    if (!firstHeaderRow) return;
-
-                    const fields = Array.from(firstHeaderRow.querySelectorAll('th.data-column'))
-                        .filter(th => !th.classList.contains('hidden'))
-                        .map(th => th.getAttribute('data-column-name'))
-                        .filter(name => name);
-
-                    console.log('addNewRow: visible fields:', fields);
-
-                    const newRow = document.createElement('tr');
-                    newRow.classList.add('new-row');
-                    newRow.setAttribute('data-row-index', 'new');
-
-                    // Add sticky column with checkbox and save button
-                    const stickyCell = document.createElement('td');
-                    stickyCell.className = 'sticky-column';
-                    stickyCell.innerHTML = '<input type="checkbox" class="row-checkbox" data-row-index="new"><button class="save-new-row-btn" data-row-index="new" title="Save new row">✓</button>';
-                    newRow.appendChild(stickyCell);
-
-                    // Add editable cells for visible fields only
-                    fields.forEach(fieldName => {
-                        const cell = document.createElement('td');
-                        cell.className = 'data-column edit-cell';
-                        cell.setAttribute('data-column-name', fieldName);
-                        const input = document.createElement('input');
-                        input.type = 'text';
-                        input.placeholder = 'Enter value';
-                        input.className = 'edit-input';
-                        cell.appendChild(input);
-                        newRow.appendChild(cell);
-                    });
-
-                    table.appendChild(newRow);
-                }
-
-                function refreshData() {
-                    vscode.postMessage({
-                        command: 'refreshData'
-                    });
-                }
-
-                // Handle cell editing
-                document.addEventListener('change', function(e) {
-                    if (e.target.classList.contains('edit-input')) {
-                        const cell = e.target.closest('td');
-                        const row = cell.closest('tr');
-                        const rowIndex = row.querySelector('.row-checkbox')?.getAttribute('data-row-index');
-                        const columnName = cell.getAttribute('data-column-name');
-                        const value = e.target.value;
-
-                        // Cell editing tracking removed - no longer needed
-                    }
-                });
-
-                // Initialize column resize functionality
-                function initColumnResize() {
-                    const table = document.querySelector('table');
-                    if (!table) return;
-
-                    let resizing = false;
-                    let currentTh = null;
-                    let startX = 0;
-                    let startWidth = 0;
-
-                    // Mouse down on resize handle
-                    table.addEventListener('mousedown', function(e) {
-                        if (e.target.classList.contains('resize-handle')) {
-                            e.preventDefault();
-                            resizing = true;
-                            currentTh = e.target.closest('th');
-                            startX = e.pageX;
-                            startWidth = currentTh.offsetWidth;
-
-                            // Add active class for visual feedback
-                            e.target.classList.add('active');
-
-                            // Add temporary event listeners
-                            document.addEventListener('mousemove', handleMouseMove);
-                            document.addEventListener('mouseup', handleMouseUp);
-                        }
-                    });
-
-                    function handleMouseMove(e) {
-                        if (!resizing || !currentTh) return;
-
-                        const width = startWidth + (e.pageX - startX);
-
-                        // Set minimum width
-                        if (width >= 50) {
-                            currentTh.style.width = width + 'px';
-                            currentTh.style.minWidth = width + 'px';
-                            currentTh.style.maxWidth = width + 'px';
-
-                            // Apply same width to filter header cell
-                            const colIndex = currentTh.getAttribute('data-column-name');
-                            const filterCells = document.querySelectorAll(\`th[data-column-name="\${colIndex}"], td[data-column-name="\${colIndex}"]\`);
-                            filterCells.forEach(cell => {
-                                cell.style.width = width + 'px';
-                                cell.style.minWidth = width + 'px';
-                                cell.style.maxWidth = width + 'px';
-                            });
-                        }
-                    }
-
-                    function handleMouseUp(e) {
-                        if (resizing) {
-                            resizing = false;
-
-                            // Remove active class
-                            const activeHandle = document.querySelector('.resize-handle.active');
-                            if (activeHandle) {
-                                activeHandle.classList.remove('active');
-                            }
-
-                            // Remove temporary event listeners
-                            document.removeEventListener('mousemove', handleMouseMove);
-                            document.removeEventListener('mouseup', handleMouseUp);
-
-                            currentTh = null;
-                        }
-                    }
-                }
-
-                // Call initialization functions (only initColumnResize here; others are called in window load event)
-                initColumnResize();
-            <\/script>
-        `;
-
-        const modal = `
-            <div id="modal">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <span class="modal-title">Cell Content</span>
-                        <button class="close-btn" onclick="closeModal()">&times;</button>
-                    </div>
-                    <div class="modal-value" id="modalValue"></div>
-                </div>
-            </div>
-        `;
-
-        const head = [].concat(
-            "<!DOCTYPE html>",
-            "<html>",
-            "<head>",
-            '<meta http-equiv="Content-type" content="text/html;charset=UTF-8">',
-            '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
-            '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">',
-            style,
-            "</head>",
-            "<body>",
-        ).join("\n");
-
-        const body = SqlResultWebView.render(data, columnComments);
-
-        const tail = [
-            modal,
-            script,
-            "</body>",
-            "</html>",
-        ].join("\n");
-
-        return head + body + tail;
     }
 
-    private static render(rows, columnComments?: { [key: string]: string }) {
-        if (rows.length === 0) {
-            return '<div class="no-data">No data</div>';
-        }
+    private static getClientScript(): string {
+        return `
+(function() {
+    const vscode = acquireVsCodeApi();
+    let allRows = [];
+    let fields = [];
+    let columnComments = {};
+    let filteredIndices = null;
+    let currentPage = 1;
+    let pageSize = 10;
+    let totalRowsHint = null;
+    let editingCell = null;
+    let uiInitialized = false;
 
-        // Get all field names
-        const fields = [];
-        for (const field in rows[0]) {
-            if (rows[0].hasOwnProperty(field)) {
-                fields.push(field);
-            }
-        }
-
-        // Generate header row with field filter column
-        let head = `<th class="column-filter-header">
-            <input type="text" id="columnFilterInput" class="column-filter-input" placeholder="🔍">
-        </th>`;
-        fields.forEach((field, index) => {
-            const escapedField = this.escapeHtml(field);
-            const comment = columnComments && columnComments[field] ? this.escapeHtml(columnComments[field]) : '';
-            const commentHtml = comment ? `<span class="column-comment" title="${comment}">${comment}</span>` : '';
-            head += `<th class="data-column" data-column-name="${escapedField}" data-column-comment="${comment}" onclick="copyHeader('${escapedField}', this)" title="Click to copy: ${escapedField}" style="position: relative;"><span class="column-name">${escapedField}</span>${commentHtml}<div class="resize-handle" data-column-index="${index}"></div></th>`;
-        });
-
-        // Generate filter row (first column has action buttons)
-        let filterRow = `<th class="filter-header sticky-column">
-            <div class="action-btn-group">
-                <button class="action-btn" id="selectAllBtn" title="Select All"><i class="fa-solid fa-check"></i></button>
-                <button class="action-btn danger" id="deleteBtn" title="Delete Selected"><i class="fa-solid fa-remove"></i></button>
-                <button class="action-btn success" id="addBtn" title="Add Row"><i class="fa-solid fa-plus"></i></button>
-                <button class="action-btn" id="refreshBtn" title="Refresh"><i class="fa-solid fa-refresh"></i></button>
-            </div>
-        </th>`;
-        fields.forEach((field, index) => {
-            filterRow += `<th class="filter-header data-column" data-column-name="${this.escapeHtml(field)}"><input type="text" class="filter-input" data-column-index="${index}" placeholder=""></th>`;
-        });
-
-        let body = "<div class='table-wrapper'><table><thead><tr>" + head + "</tr><tr>" + filterRow + "</tr></thead><tbody>";
-
-        rows.forEach((row: any, rowIndex: number) => {
-            // Store row data as JSON string for delete functionality
-            const rowDataJson = JSON.stringify(row).replace(/"/g, '&quot;');
-            body += `<tr data-row-data='${rowDataJson}' data-row-index='${rowIndex}'>`;
-            // Add checkbox cell with visible checkbox and save button
-            body += `<td class='sticky-column'>
-                <input type='checkbox' class='row-checkbox' data-row-index='${rowIndex}'>
-                <span class='row-number'>${rowIndex + 1}</span>
-                <button class='save-row-btn hidden' data-row-index='${rowIndex}' title='Save changes'><i class='fa-solid fa-check'></i></button>
-                <button class='cancel-row-btn hidden' data-row-index='${rowIndex}' title='Cancel'><i class='fa-solid fa-reply'></i></button>
-            </td>`;
-            for (const field in row) {
-                if (row.hasOwnProperty(field)) {
-                    const value = row[field];
-                    const fullValue = value === null || value === undefined ? 'NULL' : String(value);
-                    const displayValue = value === null || value === undefined ? '<span class="empty-cell">NULL</span>' : this.escapeHtml(fullValue);
-                    const escapedFieldName = this.escapeHtml(field);
-
-                    // Calculate display length (Chinese counts as 2, English as 1)
-                    const displayLength = getStringLength(fullValue);
-                    // Use 50 as threshold (50 English chars or 25 Chinese chars)
-                    const isTruncated = displayLength > 50;
-
-                    // Truncate for display if needed
-                    let truncatedValue = fullValue;
-                    if (isTruncated) {
-                        let currentLength = 0;
-                        let truncateIndex = 0;
-                        for (let i = 0; i < fullValue.length; i++) {
-                            const charCode = fullValue.charCodeAt(i);
-                            const charLength = (charCode >= 0x4E00 && charCode <= 0x9FFF ||
-                                                charCode >= 0x3400 && charCode <= 0x4DBF ||
-                                                charCode >= 0xFF01 && charCode <= 0xFF60) ? 2 : 1;
-                            if (currentLength + charLength > 47) { // 47 + "..."
-                                break;
-                            }
-                            currentLength += charLength;
-                            truncateIndex = i + 1;
-                        }
-                        truncatedValue = fullValue.substring(0, truncateIndex);
-                    }
-
-                    const escapedFullValue = JSON.stringify(fullValue);
-                    const escapedTruncatedValue = this.escapeHtml(truncatedValue);
-
-                    body += "<td class='data-column' data-column-name='" + escapedFieldName + "'>" +
-                        "<div class=\"cell-wrapper\">" +
-                        "<span class=\"cell-content" + (isTruncated ? " truncated" : "") + "\">" + (isTruncated ? escapedTruncatedValue + "..." : displayValue) + "</span>" +
-                        (isTruncated ? "<button class=\"expand-btn\" onclick='showModal(" + escapedFullValue + ")'>...</button>" : "") +
-                        "</div>" +
-                        "</td>";
-                }
-            }
-            body += "</tr>";
-        });
-
-        body += "</tbody></table>";
-        body += "</div>"; // close table-wrapper
-
-        // Add pagination controls
-        body += `
-            <div class="pagination-container">
-                <div class="pagination-info" id="paginationInfo">0-0 / 0</div>
-                <div class="pagination-controls">
-                    <div class="page-size-selector">
-                       
-                        <select id="pageSizeSelect" class="page-size-select" onchange="changePageSize()">
-                            <option value="5">5</option>
-                            <option value="10" selected>10</option>
-                            <option value="20">20</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                        </select>
-                    </div>
-                    <div class="pagination-pages" id="paginationPages">
-                        <button class="pagination-btn" disabled>&lt;</button>
-                        <button class="pagination-btn active">1</button>
-                        <button class="pagination-btn" disabled>&gt;</button>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        return body;
+    function escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
-    private static escapeHtml(text: string): string {
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        };
-        return text.replace(/[&<>"']/g, (m) => map[m]);
+    function getStringLength(str) {
+        let length = 0;
+        for (let i = 0; i < str.length; i++) {
+            const code = str.charCodeAt(i);
+            if ((code >= 0x4E00 && code <= 0x9FFF) ||
+                (code >= 0x3400 && code <= 0x4DBF) ||
+                (code >= 0xFF01 && code <= 0xFF60)) {
+                length += 2;
+            } else {
+                length += 1;
+            }
+        }
+        return length;
+    }
+
+    function truncateDisplayValue(fullValue) {
+        const displayLength = getStringLength(fullValue);
+        if (displayLength <= 50) {
+            return { text: fullValue, truncated: false };
+        }
+        let currentLength = 0;
+        let truncateIndex = 0;
+        for (let i = 0; i < fullValue.length; i++) {
+            const code = fullValue.charCodeAt(i);
+            const charLength = (code >= 0x4E00 && code <= 0x9FFF) ||
+                (code >= 0x3400 && code <= 0x4DBF) ||
+                (code >= 0xFF01 && code <= 0xFF60) ? 2 : 1;
+            if (currentLength + charLength > 47) break;
+            currentLength += charLength;
+            truncateIndex = i + 1;
+        }
+        return { text: fullValue.substring(0, truncateIndex) + '...', truncated: true, fullValue };
+    }
+
+    function formatCellHtml(value) {
+        if (value === null || value === undefined) {
+            return '<span class="empty-cell">NULL</span>';
+        }
+        const fullValue = String(value);
+        const info = truncateDisplayValue(fullValue);
+        if (!info.truncated) {
+            return '<span class="cell-content">' + escapeHtml(fullValue) + '</span>';
+        }
+        const encoded = encodeURIComponent(fullValue);
+        return '<span class="cell-content truncated">' + escapeHtml(info.text) + '</span>' +
+            '<button class="expand-btn" data-full-value="' + encoded + '">...</button>';
+    }
+
+    function getActiveIndices() {
+        if (filteredIndices !== null) return filteredIndices;
+        const indices = [];
+        for (let i = 0; i < allRows.length; i++) indices.push(i);
+        return indices;
+    }
+
+    function buildTableHead() {
+        const thead = document.getElementById('tableHead');
+        if (!thead) return;
+        let head = '<tr><th class="column-filter-header"><input type="text" id="columnFilterInput" class="column-filter-input" placeholder="🔍"></th>';
+        fields.forEach(function(field, index) {
+            const comment = columnComments[field] || '';
+            const commentHtml = comment ? '<span class="column-comment" title="' + escapeHtml(comment) + '">' + escapeHtml(comment) + '</span>' : '';
+            head += '<th class="data-column" data-column-name="' + escapeHtml(field) + '" data-column-comment="' + escapeHtml(comment) + '" data-column-index="' + index + '">' +
+                '<span class="column-name">' + escapeHtml(field) + '</span>' + commentHtml +
+                '<div class="resize-handle" data-column-index="' + index + '"></div></th>';
+        });
+        head += '</tr>';
+
+        let filterRow = '<tr><th class="filter-header sticky-column"><div class="action-btn-group">' +
+            '<button class="action-btn" id="selectAllBtn" title="Select All">✓</button>' +
+            '<button class="action-btn danger" id="deleteBtn" title="Delete Selected">✕</button>' +
+            '<button class="action-btn success" id="addBtn" title="Add Row">+</button>' +
+            '<button class="action-btn" id="refreshBtn" title="Refresh">↻</button>' +
+            '</div></th>';
+        fields.forEach(function(field, index) {
+            filterRow += '<th class="filter-header data-column" data-column-name="' + escapeHtml(field) + '">' +
+                '<input type="text" class="filter-input" data-column-index="' + index + '" placeholder=""></th>';
+        });
+        filterRow += '</tr>';
+        thead.innerHTML = head + filterRow;
+    }
+
+    function updateHeaderComments() {
+        document.querySelectorAll('thead tr:first-child th.data-column').forEach(function(th) {
+            const name = th.getAttribute('data-column-name');
+            const comment = columnComments[name] || '';
+            th.setAttribute('data-column-comment', comment);
+            let commentEl = th.querySelector('.column-comment');
+            if (comment) {
+                if (!commentEl) {
+                    commentEl = document.createElement('span');
+                    commentEl.className = 'column-comment';
+                    th.insertBefore(commentEl, th.querySelector('.resize-handle'));
+                }
+                commentEl.textContent = comment;
+                commentEl.title = comment;
+            } else if (commentEl) {
+                commentEl.remove();
+            }
+        });
+    }
+
+    function createRowElement(row, globalIndex) {
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-row-index', String(globalIndex));
+
+        const sticky = document.createElement('td');
+        sticky.className = 'sticky-column';
+        sticky.innerHTML = '<input type="checkbox" class="row-checkbox" data-row-index="' + globalIndex + '">' +
+            '<span class="row-number">' + (globalIndex + 1) + '</span>' +
+            '<button class="save-row-btn hidden" data-row-index="' + globalIndex + '" title="Save changes">✓</button>' +
+            '<button class="cancel-row-btn hidden" data-row-index="' + globalIndex + '" title="Cancel">↩</button>';
+        tr.appendChild(sticky);
+
+        fields.forEach(function(field) {
+            const td = document.createElement('td');
+            td.className = 'data-column';
+            td.setAttribute('data-column-name', field);
+            td.innerHTML = '<div class="cell-wrapper">' + formatCellHtml(row[field]) + '</div>';
+            tr.appendChild(td);
+        });
+        return tr;
+    }
+
+    function renderPage() {
+        const tbody = document.getElementById('dataBody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        const indices = getActiveIndices();
+        const start = (currentPage - 1) * pageSize;
+        const pageIndices = indices.slice(start, start + pageSize);
+        pageIndices.forEach(function(globalIndex) {
+            tbody.appendChild(createRowElement(allRows[globalIndex], globalIndex));
+        });
+    }
+
+    function getTotalCount() {
+        return filteredIndices !== null ? filteredIndices.length : allRows.length;
+    }
+
+    function updatePagination() {
+        const totalRows = getTotalCount();
+        const totalPages = Math.max(1, Math.ceil(totalRows / pageSize) || 1);
+        if (currentPage > totalPages) currentPage = totalPages;
+        const startRow = totalRows === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+        const endRow = Math.min(currentPage * pageSize, totalRows);
+        const info = document.getElementById('paginationInfo');
+        if (info) {
+            const hint = totalRowsHint && totalRowsHint > allRows.length ? ' (loaded ' + allRows.length + ')' : '';
+            info.textContent = startRow + '-' + endRow + ' / ' + totalRows + hint;
+        }
+        renderPageButtons(totalPages);
+        renderPage();
+    }
+
+    function renderPageButtons(totalPages) {
+        const container = document.getElementById('paginationPages');
+        if (!container) return;
+        let html = '<button class="pagination-btn" data-page="' + (currentPage - 1) + '"' + (currentPage === 1 ? ' disabled' : '') + '>&lt;</button>';
+        const maxVisible = 5;
+        let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+        let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+        if (endPage - startPage < maxVisible - 1) startPage = Math.max(1, endPage - maxVisible + 1);
+        if (startPage > 1) {
+            html += '<button class="pagination-btn" data-page="1">1</button>';
+            if (startPage > 2) html += '<span style="padding:4px 8px;">...</span>';
+        }
+        for (let i = startPage; i <= endPage; i++) {
+            html += '<button class="pagination-btn' + (i === currentPage ? ' active' : '') + '" data-page="' + i + '">' + i + '</button>';
+        }
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) html += '<span style="padding:4px 8px;">...</span>';
+            html += '<button class="pagination-btn" data-page="' + totalPages + '">' + totalPages + '</button>';
+        }
+        html += '<button class="pagination-btn" data-page="' + (currentPage + 1) + '"' + (currentPage >= totalPages || totalPages === 0 ? ' disabled' : '') + '>&gt;</button>';
+        container.innerHTML = html;
+    }
+
+    function applyFilters() {
+        const filterInputs = document.querySelectorAll('.filter-input');
+        const filters = [];
+        filterInputs.forEach(function(input) {
+            const value = input.value.toLowerCase().trim();
+            if (value) {
+                filters.push({ field: fields[parseInt(input.getAttribute('data-column-index'), 10)], value: value });
+            }
+        });
+        if (filters.length === 0) {
+            filteredIndices = null;
+        } else {
+            filteredIndices = [];
+            allRows.forEach(function(row, index) {
+                let match = true;
+                for (let i = 0; i < filters.length; i++) {
+                    const cellValue = row[filters[i].field];
+                    const text = (cellValue === null || cellValue === undefined) ? 'null' : String(cellValue);
+                    if (text.toLowerCase().indexOf(filters[i].value) === -1) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) filteredIndices.push(index);
+            });
+        }
+        currentPage = 1;
+        updatePagination();
+    }
+
+    function filterColumns() {
+        const input = document.getElementById('columnFilterInput');
+        const filterText = input ? input.value.toLowerCase().trim() : '';
+        const visible = new Set();
+        document.querySelectorAll('thead tr:first-child th.data-column').forEach(function(th) {
+            const name = th.getAttribute('data-column-name') || '';
+            const comment = th.getAttribute('data-column-comment') || '';
+            if (!filterText || name.toLowerCase().includes(filterText) || comment.toLowerCase().includes(filterText)) {
+                visible.add(name);
+            }
+        });
+        document.querySelectorAll('th.data-column, td.data-column').forEach(function(el) {
+            const name = el.getAttribute('data-column-name');
+            if (!name) return;
+            el.classList.toggle('hidden', !visible.has(name));
+        });
+    }
+
+    function showModal(value) {
+        document.getElementById('modalValue').textContent = value;
+        document.getElementById('modal').classList.add('show');
+    }
+
+    function closeModal() {
+        document.getElementById('modal').classList.remove('show');
+    }
+
+    function saveEdit() {
+        if (!editingCell) return;
+        const row = editingCell.row;
+        const cell = row.querySelectorAll('td')[editingCell.cellIndex];
+        const input = cell.querySelector('input');
+        if (!input) return;
+        const newValue = input.value;
+        const globalIndex = parseInt(row.getAttribute('data-row-index'), 10);
+        const rowData = allRows[globalIndex];
+        cell.classList.remove('editing');
+        cell.innerHTML = '<div class="cell-wrapper"><span class="cell-content">' + escapeHtml(newValue) + '</span></div>';
+        vscode.postMessage({
+            command: 'generateUpdateSQL',
+            rowData: rowData,
+            columnName: editingCell.columnName,
+            originalValue: editingCell.originalValue,
+            newValue: newValue
+        });
+        row.querySelector('.save-row-btn').classList.add('hidden');
+        row.querySelector('.cancel-row-btn').classList.add('hidden');
+        row.classList.remove('editing');
+        editingCell = null;
+    }
+
+    function cancelEdit() {
+        if (!editingCell) return;
+        const row = editingCell.row;
+        const cell = row.querySelectorAll('td')[editingCell.cellIndex];
+        cell.classList.remove('editing');
+        cell.innerHTML = '<div class="cell-wrapper"><span class="cell-content">' + escapeHtml(editingCell.originalValue) + '</span></div>';
+        row.querySelector('.save-row-btn').classList.add('hidden');
+        row.querySelector('.cancel-row-btn').classList.add('hidden');
+        row.classList.remove('editing');
+        editingCell = null;
+    }
+
+    function toggleSelectAll() {
+        const checkboxes = document.querySelectorAll('#dataBody .row-checkbox');
+        const allChecked = Array.from(checkboxes).every(function(cb) { return cb.checked; });
+        checkboxes.forEach(function(cb) {
+            cb.checked = !allChecked;
+            cb.closest('tr').classList.toggle('selected', !allChecked);
+        });
+    }
+
+    function deleteSelectedRows() {
+        const selected = document.querySelectorAll('#dataBody .row-checkbox:checked');
+        if (selected.length === 0) {
+            vscode.postMessage({ command: 'showWarning', message: 'Please select at least one row to delete' });
+            return;
+        }
+        const rows = [];
+        selected.forEach(function(cb) {
+            const idx = parseInt(cb.getAttribute('data-row-index'), 10);
+            rows.push(allRows[idx]);
+        });
+        vscode.postMessage({ command: 'deleteRows', rows: JSON.stringify(rows) });
+    }
+
+    function addNewRow() {
+        const tbody = document.getElementById('dataBody');
+        if (!tbody) return;
+        const visibleFields = fields.filter(function(field) {
+            const headers = document.querySelectorAll('thead tr:first-child th.data-column');
+            for (let i = 0; i < headers.length; i++) {
+                const th = headers[i];
+                if (th.getAttribute('data-column-name') === field && !th.classList.contains('hidden')) {
+                    return true;
+                }
+            }
+            return false;
+        });
+        const tr = document.createElement('tr');
+        tr.className = 'new-row';
+        tr.setAttribute('data-row-index', 'new');
+        const sticky = document.createElement('td');
+        sticky.className = 'sticky-column';
+        sticky.innerHTML = '<input type="checkbox" class="row-checkbox" data-row-index="new">' +
+            '<button class="save-new-row-btn" data-row-index="new" title="Save new row">✓</button>';
+        tr.appendChild(sticky);
+        visibleFields.forEach(function(field) {
+            const td = document.createElement('td');
+            td.className = 'data-column edit-cell';
+            td.setAttribute('data-column-name', field);
+            td.innerHTML = '<input type="text" class="edit-input" placeholder="Enter value">';
+            tr.appendChild(td);
+        });
+        tbody.insertBefore(tr, tbody.firstChild);
+    }
+
+    function saveNewRow(row) {
+        const rowData = {};
+        const fieldsWithValues = [];
+        row.querySelectorAll('td.data-column:not(.hidden)').forEach(function(cell) {
+            const fieldName = cell.getAttribute('data-column-name');
+            const input = cell.querySelector('input');
+            const value = input ? input.value.trim() : '';
+            if (fieldName) {
+                rowData[fieldName] = value;
+                if (value !== '') fieldsWithValues.push(fieldName);
+            }
+        });
+        if (fieldsWithValues.length === 0) {
+            vscode.postMessage({ command: 'showWarning', message: 'No values to insert. Please fill in at least one field.' });
+            return;
+        }
+        const filteredRowData = {};
+        fieldsWithValues.forEach(function(f) { filteredRowData[f] = rowData[f]; });
+        vscode.postMessage({ command: 'generateInsertSQL', rowData: filteredRowData, fields: fieldsWithValues });
+    }
+
+    function bindStaticUiEvents() {
+        if (uiInitialized) return;
+        uiInitialized = true;
+
+        document.getElementById('pageSizeSelect').addEventListener('change', function(e) {
+            pageSize = parseInt(e.target.value, 10);
+            currentPage = 1;
+            updatePagination();
+        });
+
+        document.getElementById('paginationPages').addEventListener('click', function(e) {
+            const btn = e.target.closest('.pagination-btn');
+            if (!btn || btn.disabled) return;
+            const page = parseInt(btn.getAttribute('data-page'), 10);
+            if (!isNaN(page)) {
+                currentPage = page;
+                updatePagination();
+            }
+        });
+
+        document.addEventListener('input', function(e) {
+            if (e.target.id === 'columnFilterInput') filterColumns();
+            if (e.target.classList.contains('filter-input')) applyFilters();
+        });
+
+        document.getElementById('tableHead').addEventListener('click', function(e) {
+            if (e.target.closest('#selectAllBtn')) toggleSelectAll();
+            else if (e.target.closest('#deleteBtn')) deleteSelectedRows();
+            else if (e.target.closest('#addBtn')) addNewRow();
+            else if (e.target.closest('#refreshBtn')) vscode.postMessage({ command: 'refreshData' });
+            else if (e.target.closest('th.data-column') && !e.target.closest('.resize-handle') && !e.target.closest('input')) {
+                const th = e.target.closest('th.data-column');
+                const name = th.getAttribute('data-column-name');
+                if (name) navigator.clipboard.writeText(name);
+            }
+        });
+
+        document.getElementById('dataBody').addEventListener('click', function(e) {
+            if (e.target.classList.contains('expand-btn')) {
+                showModal(decodeURIComponent(e.target.getAttribute('data-full-value')));
+            } else if (e.target.closest('.save-row-btn')) saveEdit();
+            else if (e.target.closest('.cancel-row-btn')) cancelEdit();
+            else if (e.target.closest('.save-new-row-btn')) saveNewRow(e.target.closest('tr'));
+            else if (e.target.classList.contains('row-checkbox')) {
+                e.target.closest('tr').classList.toggle('selected', e.target.checked);
+            }
+        });
+
+        document.getElementById('dataBody').addEventListener('dblclick', function(e) {
+            const cell = e.target.closest('td.data-column');
+            if (!cell) return;
+            const row = cell.closest('tr');
+            if (!row || row.classList.contains('new-row')) return;
+            if (editingCell) saveEdit();
+            const cellIndex = Array.from(row.querySelectorAll('td')).indexOf(cell);
+            const columnName = cell.getAttribute('data-column-name');
+            const globalIndex = parseInt(row.getAttribute('data-row-index'), 10);
+            const rowData = allRows[globalIndex];
+            if (!columnName || !rowData) return;
+            const rawValue = rowData[columnName];
+            const originalValue = rawValue === null || rawValue === undefined ? '' : String(rawValue);
+            editingCell = { row: row, cellIndex: cellIndex, originalValue: originalValue, columnName: columnName };
+            cell.classList.add('editing');
+            cell.innerHTML = '<input type="text" class="edit-input" value="' + escapeHtml(originalValue) + '">';
+            cell.querySelector('input').focus();
+            row.querySelector('.save-row-btn').classList.remove('hidden');
+            row.querySelector('.cancel-row-btn').classList.remove('hidden');
+            row.classList.add('editing');
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                if (editingCell) { e.preventDefault(); cancelEdit(); }
+                else closeModal();
+            } else if (e.key === 'Enter' && editingCell) {
+                e.preventDefault();
+                saveEdit();
+            }
+        });
+
+        document.getElementById('modal').addEventListener('click', function(e) {
+            if (e.target.id === 'modal') closeModal();
+        });
+        document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
+
+        initColumnResize();
+    }
+
+    function initStickyColumnResize() {
+        const filterHeader = document.querySelector('.column-filter-header');
+        if (!filterHeader || filterHeader.querySelector('.sticky-resize-handle')) return;
+        const handle = document.createElement('div');
+        handle.className = 'resize-handle sticky-resize-handle';
+        filterHeader.appendChild(handle);
+        let isResizing = false, startX = 0, startWidth = 0;
+        handle.addEventListener('mousedown', function(e) {
+            isResizing = true;
+            startX = e.clientX;
+            startWidth = filterHeader.offsetWidth;
+            handle.classList.add('active');
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', function(e) {
+            if (!isResizing) return;
+            const newWidth = Math.max(60, startWidth + (e.clientX - startX));
+            filterHeader.style.width = newWidth + 'px';
+            filterHeader.style.minWidth = newWidth + 'px';
+            document.querySelectorAll('.sticky-column').forEach(function(col) {
+                col.style.width = newWidth + 'px';
+                col.style.minWidth = newWidth + 'px';
+            });
+        });
+        document.addEventListener('mouseup', function() {
+            if (isResizing) { isResizing = false; handle.classList.remove('active'); }
+        });
+    }
+
+    function initColumnResize() {
+        const table = document.querySelector('table');
+        if (!table || table.dataset.resizeBound) return;
+        table.dataset.resizeBound = '1';
+        let resizing = false, currentTh = null, startX = 0, startWidth = 0;
+        table.addEventListener('mousedown', function(e) {
+            if (!e.target.classList.contains('resize-handle') || e.target.classList.contains('sticky-resize-handle')) return;
+            e.preventDefault();
+            resizing = true;
+            currentTh = e.target.closest('th');
+            startX = e.pageX;
+            startWidth = currentTh.offsetWidth;
+            e.target.classList.add('active');
+        });
+        document.addEventListener('mousemove', function(e) {
+            if (!resizing || !currentTh) return;
+            const width = Math.max(50, startWidth + (e.pageX - startX));
+            const colName = currentTh.getAttribute('data-column-name');
+            document.querySelectorAll('[data-column-name]').forEach(function(cell) {
+                if (cell.getAttribute('data-column-name') !== colName) return;
+                cell.style.width = width + 'px';
+                cell.style.minWidth = width + 'px';
+                cell.style.maxWidth = width + 'px';
+            });
+        });
+        document.addEventListener('mouseup', function() {
+            if (resizing) {
+                resizing = false;
+                document.querySelectorAll('.resize-handle.active').forEach(function(h) { h.classList.remove('active'); });
+                currentTh = null;
+            }
+        });
+    }
+
+    function setData(payload) {
+        allRows = payload.rows || [];
+        fields = payload.fields && payload.fields.length ? payload.fields : (allRows.length ? Object.keys(allRows[0]) : []);
+        columnComments = payload.columnComments || {};
+        totalRowsHint = payload.totalRows || null;
+        filteredIndices = null;
+        currentPage = 1;
+        editingCell = null;
+
+        const noData = document.getElementById('noData');
+        const wrapper = document.getElementById('tableWrapper');
+        const pagination = document.getElementById('paginationContainer');
+        if (allRows.length === 0) {
+            noData.style.display = 'block';
+            wrapper.style.display = 'none';
+            pagination.style.display = 'none';
+            return;
+        }
+        noData.style.display = 'none';
+        wrapper.style.display = 'block';
+        pagination.style.display = 'flex';
+        buildTableHead();
+        bindStaticUiEvents();
+        initStickyColumnResize();
+        updatePagination();
+    }
+
+    window.addEventListener('message', function(event) {
+        const message = event.data;
+        if (message.command === 'setData') setData(message);
+        else if (message.command === 'updateComments') {
+            columnComments = message.columnComments || {};
+            updateHeaderComments();
+        }
+    });
+
+    vscode.postMessage({ command: 'ready' });
+})();
+        `;
     }
 }

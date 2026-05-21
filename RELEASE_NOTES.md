@@ -1,3 +1,32 @@
+# Release Notes - Version 0.8.4
+
+## 🚀 Performance
+
+### Query Result Panel — Client-Side Rendering
+- Rewrote result WebView to use JSON data + client-side rendering instead of generating full HTML for every row
+- Only the current page of rows is rendered in the DOM (default 10 rows), dramatically improving load time for large result sets (e.g. 5000 rows)
+- WebView shell is loaded once; subsequent refreshes use `postMessage` instead of replacing the entire HTML document
+
+### Async Column Comments
+- Column comments from `information_schema` are fetched in the background after results are shown
+- Added LRU cache (100 tables, 30 min TTL) to avoid repeated metadata queries
+
+### Query Optimizations
+- `COUNT(*)` before SELECT is now **disabled by default** (`enableCountQuery`) to reduce latency on large tables
+- New configurable auto-LIMIT settings: `defaultQueryLimit`, `largeTableQueryLimit`, `largeTableThreshold`
+- Removed external Font Awesome CDN dependency from result panel
+
+## 📝 Modified Files
+- `src/sqlResultWebView.ts` — client-side rendering architecture
+- `src/common/utility.ts` — async comments, LRU cache, configurable LIMIT/COUNT
+- `package.json` — new configuration options
+
+## 📋 Compatibility
+- Requires VS Code version 1.83.0 or higher
+- Compatible with MySQL 5.x, 8.x, and 9.x
+
+---
+
 # Release Notes - Version 0.8.3
 
 ## 🔧 Improvements

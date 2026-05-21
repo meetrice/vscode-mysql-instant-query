@@ -37,5 +37,9 @@
     "configuration.title": "Mysql Instant Query",
     "configuration.enableTelemetry.description": "Whether to enable anonymous usage collection.",
     "configuration.maxTableCount.description": "The maximum table count shown in the tree view",
-    "configuration.enableDelimiterOperator.description": "Enable support for DELIMITER operator."
+    "configuration.enableDelimiterOperator.description": "Enable support for DELIMITER operator.",
+    "configuration.enableCountQuery.description": "Run COUNT(*) before SELECT to choose auto LIMIT. Disabled by default for faster queries.",
+    "configuration.defaultQueryLimit.description": "Auto LIMIT for small tables when enableCountQuery is on.",
+    "configuration.largeTableQueryLimit.description": "Auto LIMIT for large tables, or when enableCountQuery is off.",
+    "configuration.largeTableThreshold.description": "Row count above which largeTableQueryLimit applies (requires enableCountQuery)."
 }
