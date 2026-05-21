@@ -5,7 +5,7 @@
 
 echo "======================================"
 echo "  MySQL Instant Query Extension"
-echo "  Publishing Version 0.8.2"
+echo "  Publishing Version 0.8.3"
 echo "======================================"
 echo ""
 
@@ -46,12 +46,12 @@ echo ""
 # Step 4: Git commit
 echo "📝 Step 4: Git commit recommended changes..."
 echo "git add package.json RELEASE_NOTES.md"
-echo 'git commit -m "chore: release version 0.8.2"'
-echo "git tag v0.8.2"
+echo 'git commit -m "chore: release version 0.8.3"'
+echo "git tag v0.8.3"
 echo ""
 
 echo "======================================"
-echo "  ✅ Version 0.8.2 Published!"
+echo "  ✅ Version 0.8.3 Published!"
 echo "======================================"
 echo ""
 echo "Extension published to marketplace:"

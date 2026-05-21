@@ -1,3 +1,20 @@
+# Release Notes - Version 0.8.3
+
+## 🔧 Improvements
+
+### Auto-Limit Threshold for Large Tables
+- Increased default auto-limit from 1000 to 5000 rows when table row count exceeds 1000
+- Improves query preview for large tables while maintaining performance safeguards
+
+## 📝 Modified Files
+- `src/common/utility.ts` - Updated auto-limit logic for large result sets
+
+## 📋 Compatibility
+- Requires VS Code version 1.83.0 or higher
+- Compatible with MySQL 5.x, 8.x, and 9.x
+
+---
+
 # Release Notes - Version 0.8.2
 
 ## 🔧 Improvements

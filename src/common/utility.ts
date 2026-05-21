@@ -126,7 +126,7 @@ export class Utility {
             // Strip trailing semicolon before appending LIMIT
             sql = sql.trim().replace(/;\s*$/, '');
             if (totalRowCount !== undefined && totalRowCount > 1000) {
-                sql = sql + ' LIMIT 1000';
+                sql = sql + ' LIMIT 5000';
             } else {
                 sql = sql + ' LIMIT 100';
             }
