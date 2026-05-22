@@ -202,8 +202,10 @@ export class DbDriver {
         switch (driver) {
             case "postgresql": {
                 const rows = await DbDriver.queryPromise<any[]>(options,
-                    "SELECT datname AS name FROM pg_database WHERE datistemplate = false ORDER BY datname");
-                return rows.map((row) => row.name || row.datname);
+                    "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname");
+                return rows
+                    .map((row) => row.datname || row.name || row.DATNAME)
+                    .filter((name) => !!name);
             }
             case "sqlite": {
                 const filePath = options.filePath || options.host;
@@ -350,6 +352,21 @@ export class DbDriver {
             certPath: certPath || "",
             database,
         };
+    }
+
+    public static async testConnection(options: IConnection): Promise<void> {
+        const driver = getDriver(options);
+        switch (driver) {
+            case "sqlite":
+            case "duckdb":
+                await DbDriver.listDatabases(options);
+                break;
+            case "postgresql":
+            case "mysql":
+            default:
+                await DbDriver.queryPromise(options, "SELECT 1");
+                break;
+        }
     }
 
     private static splitStatements(sql: string): string[] {

@@ -170,7 +170,10 @@ export class TableNode implements INode {
                 });
             })
             .catch((err) => {
-                return [new InfoNode(err)];
+                const message = typeof err === "string"
+                    ? err
+                    : (err && err.message) ? err.message : String(err);
+                return [new InfoNode(message)];
             });
     }
 

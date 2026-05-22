@@ -2,13 +2,15 @@ import * as vscode from "vscode";
 import { INode } from "./INode";
 
 export class InfoNode implements INode {
-    constructor(private readonly label: string) {
-    }
+    constructor(private readonly label: string) {}
 
     public getTreeItem(): vscode.TreeItem {
-        return {
-            label: this.label,
-        };
+        const item = new vscode.TreeItem(
+            this.label,
+            vscode.TreeItemCollapsibleState.None
+        );
+        item.contextValue = "info";
+        return item;
     }
 
     public getChildren(): INode[] {

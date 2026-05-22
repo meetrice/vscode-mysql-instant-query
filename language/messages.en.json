@@ -83,6 +83,10 @@
     "connection.error.portRequired": "Please enter the port",
     "connection.info.added": "Connection added",
     "connection.info.updated": "Connection updated",
-    "connection.error.notFound": "Connection configuration not found"
+    "connection.error.notFound": "Connection configuration not found",
+    "connection.test": "Test Connection",
+    "connection.testing": "Testing...",
+    "connection.testSuccess": "Connection successful",
+    "connection.testFailed": "Connection failed: {0}"
 }
 

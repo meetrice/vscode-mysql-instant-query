@@ -80,6 +80,7 @@ export class ConnectionNode implements INode {
             .then((databases) => {
                 return databases.map<DatabaseNode>((database) => {
                     return new DatabaseNode(
+                        this.id,
                         this.host,
                         this.user,
                         this.password,
@@ -93,7 +94,10 @@ export class ConnectionNode implements INode {
                 });
             })
             .catch((err) => {
-                return [new InfoNode(err)];
+                const message = typeof err === "string"
+                    ? err
+                    : (err && err.message) ? err.message : String(err);
+                return [new InfoNode(message)];
             });
     }
 

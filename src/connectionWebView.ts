@@ -2,6 +2,7 @@ import * as uuidv1 from "uuid/v1";
 import * as vscode from "vscode";
 import { AppInsightsClient } from "./common/appInsightsClient";
 import { Constants } from "./common/constants";
+import { DbDriver } from "./common/dbDriver";
 import { Global } from "./common/global";
 import { I18n } from "./common/i18n";
 import { DatabaseDriver, IConnection, IStoredConnection, normalizeDriver } from "./model/connection";
@@ -67,6 +68,9 @@ export class ConnectionWebView {
                     break;
                 case "save":
                     await ConnectionWebView.handleSave(message.data as ConnectionFormData);
+                    break;
+                case "test":
+                    await ConnectionWebView.handleTest(message.data as ConnectionFormData);
                     break;
                 case "cancel":
                     panel.dispose();
@@ -137,37 +141,83 @@ export class ConnectionWebView {
         }
     }
 
+    private static validateConnectionFields(data: ConnectionFormData): boolean {
+        const driver = normalizeDriver(data.driver);
+        const isFileDriver = driver === "sqlite" || driver === "duckdb";
+
+        if (isFileDriver) {
+            if (!data.filePath?.trim()) {
+                vscode.window.showErrorMessage(I18n.t("connection.error.filePathRequired"));
+                return false;
+            }
+        } else {
+            if (!data.host?.trim()) {
+                vscode.window.showErrorMessage(I18n.t("connection.error.hostRequired"));
+                return false;
+            }
+            if (!data.user?.trim()) {
+                vscode.window.showErrorMessage(I18n.t("connection.error.userRequired"));
+                return false;
+            }
+            if (!data.port?.trim()) {
+                vscode.window.showErrorMessage(I18n.t("connection.error.portRequired"));
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static async buildConnectionOptions(data: ConnectionFormData): Promise<IConnection> {
+        const driver = normalizeDriver(data.driver);
+        const isFileDriver = driver === "sqlite" || driver === "duckdb";
+        let password = data.password;
+        if (!password && ConnectionWebView.editConnectionId) {
+            password = await Global.secrets.get(ConnectionWebView.editConnectionId) || "";
+        }
+        return {
+            driver,
+            host: isFileDriver ? data.filePath.trim() : data.host.trim(),
+            user: isFileDriver ? "" : data.user.trim(),
+            port: isFileDriver ? "" : data.port.trim(),
+            certPath: data.certPath?.trim() || "",
+            filePath: isFileDriver ? data.filePath.trim() : undefined,
+            password,
+            displayName: data.displayName?.trim() || "",
+        };
+    }
+
+    private static async handleTest(data: ConnectionFormData): Promise<void> {
+        if (!ConnectionWebView.validateConnectionFields(data)) {
+            ConnectionWebView.currentPanel?.webview.postMessage({ command: "testResult", success: false });
+            return;
+        }
+
+        try {
+            const options = await ConnectionWebView.buildConnectionOptions(data);
+            await DbDriver.testConnection(options);
+            vscode.window.showInformationMessage(I18n.t("connection.testSuccess"));
+            ConnectionWebView.currentPanel?.webview.postMessage({ command: "testResult", success: true });
+        } catch (err) {
+            const message = typeof err === "string"
+                ? err
+                : (err && (err as Error).message) ? (err as Error).message : String(err);
+            vscode.window.showErrorMessage(I18n.format("connection.testFailed", [message]));
+            ConnectionWebView.currentPanel?.webview.postMessage({ command: "testResult", success: false });
+        }
+    }
+
     private static async handleSave(data: ConnectionFormData): Promise<void> {
         if (!ConnectionWebView.context || !ConnectionWebView.treeDataProvider) {
             return;
         }
-
-        const driver = normalizeDriver(data.driver);
-        const isFileDriver = driver === "sqlite" || driver === "duckdb";
 
         if (!data.displayName?.trim()) {
             vscode.window.showErrorMessage(I18n.t("connection.error.displayNameRequired"));
             return;
         }
 
-        if (isFileDriver) {
-            if (!data.filePath?.trim()) {
-                vscode.window.showErrorMessage(I18n.t("connection.error.filePathRequired"));
-                return;
-            }
-        } else {
-            if (!data.host?.trim()) {
-                vscode.window.showErrorMessage(I18n.t("connection.error.hostRequired"));
-                return;
-            }
-            if (!data.user?.trim()) {
-                vscode.window.showErrorMessage(I18n.t("connection.error.userRequired"));
-                return;
-            }
-            if (!data.port?.trim()) {
-                vscode.window.showErrorMessage(I18n.t("connection.error.portRequired"));
-                return;
-            }
+        if (!ConnectionWebView.validateConnectionFields(data)) {
+            return;
         }
 
         AppInsightsClient.sendEvent("addConnection.start");
@@ -180,14 +230,15 @@ export class ConnectionWebView {
         }
 
         const id = ConnectionWebView.editConnectionId || uuidv1();
+        const options = await ConnectionWebView.buildConnectionOptions(data);
         const stored: IStoredConnection = {
-            driver,
+            driver: normalizeDriver(options.driver),
             displayName: data.displayName.trim(),
-            host: isFileDriver ? data.filePath.trim() : data.host.trim(),
-            user: isFileDriver ? "" : data.user.trim(),
-            port: isFileDriver ? "" : data.port.trim(),
-            certPath: data.certPath?.trim() || "",
-            filePath: isFileDriver ? data.filePath.trim() : undefined,
+            host: options.host,
+            user: options.user || "",
+            port: options.port || "",
+            certPath: options.certPath || "",
+            filePath: options.filePath,
         };
 
         connections[id] = stored;
@@ -215,6 +266,8 @@ export class ConnectionWebView {
             passwordEditHint: I18n.t("connection.passwordEditHint", "Leave empty to keep current password"),
             save: I18n.t("connection.save", "Save Connection"),
             saveEdit: I18n.t("connection.saveEdit", "Save Changes"),
+            test: I18n.t("connection.test", "Test Connection"),
+            testing: I18n.t("connection.testing", "Testing..."),
         };
         const labelsJson = JSON.stringify(labels);
 
@@ -283,10 +336,24 @@ export class ConnectionWebView {
         }
         .actions {
             display: flex;
+            justify-content: flex-end;
+            align-items: center;
             gap: 10px;
             margin-top: 24px;
             padding-top: 16px;
             border-top: 1px solid var(--vscode-panel-border);
+        }
+        .actions .btn-primary { order: 1; }
+        .actions .btn-secondary { order: 2; }
+        .actions .btn-test { order: 3; }
+        .btn-test {
+            background: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+        }
+        .btn-test:hover { background: var(--vscode-button-secondaryHoverBackground); }
+        .btn-test:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
         .hint {
             font-size: 0.85em;
@@ -359,6 +426,7 @@ export class ConnectionWebView {
     <div class="actions">
         <button type="button" class="btn-primary" id="saveBtn">${I18n.t("connection.save", "Save Connection")}</button>
         <button type="button" class="btn-secondary" id="cancelBtn">${I18n.t("connection.cancel", "Cancel")}</button>
+        <button type="button" class="btn-test" id="testBtn">${I18n.t("connection.test", "Test Connection")}</button>
     </div>
     <script>
         const labels = ${labelsJson};
@@ -377,7 +445,20 @@ export class ConnectionWebView {
         const passwordHint = document.getElementById('passwordHint');
         const pageTitle = document.getElementById('pageTitle');
         const saveBtn = document.getElementById('saveBtn');
+        const testBtn = document.getElementById('testBtn');
         const defaultPorts = { mysql: '3306', postgresql: '5432', sqlite: '', duckdb: '' };
+        function getFormData() {
+            return {
+                driver: driverEl.value,
+                displayName: displayNameEl.value,
+                host: hostEl.value,
+                port: portEl.value,
+                user: userEl.value,
+                password: passwordEl.value,
+                certPath: certPathEl.value,
+                filePath: filePathEl.value,
+            };
+        }
         function isFileDriver(driver) { return driver === 'sqlite' || driver === 'duckdb'; }
         function updateFormVisibility() {
             const driver = driverEl.value;
@@ -395,22 +476,15 @@ export class ConnectionWebView {
             vscode.postMessage({ command: 'browseFile', driver: driverEl.value });
         });
         document.getElementById('saveBtn').addEventListener('click', () => {
-            vscode.postMessage({
-                command: 'save',
-                data: {
-                    driver: driverEl.value,
-                    displayName: displayNameEl.value,
-                    host: hostEl.value,
-                    port: portEl.value,
-                    user: userEl.value,
-                    password: passwordEl.value,
-                    certPath: certPathEl.value,
-                    filePath: filePathEl.value,
-                }
-            });
+            vscode.postMessage({ command: 'save', data: getFormData() });
         });
         document.getElementById('cancelBtn').addEventListener('click', () => {
             vscode.postMessage({ command: 'cancel' });
+        });
+        testBtn.addEventListener('click', () => {
+            testBtn.disabled = true;
+            testBtn.textContent = labels.testing;
+            vscode.postMessage({ command: 'test', data: getFormData() });
         });
         window.addEventListener('message', (event) => {
             const message = event.data;
@@ -445,6 +519,10 @@ export class ConnectionWebView {
                         const parts = message.filePath.replace(/\\\\/g, '/').split('/');
                         displayNameEl.value = parts[parts.length - 1];
                     }
+                    break;
+                case 'testResult':
+                    testBtn.disabled = false;
+                    testBtn.textContent = labels.test;
                     break;
             }
         });

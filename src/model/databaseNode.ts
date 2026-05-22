@@ -13,7 +13,7 @@ import { MySQLTreeDataProvider } from "../mysqlTreeDataProvider";
 export class DatabaseNode implements INode {
     private allExpanded: boolean = false;
 
-    constructor(private readonly host: string, private readonly user: string,
+    constructor(private readonly connectionId: string, private readonly host: string, private readonly user: string,
                 private readonly password: string, private readonly port: string, private readonly database: string,
                 private readonly certPath: string,
                 private treeDataProvider?: MySQLTreeDataProvider,
@@ -55,13 +55,12 @@ export class DatabaseNode implements INode {
             // Ignore
         }
         const treeItem = new vscode.TreeItem(
-            this.database,
+            this.database || "(unknown)",
             isExpanded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed
         );
         treeItem.contextValue = "database";
         treeItem.iconPath = path.join(__filename, "..", "..", "..", "resources", "database.svg");
-        // Add version to id to force TreeView to recreate the item when expand state changes
-        treeItem.id = `${this.host}:${this.port}:${this.database}#v${expandVersion}`;
+        treeItem.id = `${this.connectionId}:${this.database}#v${expandVersion}`;
         return treeItem;
     }
 
@@ -152,7 +151,10 @@ export class DatabaseNode implements INode {
                 return tableNodes;
             })
             .catch((err) => {
-                return [new InfoNode(err)];
+                const message = typeof err === "string"
+                    ? err
+                    : (err && err.message) ? err.message : String(err);
+                return [new InfoNode(message)];
             });
     }
 
