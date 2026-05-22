@@ -1,171 +1,176 @@
 # Mysql Instant Query
 
-A powerful and efficient MySQL instant query tool for Visual Studio Code with advanced filtering, snippets, and table management capabilities.
+[English](README.en.md)
 
-## Screenshots
+Mysql Instant Query 是一款以 SQL 为核心的专业级数据库查询与开发工具，支持 MySQL、PostgreSQL、DuckDB、SQLite 等主流数据库，可从数据表快速生成 SQL、即时执行并可视化呈现查询结果，同时提供列名过滤、记录过滤、专业 ERD 实体关系图、自定义图形连接以及 Cursor 文件协议外部链接定位能力，帮助开发者高效完成数据库查询、分析与开发工作。
 
-*main*
-![screenshot](images/screenshot.png)
+## 特色功能
 
-*count*
-![count](images/count.png)
+### 1. sql查询
+sql编辑器中,支持多连接,多sql语句查询
 
-*select column*
-![select column](images/select%20column.png)
+![sql查询](images/01.gif)
 
-*select filter*
-![select filter](images/select%20filter.png)
+### 2. 过滤查询
+支持列名过滤,记录过滤
+
+![过滤查询](images/02.gif)
+
+### 3. ERD实体关系图
+支持多表自定义连接,支持保存打开,以及导出图片功能
+
+![ERD](images/03.gif)
+
+### 4. cursor协议
+通过cursor://协议,在网页或外部工具中,直接调起cursor查询指定数据表
+
+![cursor协议](images/04.gif)
 
 
-![view table structure](images/view%20table%20structure.png)
+## 功能概览
 
+### SQL 查询与结果分析
+- **多连接查询** - 在 SQL 编辑器中按连接执行查询，适合同时管理多个数据库环境
+- **多 SQL 语句执行** - 支持在同一编辑器内编写并执行多段 SQL，提升调试与数据验证效率
+- **表驱动 SQL 生成** - 可从数据表、字段、结构信息快速生成常用查询语句，减少重复手写 SQL
+- **查询结果可视化** - SQL 执行结果以结构化表格呈现，支持大结果集浏览、列宽调整和结果面板交互
+- **智能 LIMIT 策略** - 可根据表数据规模配置自动 LIMIT，兼顾查询性能与结果完整性
 
-## Features
+### 快捷过滤能力
+- **表过滤** - 根据表名或表注释快速定位目标数据表
+- **列名过滤** - 在表结构和查询结果中快速筛选字段，适合宽表、复杂表结构和多字段结果集
+- **记录过滤** - 在查询结果界面对记录进行快速过滤，便于定位异常数据、业务样本和关键记录
+- **结构联动** - 字段过滤时自动展开相关表结构，降低在复杂数据库中查找字段的成本
 
-### Core Functionality
-- **Manage MySQL Connections** - Support SSL connections with secure password storage
-- **Browse MySQL Structure** - Navigate servers, databases, tables, and columns in a tree view
-- **Run SQL Queries** - Execute queries with result preview and syntax highlighting
-- **Edit Connection Display Names** - Customize how your connections appear
+### ERD 实体关系图
+- **专业 ERD 视图** - 基于表结构、主键和外键信息生成实体关系图，辅助理解数据模型
+- **多表自定义连接** - 支持在图中为多个数据表建立自定义关系连接，适配缺少外键约束的业务数据库
+- **保存与打开** - 支持保存 ERD 图形布局并再次打开，沉淀项目级数据库结构视图
+- **导出图片** - 支持将 ERD 导出为图片，便于技术文档、评审材料和团队协作使用
+- **图形交互增强** - 提供缩放、缩略图、居中工具栏等交互能力，适合大型数据模型浏览
 
-### Advanced Filtering
-- **Table Filter** - Quickly filter tables by name or comment in real-time
-- **Column Filter** - Filter columns within tables by name, type, or comment
-- **Auto-Expand** - Tables automatically expand when column filter is active
+### Cursor 协议集成
+- **外部链接定位表** - 支持通过 `cursor://` 文件协议从网页、文档或外部工具中调起 Cursor，并直接定位到指定数据表
+- **开发流程串联** - 可将数据库表与内部系统、接口文档、研发平台或数据字典打通，减少上下文切换
+- **快速查询入口** - 外部工具可直接跳转到目标数据库资源，形成面向开发者的高效查询入口
 
-### SQL Snippets Panel
-Quick-access buttons for common SQL keywords and patterns:
-- `SELECT *`, `COUNT`, `WHERE`, `AND`, `OR`
-- `ORDER BY`, `GROUP BY`, `LIMIT`, `LIKE`, `IN`
-- `INSERT`, `UPDATE`, `DELETE`, `JOIN`, `LEFT JOIN`
+### 多数据库与连接管理
+- **主流数据库支持** - 支持 MySQL、PostgreSQL、DuckDB、SQLite 等数据库
+- **DuckDB 深度适配** - 支持 DuckDB 表结构、主键、外键和 ERD 元数据读取
+- **连接测试** - 新增或编辑连接时可快速验证连接可用性，减少配置错误
+- **连接编辑** - 支持编辑连接显示名称、连接参数、SSL 和数据库选项
+- **安全存储** - 数据库密码通过 VS Code 安全存储能力保存
 
-### Table Management
-- **Pin Tables** - Pin frequently used tables to the top for quick access
-- **Double-Click Table** - Quickly select top 100 rows
-- **Table Structure View** - View detailed table structure with columns, keys, indexes, and sample data
-- **Copy Table Name** - One-click copy to clipboard
-- **Count Rows** - Get row count for any table
-- **Add Column** - Interactive column creation wizard
-- **Drop Table** - Delete tables with confirmation
-- **Backup Table** - Create timestamped table backups
+## 使用场景
 
-### Column Operations
-- **Select Column** - Query a single column with auto-ordering
-- **Select with Filter** - Apply WHERE conditions to column queries
-- **Copy Column Name** - Copy column name to clipboard
-- **Insert Column Name** - Insert column name at cursor position
-- **Drop Column** - Generate DROP COLUMN SQL
+- **日常数据查询** - 从表结构快速生成 SQL，执行后直接在结果界面分析数据
+- **问题排查与调试** - 使用多 SQL 语句、记录过滤和列名过滤快速定位异常数据
+- **数据库结构理解** - 通过表结构视图和 ERD 实体关系图梳理业务数据模型
+- **团队知识沉淀** - 将 ERD 图片、Cursor 协议链接和数据表入口嵌入文档或内部平台
+- **跨数据库开发** - 在 MySQL、PostgreSQL、DuckDB、SQLite 等环境中保持一致的查询体验
 
-### UI Enhancements
-- **Smart Expand/Collapse** - Dynamic icons that change based on state
-- **System Database Filter** - Hides system databases (information_schema, mysql, performance_schema, sys)
-- **Table Comments** - View table comments in tooltips and descriptions
-- **Column Details** - View column name, type, and comment in a clean format
+## 使用方法
 
-## Usage
+### 添加数据库连接
 
-### Add MySQL Connection
+1. 点击活动栏中的 **Mysql Instant Query** 图标
+2. 点击侧边栏中的 **+** 按钮
+3. 选择数据库类型并填写连接信息
+4. 使用连接测试确认配置正确
+5. 保存连接后浏览数据库、表和字段
 
-1. Click the **Mysql Instant Query** icon in the Activity Bar
-2. Click the **+** button in the sidebar
-3. Enter connection details:
-   - Host
-   - Username
-   - Password (securely stored)
-   - Port (default: 3306)
-   - SSL certificate path (optional)
+### 执行 SQL 查询
 
-### Run SQL Query
+打开 SQL 文件或从数据表生成 SQL，然后使用以下任一方式执行：
 
-Open a SQL file, then use one of these methods:
-- Right-click and select **Run MySQL Query**
-- Use shortcut: `Ctrl+Alt+E` (Windows/Linux) or `Cmd+Alt+E` (macOS)
-- Press `F1` and type `Run MySQL Query`
+- 右键点击并选择 **Run MySQL Query**
+- 使用快捷键：`Ctrl+Alt+E`（Windows/Linux）或 `Cmd+Alt+E`（macOS）
+- 按 `F1` 并输入 `Run MySQL Query`
 
-You can also select a portion of SQL to run only the selected query.
+可以在同一编辑器中编写多条 SQL，并选择指定片段执行。
 
-### Quick Table Access
+### 分析查询结果
 
-- **Double-click** any table to select the top 100 rows
-- **Pin** frequently used tables by right-clicking and selecting "Pin Table"
+- 使用列名过滤快速缩小字段范围
+- 使用记录过滤快速定位目标数据
+- 调整列宽以查看长文本、ID、时间和业务字段
+- 根据表规模配置自动 LIMIT 策略，避免误查大表造成性能压力
 
-### Filter Tables & Columns
+### 使用 ERD
 
-Use the **Filter & Snippets** panel at the top of the sidebar:
-- Type in the **Table** field to filter tables
-- Type in the **Column** field to filter columns within expanded tables
-- Click snippet buttons to insert SQL keywords into your editor
+- 从数据库或多张数据表打开 ERD 实体关系图
+- 使用主外键关系生成基础连接
+- 为无外键约束的业务表添加自定义连接
+- 保存图形布局并在后续继续编辑
+- 将 ERD 导出为图片用于文档或评审
 
-### Keyboard Shortcuts
+### 使用 Cursor 协议
 
-| Key | Command |
+在网页、文档或外部系统中配置 `cursor://` 链接后，可直接唤起 Cursor 并定位到指定数据表，用于数据字典、管理后台、接口文档和研发平台的快速跳转。
+
+## 键盘快捷键
+
+| 按键 | 命令 |
 |-----|---------|
-| `Ctrl+Alt+E` / `Cmd+Alt+E` | Run MySQL Query |
-| `Ctrl+Shift+T` / `Cmd+Shift+T` | Open Table |
-| `Ctrl+Shift+F` / `Cmd+Shift+F` | Focus Table Filter |
+| `Ctrl+Alt+E` / `Cmd+Alt+E` | 运行 SQL 查询 |
+| `Ctrl+Shift+T` / `Cmd+Shift+T` | 打开表 |
+| `Ctrl+Shift+F` / `Cmd+Shift+F` | 聚焦表过滤输入框 |
 
-## Settings
+## 设置
 
-| Setting | Default | Description |
+| 设置项 | 默认值 | 描述 |
 |---------|---------|-------------|
-| `mysql-instant-query.maxTableCount` | `500` | Maximum number of tables shown in tree view |
-| `mysql-instant-query.enableDelimiterOperator` | `true` | Enable support for DELIMITER operator |
-| `mysql-instant-query.enableTelemetry` | `true` | Anonymous usage collection |
-| `mysql-instant-query.enableCountQuery` | `false` | Run COUNT(*) before SELECT to choose auto LIMIT |
-| `mysql-instant-query.defaultQueryLimit` | `100` | Auto LIMIT for small tables (when count query enabled) |
-| `mysql-instant-query.largeTableQueryLimit` | `5000` | Auto LIMIT for large tables or when count query disabled |
-| `mysql-instant-query.largeTableThreshold` | `1000` | Row count threshold for large table LIMIT |
-| `mysql-instant-query.uriDefaultLimit` | `100` | Default LIMIT when opening table via URI |
+| `mysql-instant-query.maxTableCount` | `500` | 树形视图中显示的最大表数量 |
+| `mysql-instant-query.enableDelimiterOperator` | `true` | 启用 DELIMITER 操作符支持 |
+| `mysql-instant-query.enableTelemetry` | `true` | 匿名使用情况收集 |
+| `mysql-instant-query.enableCountQuery` | `false` | 在 SELECT 前运行 COUNT(*)，用于选择自动 LIMIT |
+| `mysql-instant-query.defaultQueryLimit` | `100` | 小表的自动 LIMIT（启用行数查询时） |
+| `mysql-instant-query.largeTableQueryLimit` | `5000` | 大表或未启用行数查询时的自动 LIMIT |
+| `mysql-instant-query.largeTableThreshold` | `1000` | 用于判断大表 LIMIT 的行数阈值 |
+| `mysql-instant-query.uriDefaultLimit` | `100` | 通过 URI 打开表时的默认 LIMIT |
 
-## Requirements
+## 环境要求
 
-- Visual Studio Code 1.83.0 or higher
-- MySQL 5.0 or higher (including MySQL 8.0+)
+- Visual Studio Code 1.83.0 或更高版本
+- Cursor 或兼容 VS Code 扩展生态的编辑器
+- MySQL 5.0+、PostgreSQL、DuckDB 或 SQLite
 
-## Publishing
+## 发布
 
-This extension is published to the Visual Studio Marketplace as [`meetrice.mysql-instant-query`](https://marketplace.visualstudio.com/items?itemName=meetrice.mysql-instant-query).
+该扩展已发布到 Visual Studio Marketplace，标识为 [`meetrice.mysql-instant-query`](https://marketplace.visualstudio.com/items?itemName=meetrice.mysql-instant-query)。
 
-### Quick publish
+### 快速发布
 
 ```bash
-export VSCE_PAT="your_azure_devops_pat"   # Marketplace → Manage scope
+export VSCE_PAT="your_azure_devops_pat"   # Marketplace -> Manage scope
 ./publish.sh
 ```
 
-The script compiles TypeScript, packages a `.vsix`, and uploads to the marketplace.
+该脚本会编译 TypeScript、打包 `.vsix`，并上传到 Marketplace。
 
-### Local install only (no marketplace)
+### 仅本地安装（不发布到 Marketplace）
 
 ```bash
 ./build-and-install.sh
 ```
 
-### Full guide
+### 完整指南
 
-See **[docs/publishing.md](docs/publishing.md)** for:
+请查看 **[docs/publishing.md](docs/publishing.md)**，其中包含：
 
-- Creating a Publisher and Personal Access Token (PAT)
-- Pre-release checklist
-- Manual step-by-step publish commands
-- Troubleshooting (expired PAT, duplicate version, etc.)
+- 创建 Publisher 和个人访问令牌（PAT）
+- 预发布检查清单
+- 手动逐步发布命令
+- 故障排查（PAT 过期、版本重复等）
 
-## Repository
-
-This is an enhanced MySQL management tool for Visual Studio Code.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
+## 许可证
 
 MIT
 
 ## Marketplace
 
-Available on [Visual Studio Code Marketplace](https://marketplace.visualstudio.com/items?itemName=meetrice.mysql-instant-query) and installable in Cursor.
+可在 [Visual Studio Code Marketplace](https://marketplace.visualstudio.com/items?itemName=meetrice.mysql-instant-query) 获取，并可在 Cursor 中安装。
 
 ---
 
-**Enjoy using Mysql Instant Query!**
+**Mysql Instant Query 致力于成为程序员高效数据库查询、数据分析与模型理解的利器。**
