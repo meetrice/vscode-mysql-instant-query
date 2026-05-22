@@ -1,3 +1,29 @@
+# Release Notes - Version 0.8.5
+
+## 🎉 ERD 界面与导出
+
+### 顶部工具条
+- 操作按钮改为顶部居中横向工具条，使用 Lucide 线性图标与中文标签
+- 新增导出菜单，支持导出 JPG 与 PDF
+
+### 画布控件
+- 左下角缩略图按钮改为 map 图标，右下角重置按钮改为 scan-search 图标
+- 重置按钮除恢复 100% 缩放外，还会将 ERD 内容居中到可视区域
+
+### 导出优化
+- 修复 webview 安全策略导致的导出失败问题
+- 提升导出清晰度（高分辨率渲染）
+- 导出内容包含表注释与列注释，布局与界面一致（单行显示）
+
+## 📝 Modified Files
+- `src/erdWebView.ts` — 工具条、图标、导出、居中视图
+
+## 📋 Compatibility
+- Requires VS Code version 1.83.0 or higher
+- Compatible with MySQL 5.x, 8.x, and 9.x
+
+---
+
 # Release Notes - Version 0.8.4
 
 ## 🚀 Performance
