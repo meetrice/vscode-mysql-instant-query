@@ -3,7 +3,7 @@
     "description": "MySQL instant query tool",
     "viewsContainers.activitybar.mysqlInstantQuery-sidebar.title": "Mysql Instant Query",
     "views.mysqlInstantQuery-sidebar.mysqlInstantQueryFilter.name": "Filter & Snippets",
-    "views.mysqlInstantQuery-sidebar.mysqlInstantQuery.name": "Mysql Instant Query",
+    "views.mysqlInstantQuery-sidebar.mysqlInstantQuery.name": "Database",
     "commands.mysqlInstantQuery.refresh.title": "Refresh",
     "commands.mysqlInstantQuery.addConnection.title": "Add Connection",
     "commands.mysqlInstantQuery.deleteConnection.title": "Delete Connection",

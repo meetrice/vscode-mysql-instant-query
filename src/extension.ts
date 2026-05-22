@@ -15,8 +15,9 @@ import { SqlResultWebView } from "./sqlResultWebView";
 import { RunNowCodeLensProvider } from "./runButtonProvider";
 import { ErdWebView } from "./erdWebView";
 import { Constants } from "./common/constants";
+import { DbDriver } from "./common/dbDriver";
 import { OutputChannel } from "./common/outputChannel";
-import { IConnection } from "./model/connection";
+import { IConnection, normalizeDriver } from "./model/connection";
 
 export function activate(context: vscode.ExtensionContext) {
     // Initialize i18n
@@ -368,16 +369,14 @@ export function activate(context: vscode.ExtensionContext) {
         const fullSql = deleteStatements.join(';\n') + ';';
 
         try {
-            const deleteConn = Utility.createConnection({ ...Global.activeConnection, multipleStatements: true });
-            await Utility.queryPromise(deleteConn, fullSql);
+            await Utility.queryPromise({ ...Global.activeConnection, multipleStatements: true }, fullSql);
 
             await Utility.appendSQLToEditor(fullSql);
             vscode.window.showInformationMessage(`Successfully deleted ${rows.length} row(s)`);
 
             // 直接重新查询并更新面板
             if (queryInfo.sql) {
-                const refreshConn = Utility.createConnection({ ...Global.activeConnection });
-                const refreshedRows = await Utility.queryPromise<any[]>(refreshConn, queryInfo.sql);
+                const refreshedRows = await Utility.queryPromise<any[]>(Global.activeConnection, queryInfo.sql);
                 if (Array.isArray(refreshedRows)) {
                     SqlResultWebView.updatePanel(refreshedRows, queryInfo.sql, database, table);
                 }
@@ -457,16 +456,14 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         try {
-            const updateConn = Utility.createConnection({ ...Global.activeConnection });
-            await Utility.queryPromise(updateConn, sql);
+            await Utility.queryPromise(Global.activeConnection, sql);
 
             await Utility.appendSQLToEditor(sql);
             vscode.window.showInformationMessage("UPDATE executed successfully");
 
             // 刷新表格数据
             if (queryInfo.sql) {
-                const refreshConn = Utility.createConnection({ ...Global.activeConnection });
-                const refreshedRows = await Utility.queryPromise<any[]>(refreshConn, queryInfo.sql);
+                const refreshedRows = await Utility.queryPromise<any[]>(Global.activeConnection, queryInfo.sql);
                 if (Array.isArray(refreshedRows)) {
                     SqlResultWebView.updatePanel(refreshedRows, queryInfo.sql, database, table);
                 }
@@ -636,20 +633,20 @@ export function activate(context: vscode.ExtensionContext) {
         // 如果未选择数据库，自动获取第一个用户数据库
         if (!Global.activeConnection.database) {
             try {
-                const conn = Utility.createConnection({
+                const connOptions = {
                     host: Global.activeConnection.host,
                     user: Global.activeConnection.user,
                     password: Global.activeConnection.password,
                     port: Global.activeConnection.port,
                     certPath: Global.activeConnection.certPath,
-                });
-                const databases = await Utility.queryPromise<any[]>(conn, "SHOW DATABASES");
-                const systemDatabases = ["information_schema", "mysql", "performance_schema", "sys"];
-                const userDatabases = databases.filter((db: any) => !systemDatabases.includes(db.Database));
-                if (userDatabases.length > 0) {
+                    driver: Global.activeConnection.driver,
+                    filePath: Global.activeConnection.filePath,
+                };
+                const databases = await DbDriver.listDatabases(connOptions);
+                if (databases.length > 0) {
                     Global.activeConnection = {
                         ...Global.activeConnection,
-                        database: userDatabases[0].Database,
+                        database: databases[0],
                     };
                 } else {
                     vscode.window.showWarningMessage(I18n.t("warning.noDatabaseSelected"));
@@ -672,8 +669,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         try {
             // Get all tables with comments from current database
-            const connection = Utility.createConnection(connectionOptions);
-            const tables = await Utility.queryPromise<any[]>(connection,
+            const tables = await Utility.queryPromise<any[]>(connectionOptions,
                 `SELECT TABLE_NAME, TABLE_COMMENT
                  FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = '${Global.activeConnection.database}'
@@ -817,16 +813,14 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         try {
-            const connection = Utility.createConnection({
+            await Utility.queryPromise({
                 host: tableNode.getHost(),
                 user: tableNode.getUser(),
                 password: tableNode.getPassword(),
                 port: tableNode.getPort(),
                 database: databaseName,
                 certPath: tableNode.getCertPath(),
-            });
-
-            await Utility.queryPromise(connection, `DROP TABLE \`${databaseName}\`.\`${tableName}\`;`);
+            }, `DROP TABLE \`${databaseName}\`.\`${tableName}\`;`);
             vscode.window.showInformationMessage(I18n.format("info.tableDropped", [tableName]));
             mysqlTreeDataProvider.refresh();
         } catch (err) {
@@ -871,12 +865,9 @@ export function activate(context: vscode.ExtensionContext) {
 
         try {
             // Create backup table structure
-            const conn1 = Utility.createConnection(connectionOptions);
-            await Utility.queryPromise(conn1, `CREATE TABLE \`${databaseName}\`.\`${backupTableName}\` LIKE \`${databaseName}\`.\`${tableName}\`;`);
+            await Utility.queryPromise(connectionOptions, `CREATE TABLE \`${databaseName}\`.\`${backupTableName}\` LIKE \`${databaseName}\`.\`${tableName}\`;`);
 
-            // Copy data
-            const conn2 = Utility.createConnection(connectionOptions);
-            await Utility.queryPromise(conn2, `INSERT INTO \`${databaseName}\`.\`${backupTableName}\` SELECT * FROM \`${databaseName}\`.\`${tableName}\`;`);
+            await Utility.queryPromise(connectionOptions, `INSERT INTO \`${databaseName}\`.\`${backupTableName}\` SELECT * FROM \`${databaseName}\`.\`${tableName}\`;`);
 
             vscode.window.showInformationMessage(I18n.format("info.tableBackedUp", [backupTableName]));
             mysqlTreeDataProvider.refresh();
@@ -920,34 +911,39 @@ async function autoSelectFirstDatabase(context: vscode.ExtensionContext) {
         const firstConn = connections[firstId];
         const password = await Global.secrets.get(firstId);
 
-        const conn = Utility.createConnection({
+        const driver = normalizeDriver(firstConn.driver);
+        const connOptions: IConnection = {
+            driver,
             host: firstConn.host,
             user: firstConn.user,
             password,
             port: firstConn.port,
             certPath: firstConn.certPath,
-        });
+            filePath: firstConn.filePath,
+        };
 
-        const databases = await Utility.queryPromise<any[]>(conn, "SHOW DATABASES");
-        const systemDatabases = ["information_schema", "mysql", "performance_schema", "sys"];
-        const userDatabases = databases.filter((db: any) => !systemDatabases.includes(db.Database));
+        const databases = await DbDriver.listDatabases(connOptions);
 
-        if (userDatabases.length > 0) {
+        if (databases.length > 0) {
             Global.activeConnection = {
+                driver,
                 host: firstConn.host,
                 user: firstConn.user,
                 password,
                 port: firstConn.port,
                 certPath: firstConn.certPath,
-                database: userDatabases[0].Database,
+                filePath: firstConn.filePath,
+                database: databases[0],
             };
         } else {
             Global.activeConnection = {
+                driver,
                 host: firstConn.host,
                 user: firstConn.user,
                 password,
                 port: firstConn.port,
                 certPath: firstConn.certPath,
+                filePath: firstConn.filePath,
             };
         }
     } catch {

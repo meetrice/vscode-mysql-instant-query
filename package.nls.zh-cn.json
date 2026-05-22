@@ -3,7 +3,7 @@
     "description": "MySQL 即时查询工具",
     "viewsContainers.activitybar.mysqlInstantQuery-sidebar.title": "Mysql 即时查询",
     "views.mysqlInstantQuery-sidebar.mysqlInstantQueryFilter.name": "过滤和代码片段",
-    "views.mysqlInstantQuery-sidebar.mysqlInstantQuery.name": "Mysql 即时查询",
+    "views.mysqlInstantQuery-sidebar.mysqlInstantQuery.name": "数据库",
     "commands.mysqlInstantQuery.refresh.title": "刷新",
     "commands.mysqlInstantQuery.addConnection.title": "添加连接",
     "commands.mysqlInstantQuery.deleteConnection.title": "删除连接",

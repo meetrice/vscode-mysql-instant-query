@@ -289,8 +289,7 @@ export class ErdWebView {
                 AND TABLE_NAME = '${tableName}'
                 ORDER BY ORDINAL_POSITION;
             `;
-            const conn1 = Utility.createConnection(connection);
-            const results: any[] = await Utility.queryPromise(conn1, columnQuery);
+            const results: any[] = await Utility.queryPromise(connection, columnQuery);
 
             if (!results || results.length === 0) {
                 vscode.window.showWarningMessage(`Failed to get table structure for ${tableName}`);
@@ -304,8 +303,7 @@ export class ErdWebView {
                 WHERE TABLE_SCHEMA = '${database}'
                 AND TABLE_NAME = '${tableName}';
             `;
-            const conn2 = Utility.createConnection(connection);
-            const tableCommentResult: any[] = await Utility.queryPromise(conn2, tableCommentQuery);
+            const tableCommentResult: any[] = await Utility.queryPromise(connection, tableCommentQuery);
             const tableComment = tableCommentResult && tableCommentResult.length > 0 ? tableCommentResult[0].TABLE_COMMENT || '' : '';
 
             // Parse table structure
@@ -339,8 +337,7 @@ export class ErdWebView {
                 AND REFERENCED_TABLE_NAME IS NOT NULL;
             `;
 
-            const conn3 = Utility.createConnection(connection);
-            const fkResults: any[] = await Utility.queryPromise(conn3, fkQuery);
+            const fkResults: any[] = await Utility.queryPromise(connection, fkQuery);
 
             if (fkResults && fkResults.length > 0) {
                 for (const row of fkResults) {
@@ -513,8 +510,7 @@ export class ErdWebView {
                     AND TABLE_NAME = '${refTable}'
                     ORDER BY ORDINAL_POSITION;
                 `;
-                const conn1 = Utility.createConnection(connection);
-                const results: any[] = await Utility.queryPromise(conn1, columnQuery);
+                const results: any[] = await Utility.queryPromise(connection, columnQuery);
 
                 if (!results || results.length === 0) continue;
 
@@ -525,8 +521,7 @@ export class ErdWebView {
                     WHERE TABLE_SCHEMA = '${database}'
                     AND TABLE_NAME = '${refTable}';
                 `;
-                const conn2 = Utility.createConnection(connection);
-                const tableCommentResult: any[] = await Utility.queryPromise(conn2, tableCommentQuery);
+                const tableCommentResult: any[] = await Utility.queryPromise(connection, tableCommentQuery);
                 const tableComment = tableCommentResult && tableCommentResult.length > 0 ? tableCommentResult[0].TABLE_COMMENT || '' : '';
 
                 const refColumns: ColumnData[] = [];

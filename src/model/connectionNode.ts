@@ -1,26 +1,51 @@
-import * as fs from "fs";
-import * as mysql from "mysql2";
 import * as path from "path";
 import * as vscode from "vscode";
 import { AppInsightsClient } from "../common/appInsightsClient";
 import { Constants } from "../common/constants";
+import { DbDriver } from "../common/dbDriver";
 import { Global } from "../common/global";
 import { Utility } from "../common/utility";
 import { MySQLTreeDataProvider } from "../mysqlTreeDataProvider";
-import { IConnection } from "./connection";
+import { DatabaseDriver, IConnection } from "./connection";
 import { DatabaseNode } from "./databaseNode";
 import { InfoNode } from "./infoNode";
 import { INode } from "./INode";
 
+const DRIVER_ICONS: { [key: string]: string } = {
+    mysql: "server.png",
+    postgresql: "server.png",
+    sqlite: "database.svg",
+    duckdb: "database.svg",
+};
+
 export class ConnectionNode implements INode {
-    constructor(private readonly id: string, private readonly host: string, private readonly user: string,
-                private readonly password: string, private readonly port: string,
-                private readonly certPath: string, private readonly displayName: string,
-                private readonly treeDataProvider?: MySQLTreeDataProvider) {
+    constructor(
+        private readonly id: string,
+        private readonly host: string,
+        private readonly user: string,
+        private readonly password: string,
+        private readonly port: string,
+        private readonly certPath: string,
+        private readonly displayName: string,
+        private readonly treeDataProvider?: MySQLTreeDataProvider,
+        private readonly driver: DatabaseDriver = "mysql",
+        private readonly filePath?: string,
+    ) {}
+
+    public getConnectionOptions(database?: string): IConnection {
+        return DbDriver.getConnectionOptionsFromNode(
+            this.host,
+            this.user,
+            this.password,
+            this.port,
+            this.certPath,
+            this.driver,
+            this.filePath,
+            database,
+        );
     }
 
     public getTreeItem(): vscode.TreeItem {
-        // Check global expand state
         let isExpanded = false;
         let expandVersion = 0;
         try {
@@ -35,35 +60,36 @@ export class ConnectionNode implements INode {
         } catch (e) {
             // Ignore
         }
+
+        const driverLabel = this.driver !== "mysql" ? ` (${this.driver})` : "";
         const treeItem = new vscode.TreeItem(
-            this.displayName || this.host,
+            (this.displayName || this.host) + driverLabel,
             isExpanded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed
         );
         treeItem.contextValue = "connection";
-        treeItem.iconPath = path.join(__filename, "..", "..", "..", "resources", "server.png");
-        // Add version to id to force TreeView to recreate the item when expand state changes
+        const iconName = DRIVER_ICONS[this.driver] || "server.png";
+        treeItem.iconPath = path.join(__filename, "..", "..", "..", "resources", iconName);
         treeItem.id = `${this.id}#v${expandVersion}`;
         return treeItem;
     }
 
     public async getChildren(): Promise<INode[]> {
-        const connection = Utility.createConnection({
-            host: this.host,
-            user: this.user,
-            password: this.password,
-            port: this.port,
-            certPath: this.certPath,
-        });
+        const options = this.getConnectionOptions();
 
-        return Utility.queryPromise<any[]>(connection, "SHOW DATABASES")
+        return DbDriver.listDatabases(options)
             .then((databases) => {
-                // Filter out system databases
-                const systemDatabases = ['information_schema', 'mysql', 'performance_schema', 'sys'];
-                const filteredDatabases = databases.filter((db: any) =>
-                    !systemDatabases.includes(db.Database)
-                );
-                return filteredDatabases.map<DatabaseNode>((database) => {
-                    return new DatabaseNode(this.host, this.user, this.password, this.port, database.Database, this.certPath, this.treeDataProvider);
+                return databases.map<DatabaseNode>((database) => {
+                    return new DatabaseNode(
+                        this.host,
+                        this.user,
+                        this.password,
+                        this.port,
+                        database,
+                        this.certPath,
+                        this.treeDataProvider,
+                        this.driver,
+                        this.filePath,
+                    );
                 });
             })
             .catch((err) => {
@@ -75,13 +101,7 @@ export class ConnectionNode implements INode {
         AppInsightsClient.sendEvent("newQuery", { viewItem: "connection" });
         Utility.createSQLTextDocument();
 
-        Global.activeConnection = {
-            host: this.host,
-            user: this.user,
-            password: this.password,
-            port: this.port,
-            certPath: this.certPath,
-        };
+        Global.activeConnection = this.getConnectionOptions();
     }
 
     public async deleteConnection(context: vscode.ExtensionContext, mysqlTreeDataProvider: MySQLTreeDataProvider) {
@@ -99,7 +119,7 @@ export class ConnectionNode implements INode {
         AppInsightsClient.sendEvent("editDisplayName");
         const newDisplayName = await vscode.window.showInputBox({
             prompt: "Edit display name for this connection",
-            placeHolder: "My MySQL Server",
+            placeHolder: "My Database Server",
             value: this.displayName,
             ignoreFocusOut: true
         });
@@ -116,5 +136,13 @@ export class ConnectionNode implements INode {
             await context.globalState.update(Constants.GlobalStateMySQLConectionsKey, connections);
             mysqlTreeDataProvider.refresh();
         }
+    }
+
+    public getId(): string {
+        return this.id;
+    }
+
+    public getDriver(): DatabaseDriver {
+        return this.driver;
     }
 }

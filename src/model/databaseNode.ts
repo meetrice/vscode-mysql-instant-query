@@ -1,10 +1,10 @@
-import * as fs from "fs";
-import * as mysql from "mysql2";
 import * as path from "path";
 import * as vscode from "vscode";
 import { AppInsightsClient } from "../common/appInsightsClient";
+import { DbDriver } from "../common/dbDriver";
 import { Global } from "../common/global";
 import { Utility } from "../common/utility";
+import { DatabaseDriver } from "./connection";
 import { InfoNode } from "./infoNode";
 import { INode } from "./INode";
 import { TableNode } from "./tableNode";
@@ -16,7 +16,22 @@ export class DatabaseNode implements INode {
     constructor(private readonly host: string, private readonly user: string,
                 private readonly password: string, private readonly port: string, private readonly database: string,
                 private readonly certPath: string,
-                private treeDataProvider?: MySQLTreeDataProvider) {
+                private treeDataProvider?: MySQLTreeDataProvider,
+                private readonly driver: DatabaseDriver = "mysql",
+                private readonly filePath?: string) {
+    }
+
+    private getConnectionOptions() {
+        return DbDriver.getConnectionOptionsFromNode(
+            this.host,
+            this.user,
+            this.password,
+            this.port,
+            this.certPath,
+            this.driver,
+            this.filePath,
+            this.database,
+        );
     }
 
     public setAllExpanded(value: boolean): void {
@@ -51,17 +66,9 @@ export class DatabaseNode implements INode {
     }
 
     public async getChildren(): Promise<INode[]> {
-        const connection = Utility.createConnection({
-            host: this.host,
-            user: this.user,
-            password: this.password,
-            port: this.port,
-            database: this.database,
-            certPath: this.certPath,
-        });
+        const options = this.getConnectionOptions();
 
-        // Query both table name and comment
-        return Utility.queryPromise<any[]>(connection, `SELECT TABLE_NAME, TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA = '${this.database}' LIMIT ${Utility.maxTableCount}`)
+        return DbDriver.listTables(options, this.database)
             .then((tables) => {
                 // Get pinned tables from global state
                 const pinnedTables: string[] = this.treeDataProvider ? this.treeDataProvider.getPinnedTables() : [];
@@ -117,7 +124,9 @@ export class DatabaseNode implements INode {
                             this.certPath,
                             isPinned,
                             this.treeDataProvider,
-                            hasColumnFilter || allExpanded  // Auto-expand when column filter or global expand is active
+                            hasColumnFilter || allExpanded,
+                            this.driver,
+                            this.filePath,
                         );
                         // Set table comment on the node for display
                         if (table.TABLE_COMMENT) {
@@ -151,27 +160,13 @@ export class DatabaseNode implements INode {
         AppInsightsClient.sendEvent("newQuery", { viewItem: "database" });
         Utility.createSQLTextDocument();
 
-        Global.activeConnection = {
-            host: this.host,
-            user: this.user,
-            password: this.password,
-            port: this.port,
-            database: this.database,
-            certPath: this.certPath,
-        };
+        Global.activeConnection = this.getConnectionOptions();
     }
 
     public async selectDatabase() {
         AppInsightsClient.sendEvent("selectDatabase", { viewItem: "database" });
 
-        Global.activeConnection = {
-            host: this.host,
-            user: this.user,
-            password: this.password,
-            port: this.port,
-            database: this.database,
-            certPath: this.certPath,
-        };
+        Global.activeConnection = this.getConnectionOptions();
 
         vscode.window.showInformationMessage(`Database selected: ${this.database}`);
     }

@@ -2,11 +2,13 @@ import * as mysql from "mysql2";
 import * as path from "path";
 import * as vscode from "vscode";
 import { AppInsightsClient } from "../common/appInsightsClient";
+import { DbDriver } from "../common/dbDriver";
 import { Global } from "../common/global";
 import { OutputChannel } from "../common/outputChannel";
 import { Utility } from "../common/utility";
 import { I18n } from "../common/i18n";
 import { ColumnNode } from "./columnNode";
+import { DatabaseDriver } from "./connection";
 import { InfoNode } from "./infoNode";
 import { INode } from "./INode";
 import { MySQLTreeDataProvider } from "../mysqlTreeDataProvider";
@@ -35,9 +37,24 @@ export class TableNode implements INode {
                 private readonly certPath: string,
                 public pinned: boolean = false,
                 treeDataProvider?: MySQLTreeDataProvider,
-                autoExpand: boolean = false) {
+                autoExpand: boolean = false,
+                private readonly driver: DatabaseDriver = "mysql",
+                private readonly filePath?: string) {
         this.treeDataProvider = treeDataProvider;
         this.autoExpand = autoExpand;
+    }
+
+    private getConnectionOptions() {
+        return DbDriver.getConnectionOptionsFromNode(
+            this.host,
+            this.user,
+            this.password,
+            this.port,
+            this.certPath,
+            this.driver,
+            this.filePath,
+            this.database,
+        );
     }
 
     public setAutoExpand(value: boolean): void {
@@ -129,22 +146,14 @@ export class TableNode implements INode {
     }
 
     public async getChildren(): Promise<INode[]> {
-        const connection = Utility.createConnection({
-            host: this.host,
-            user: this.user,
-            password: this.password,
-            port: this.port,
-            database: this.database,
-            certPath: this.certPath,
-        });
+        const options = this.getConnectionOptions();
 
-        // Get column filter text from treeDataProvider
         let columnFilter = "";
         if (this.treeDataProvider && (this.treeDataProvider as any).getColumnFilterText) {
             columnFilter = (this.treeDataProvider as any).getColumnFilterText() || "";
         }
 
-        return Utility.queryPromise<any[]>(connection, `SELECT * FROM information_schema.columns WHERE table_schema = '${this.database}' AND table_name = '${this.table}' ORDER BY ORDINAL_POSITION;`)
+        return DbDriver.listColumns(options, this.database, this.table)
             .then((columns) => {
                 const filterLower = columnFilter.toLowerCase().trim();
                 const filteredColumns = columns.filter((column) => {
@@ -191,27 +200,16 @@ export class TableNode implements INode {
 
     public async showTableStructure() {
         AppInsightsClient.sendEvent("showTableStructure");
-        const connectionOptions = {
-            host: this.host,
-            user: this.user,
-            password: this.password,
-            port: this.port,
-            database: this.database,
-            certPath: this.certPath,
-        };
+        const connectionOptions = this.getConnectionOptions();
 
         try {
-            // Get column information - create a new connection for each query
-            const conn1 = Utility.createConnection(connectionOptions);
-            const columns = await Utility.queryPromise<any[]>(conn1,
+            const columns = await Utility.queryPromise<any[]>(connectionOptions,
                 `SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT
                  FROM information_schema.columns
                  WHERE table_schema = '${this.database}' AND table_name = '${this.table}'
                  ORDER BY ORDINAL_POSITION;`);
 
-            // Get primary keys - create a new connection for each query
-            const conn2 = Utility.createConnection(connectionOptions);
-            const primaryKeys = await Utility.queryPromise<any[]>(conn2,
+            const primaryKeys = await Utility.queryPromise<any[]>(connectionOptions,
                 `SELECT k.COLUMN_NAME
                  FROM information_schema.table_constraints t
                  JOIN information_schema.key_column_usage k
@@ -223,9 +221,7 @@ export class TableNode implements INode {
                  AND t.TABLE_NAME = '${this.table}'
                  ORDER BY k.ORDINAL_POSITION;`);
 
-            // Get foreign keys - create a new connection for each query
-            const conn3 = Utility.createConnection(connectionOptions);
-            const foreignKeys = await Utility.queryPromise<any[]>(conn3,
+            const foreignKeys = await Utility.queryPromise<any[]>(connectionOptions,
                 `SELECT k.COLUMN_NAME, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME
                  FROM information_schema.table_constraints t
                  JOIN information_schema.key_column_usage k
@@ -237,17 +233,13 @@ export class TableNode implements INode {
                  AND t.TABLE_NAME = '${this.table}'
                  ORDER BY k.ORDINAL_POSITION;`);
 
-            // Get indexes - create a new connection for each query
-            const conn4 = Utility.createConnection(connectionOptions);
-            const indexes = await Utility.queryPromise<any[]>(conn4,
+            const indexes = await Utility.queryPromise<any[]>(connectionOptions,
                 `SELECT INDEX_NAME, COLUMN_NAME, NON_UNIQUE
                  FROM information_schema.statistics
                  WHERE TABLE_SCHEMA = '${this.database}' AND TABLE_NAME = '${this.table}'
                  ORDER BY INDEX_NAME, SEQ_IN_INDEX;`);
 
-            // Get table comment - create a new connection
-            const conn4b = Utility.createConnection(connectionOptions);
-            const tableInfo = await Utility.queryPromise<any[]>(conn4b,
+            const tableInfo = await Utility.queryPromise<any[]>(connectionOptions,
                 `SELECT TABLE_COMMENT
                  FROM information_schema.TABLES
                  WHERE TABLE_SCHEMA = '${this.database}' AND TABLE_NAME = '${this.table}';`);
@@ -326,12 +318,9 @@ export class TableNode implements INode {
 
             // Sample data section - get 5 rows ordered by id desc (if id column exists)
             output += `\n-- Sample Data (5 rows) --\n`;
-            const conn5 = Utility.createConnection(connectionOptions);
 
-            // Check if 'id' column exists
             const hasIdColumn = columns.some(c => c.COLUMN_NAME.toLowerCase() === 'id');
 
-            // Get primary key column name for ordering
             let orderByColumn = '';
             if (primaryKeys.length > 0) {
                 orderByColumn = primaryKeys[0].COLUMN_NAME;
@@ -347,7 +336,7 @@ export class TableNode implements INode {
             const sqlText = `SELECT * FROM \`${this.database}\`.\`${this.table}\` ${orderClause} LIMIT 5;`;
             output += `${sqlText}\n\n`;
 
-            const sampleData = await Utility.queryPromise<any[]>(conn5, sqlText);
+            const sampleData = await Utility.queryPromise<any[]>(connectionOptions, sqlText);
 
             if (sampleData.length > 0) {
                 // Create header: column_name (comment)
@@ -474,16 +463,7 @@ export class TableNode implements INode {
         AppInsightsClient.sendEvent("countTable");
         const query = `SELECT COUNT(*) AS count FROM \`${this.database}\`.\`${this.table}\`;`;
 
-        const connectionOptions = {
-            host: this.host,
-            user: this.user,
-            password: this.password,
-            port: this.port,
-            database: this.database,
-            certPath: this.certPath,
-        };
-
-        await Utility.runQuery(query, connectionOptions);
+        await Utility.runQuery(query, this.getConnectionOptions());
     }
 
     public async addColumn() {

@@ -1,12 +1,12 @@
 "use strict";
 import * as asciitable from "asciitable";
 import * as fs from "fs";
-import * as mysql from "mysql2";
 import * as vscode from "vscode";
 import LRU = require("lru-cache");
 import { IConnection } from "../model/connection";
 import { SqlResultWebView } from "../sqlResultWebView";
 import { AppInsightsClient } from "./appInsightsClient";
+import { DbDriver } from "./dbDriver";
 import { Global } from "./global";
 import { OutputChannel } from "./outputChannel";
 
@@ -22,17 +22,8 @@ export class Utility {
         return vscode.workspace.getConfiguration("mysql-instant-query");
     }
 
-    public static queryPromise<T>(connection, sql: string): Promise<T> {
-        return new Promise((resolve, reject) => {
-            connection.query(sql, (err, rows) => {
-                if (err) {
-                    reject("Error: " + err.message);
-                } else {
-                    resolve(rows);
-                }
-            });
-            connection.end();
-        });
+    public static queryPromise<T>(connectionOptions: IConnection, sql: string): Promise<T> {
+        return DbDriver.queryPromise<T>(connectionOptions, sql);
     }
 
     // Remove MySQL instructions: DELIMITER
@@ -93,7 +84,6 @@ export class Utility {
 
         connectionOptions = connectionOptions ? connectionOptions : Global.activeConnection;
         connectionOptions.multipleStatements = true;
-        const connection = Utility.createConnection(connectionOptions);
 
         if (this.getConfiguration().get<boolean>("enableDelimiterOperator")) {
             sql = this.removeDelimiterInstructions(sql);
@@ -117,8 +107,9 @@ export class Utility {
         const totalRowCount = await Utility.maybeFetchTotalRowCount(connectionOptions, parsedDatabase, parsedTable);
         sql = Utility.applyAutoLimit(sql, totalRowCount);
 
-        OutputChannel.appendLine("[Start] Executing MySQL query...");
-        connection.query(sql, (err, rows) => {
+        OutputChannel.appendLine("[Start] Executing database query...");
+        try {
+            const rows = await DbDriver.executeQuery(connectionOptions, sql);
             if (Array.isArray(rows)) {
                 if (rows.some(((row) => Array.isArray(row)))) {
                     rows.forEach((row, index) => {
@@ -131,20 +122,15 @@ export class Utility {
                 } else {
                     Utility.showQueryResult(rows, "Results", sql, totalRowCount !== undefined ? totalRowCount : totalRows, undefined, undefined, false, updateSQLEditor, appendSQLEditor);
                 }
-
             } else {
                 OutputChannel.appendLine(JSON.stringify(rows));
             }
-
-            if (err) {
-                OutputChannel.appendLine(err);
-                AppInsightsClient.sendEvent("runQuery.end", { Result: "Fail", ErrorMessage: err });
-            } else {
-                AppInsightsClient.sendEvent("runQuery.end", { Result: "Success" });
-            }
-            OutputChannel.appendLine("[Done] Finished MySQL query.");
-        });
-        connection.end();
+            AppInsightsClient.sendEvent("runQuery.end", { Result: "Success" });
+        } catch (err) {
+            OutputChannel.appendLine(String(err));
+            AppInsightsClient.sendEvent("runQuery.end", { Result: "Fail", ErrorMessage: String(err) });
+        }
+        OutputChannel.appendLine("[Done] Finished database query.");
     }
 
     // Parse table name from SQL query
@@ -326,7 +312,6 @@ export class Utility {
 
         const connectionOptions = Global.activeConnection;
         connectionOptions.multipleStatements = true;
-        const connection = Utility.createConnection(connectionOptions);
 
         if (this.getConfiguration().get<boolean>("enableDelimiterOperator")) {
             sql = this.removeDelimiterInstructions(sql);
@@ -354,8 +339,9 @@ export class Utility {
         const totalRows = await Utility.maybeFetchTotalRowCount(connectionOptions, parsedDatabase, parsedTable);
         sql = Utility.applyAutoLimit(sql, totalRows);
 
-        OutputChannel.appendLine("[Start] Executing MySQL query...");
-        connection.query(sql, (err, rows) => {
+        OutputChannel.appendLine("[Start] Executing database query...");
+        try {
+            const rows = await DbDriver.executeQuery(connectionOptions, sql);
             if (Array.isArray(rows)) {
                 if (rows.some(((row) => Array.isArray(row)))) {
                     rows.forEach((row, index) => {
@@ -368,20 +354,15 @@ export class Utility {
                 } else {
                     Utility.showQueryResult(rows, "Results", sql, totalRows, parsedDatabase, parsedTable, updatePanel, true, appendSQLEditor);
                 }
-
             } else {
                 OutputChannel.appendLine(JSON.stringify(rows));
             }
-
-            if (err) {
-                OutputChannel.appendLine(err);
-                AppInsightsClient.sendEvent("runQuery.end", { Result: "Fail", ErrorMessage: err });
-            } else {
-                AppInsightsClient.sendEvent("runQuery.end", { Result: "Success" });
-            }
-            OutputChannel.appendLine("[Done] Finished MySQL query.");
-        });
-        connection.end();
+            AppInsightsClient.sendEvent("runQuery.end", { Result: "Success" });
+        } catch (err) {
+            OutputChannel.appendLine(String(err));
+            AppInsightsClient.sendEvent("runQuery.end", { Result: "Fail", ErrorMessage: String(err) });
+        }
+        OutputChannel.appendLine("[Done] Finished database query.");
     }
 
     public static async createSQLTextDocument(sql: string = "", appendToExisting: boolean = true) {
@@ -459,20 +440,7 @@ export class Utility {
     }
 
     public static createConnection(connectionOptions: IConnection): any {
-        const newConnectionOptions: any = Object.assign({}, connectionOptions);
-        // Handle SSL certificate path if provided
-        if (connectionOptions.certPath && fs.existsSync(connectionOptions.certPath)) {
-            newConnectionOptions.ssl = {
-                ca: fs.readFileSync(connectionOptions.certPath),
-            };
-        }
-        // For MySQL 8.0+ and MySQL 9.0+ compatibility with caching_sha2_password:
-        // Try with SSL first, but if the server doesn't support SSL, allow fallback
-        // Set flags to allow secure connection even without proper SSL
-        newConnectionOptions.flags = '+MYSQL_OPT_ALLOW_ENCRYPTED_CONNECTION';
-        // Don't force SSL - let the server and client negotiate
-        // This allows both SSL and non-SSL connections to work
-        return mysql.createConnection(newConnectionOptions);
+        return DbDriver.createConnection(connectionOptions);
     }
 
     private static getPreviewUri(data) {
@@ -547,12 +515,13 @@ export class Utility {
             user: Global.activeConnection.user,
             password: Global.activeConnection.password,
             port: Global.activeConnection.port,
-            database,
             certPath: Global.activeConnection.certPath,
+            driver: Global.activeConnection.driver,
+            filePath: Global.activeConnection.filePath,
+            database,
         };
 
-        const connection = Utility.createConnection(connectionOptions);
-        const columns = await Utility.queryPromise<any[]>(connection,
+        const columns = await Utility.queryPromise<any[]>(connectionOptions,
             `SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_COMMENT
              FROM information_schema.COLUMNS
              WHERE TABLE_SCHEMA = '${database}' AND TABLE_NAME = '${table}';`);
@@ -588,9 +557,8 @@ export class Utility {
         }
 
         try {
-            const countConnection = Utility.createConnection(connectionOptions);
             const countResult = await Utility.queryPromise<any[]>(
-                countConnection,
+                connectionOptions,
                 `SELECT COUNT(*) as total FROM \`${database}\`.\`${table}\`;`,
             );
             return countResult && countResult[0] ? countResult[0].total : undefined;
