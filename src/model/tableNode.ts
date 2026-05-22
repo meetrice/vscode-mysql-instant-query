@@ -572,7 +572,7 @@ export class TableNode implements INode {
 
     public async countTable() {
         AppInsightsClient.sendEvent("countTable");
-        const query = `SELECT COUNT(*) AS count FROM \`${this.database}\`.\`${this.table}\`;`;
+        const query = `SELECT COUNT(*) AS count FROM ${quoteTableName(this.driver, this.database, this.table)};`;
 
         await Utility.runQuery(query, this.getConnectionOptions());
     }
