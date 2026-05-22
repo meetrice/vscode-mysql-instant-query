@@ -231,11 +231,6 @@ export function activate(context: vscode.ExtensionContext) {
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.openErd", async (tableNode: TableNode) => {
-        const connection = Global.activeConnection;
-        if (!connection) {
-            vscode.window.showWarningMessage("No active connection");
-            return;
-        }
         // Use database from tableNode instead of connection.database
         const database = tableNode.getDatabase();
         if (!database) {

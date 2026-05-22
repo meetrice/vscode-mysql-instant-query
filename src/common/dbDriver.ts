@@ -8,6 +8,7 @@ import { OutputChannel } from "./outputChannel";
 export interface TableInfo {
     TABLE_NAME: string;
     TABLE_COMMENT: string;
+    TABLE_SCHEMA?: string;
 }
 
 function getDriver(options: IConnection): DatabaseDriver {
@@ -317,14 +318,32 @@ export class DbDriver {
                     return lastResult;
                 }
                 case "duckdb": {
+                    console.log("[DuckDB executeQuery] creating execution", {
+                        sql,
+                        options: {
+                            host: options.host,
+                            filePath: options.filePath,
+                            database: options.database,
+                            multipleStatements: options.multipleStatements,
+                        },
+                    });
                     return new Promise<any>((resolve, reject) => {
                         connection.raw.all(sql, (err: Error | null, rows: any) => {
+                            console.log("[DuckDB executeQuery] callback", {
+                                hasError: !!err,
+                                errorMessage: err ? err.message : undefined,
+                                rowCount: Array.isArray(rows) ? rows.length : undefined,
+                                rowsPreview: Array.isArray(rows) ? rows.slice(0, 3) : rows,
+                            });
                             if (connection.db) {
+                                console.log("[DuckDB executeQuery] closing database");
                                 connection.db.close();
                             }
                             if (err) {
+                                console.error("[DuckDB executeQuery] error", err);
                                 reject(err);
                             } else {
+                                console.log("[DuckDB executeQuery] success");
                                 resolve(rows);
                             }
                         });
@@ -414,12 +433,13 @@ export class DbDriver {
             }
             case "duckdb": {
                 const rows = await DbDriver.queryPromise<any[]>(options,
-                    `SELECT table_name AS TABLE_NAME, '' AS TABLE_COMMENT
+                    `SELECT table_schema AS TABLE_SCHEMA, table_name AS TABLE_NAME, '' AS TABLE_COMMENT
                      FROM information_schema.tables
                      WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
-                     ORDER BY table_name
+                     ORDER BY table_schema, table_name
                      LIMIT ${maxCount}`);
                 return rows.map((row) => ({
+                    TABLE_SCHEMA: row.TABLE_SCHEMA || row.table_schema,
                     TABLE_NAME: row.TABLE_NAME || row.table_name,
                     TABLE_COMMENT: "",
                 }));
@@ -452,8 +472,7 @@ export class DbDriver {
                     COLUMN_KEY: row.pk ? "PRI" : "",
                 }));
             }
-            case "postgresql":
-            case "duckdb": {
+            case "postgresql": {
                 const connOpts = { ...options, database };
                 return DbDriver.queryPromise<any[]>(connOpts,
                     `SELECT column_name AS "COLUMN_NAME", data_type AS "COLUMN_TYPE", '' AS "COLUMN_COMMENT",
@@ -461,6 +480,23 @@ export class DbDriver {
                      FROM information_schema.columns
                      WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
                        AND table_name = '${safeTable}'
+                     ORDER BY ordinal_position`);
+            }
+            case "duckdb": {
+                const tableParts = table.split(".");
+                const tableSchema = tableParts.length > 1 ? tableParts[0] : undefined;
+                const tableName = tableParts.length > 1 ? tableParts.slice(1).join(".") : table;
+                const safeDuckTable = tableName.replace(/'/g, "''");
+                const safeDuckSchema = tableSchema ? tableSchema.replace(/'/g, "''") : undefined;
+                const schemaCondition = safeDuckSchema
+                    ? `AND table_schema = '${safeDuckSchema}'`
+                    : "AND table_schema NOT IN ('pg_catalog', 'information_schema')";
+                return DbDriver.queryPromise<any[]>(options,
+                    `SELECT column_name AS "COLUMN_NAME", data_type AS "COLUMN_TYPE", '' AS "COLUMN_COMMENT",
+                            is_nullable AS "IS_NULLABLE", '' AS "COLUMN_KEY"
+                     FROM information_schema.columns
+                     WHERE table_name = '${safeDuckTable}'
+                       ${schemaCondition}
                      ORDER BY ordinal_position`);
             }
             case "mysql":

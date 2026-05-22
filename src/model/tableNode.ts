@@ -27,6 +27,25 @@ function padEnd(str: string, targetLength: number, padString: string = " "): str
     return str + padding.substring(0, paddedLength);
 }
 
+function escapeSqlString(value: string): string {
+    return value.replace(/'/g, "''");
+}
+
+function quoteIdentifier(driver: DatabaseDriver, value: string): string {
+    const quote = driver === "mysql" ? '`' : '"';
+    return quote + value.replace(new RegExp(quote, "g"), quote + quote) + quote;
+}
+
+function quoteTableName(driver: DatabaseDriver, database: string, table: string): string {
+    if (driver === "mysql") {
+        return `${quoteIdentifier(driver, database)}.${quoteIdentifier(driver, table)}`;
+    }
+    if (driver === "duckdb" && table.indexOf(".") >= 0) {
+        return table.split(".").map((part) => quoteIdentifier(driver, part)).join(".");
+    }
+    return quoteIdentifier(driver, table);
+}
+
 export class TableNode implements INode {
     private treeDataProvider?: MySQLTreeDataProvider;
     private tableComment: string = "";
@@ -45,7 +64,7 @@ export class TableNode implements INode {
         this.autoExpand = autoExpand;
     }
 
-    private getConnectionOptions() {
+    public getConnectionOptions() {
         return DbDriver.getConnectionOptionsFromNode(
             this.host,
             this.user,
@@ -181,15 +200,40 @@ export class TableNode implements INode {
 
     public async selectTop1000() {
         AppInsightsClient.sendEvent("selectTop1000");
-        const sql = this.driver === "postgresql"
-            ? `SELECT * FROM "${this.table.replace(/"/g, "\"\"")}" LIMIT 100;`
-            : `SELECT * FROM \`${this.database}\`.\`${this.table}\` LIMIT 100;`;
+        const sql = `SELECT * FROM ${quoteTableName(this.driver, this.database, this.table)} LIMIT 100;`;
+        const connectionOptions = this.getConnectionOptions();
 
-        Global.activeConnection = this.getConnectionOptions();
+        if (this.driver === "duckdb") {
+            console.log("[DuckDB selectTop1000] command invoked", {
+                database: this.database,
+                table: this.table,
+                sql,
+                connectionOptions: {
+                    driver: connectionOptions.driver,
+                    host: connectionOptions.host,
+                    filePath: connectionOptions.filePath,
+                    database: connectionOptions.database,
+                },
+            });
+        }
+
+        Global.activeConnection = connectionOptions;
 
         // Use runQueryWithTotal to get total row count and pass database/table info
         // Append SQL to existing editor instead of replacing
-        Utility.runQueryWithTotal(sql, this.database, this.table, false, true);
+        Utility.runQueryWithTotal(sql, this.database, this.table, false, true).then(() => {
+            if (this.driver === "duckdb") {
+                console.log("[DuckDB selectTop1000] runQueryWithTotal completed", {
+                    database: this.database,
+                    table: this.table,
+                    sql,
+                });
+            }
+        }).catch((err) => {
+            if (this.driver === "duckdb") {
+                console.error("[DuckDB selectTop1000] runQueryWithTotal failed", err);
+            }
+        });
     }
 
     public async copyTableName() {
@@ -200,48 +244,113 @@ export class TableNode implements INode {
     public async showTableStructure() {
         AppInsightsClient.sendEvent("showTableStructure");
         const connectionOptions = this.getConnectionOptions();
+        const safeDatabase = escapeSqlString(this.database);
+        const safeTable = escapeSqlString(this.table);
+        const isPostgres = this.driver === "postgresql";
 
         try {
-            const columns = await Utility.queryPromise<any[]>(connectionOptions,
-                `SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT
-                 FROM information_schema.columns
-                 WHERE table_schema = '${this.database}' AND table_name = '${this.table}'
-                 ORDER BY ORDINAL_POSITION;`);
+            const columnsQuery = isPostgres
+                ? `SELECT c.column_name AS "COLUMN_NAME",
+                          CASE
+                              WHEN c.data_type = 'USER-DEFINED' THEN c.udt_name
+                              WHEN c.character_maximum_length IS NOT NULL THEN c.data_type || '(' || c.character_maximum_length || ')'
+                              WHEN c.numeric_precision IS NOT NULL AND c.numeric_scale IS NOT NULL THEN c.data_type || '(' || c.numeric_precision || ',' || c.numeric_scale || ')'
+                              ELSE c.data_type
+                          END AS "COLUMN_TYPE",
+                          c.is_nullable AS "IS_NULLABLE",
+                          c.column_default AS "COLUMN_DEFAULT",
+                          COALESCE(pgd.description, '') AS "COLUMN_COMMENT"
+                   FROM information_schema.columns c
+                   LEFT JOIN pg_catalog.pg_class pc ON pc.relname = c.table_name
+                   LEFT JOIN pg_catalog.pg_namespace pn ON pn.oid = pc.relnamespace AND pn.nspname = c.table_schema
+                   LEFT JOIN pg_catalog.pg_attribute pa ON pa.attrelid = pc.oid AND pa.attname = c.column_name
+                   LEFT JOIN pg_catalog.pg_description pgd ON pgd.objoid = pc.oid AND pgd.objsubid = pa.attnum
+                   WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
+                     AND c.table_name = '${safeTable}'
+                   ORDER BY c.ordinal_position;`
+                : `SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT
+                   FROM information_schema.columns
+                   WHERE table_schema = '${safeDatabase}' AND table_name = '${safeTable}'
+                   ORDER BY ORDINAL_POSITION;`;
+            const columns = await Utility.queryPromise<any[]>(connectionOptions, columnsQuery);
 
-            const primaryKeys = await Utility.queryPromise<any[]>(connectionOptions,
-                `SELECT k.COLUMN_NAME
-                 FROM information_schema.table_constraints t
-                 JOIN information_schema.key_column_usage k
-                 ON t.CONSTRAINT_NAME = k.CONSTRAINT_NAME
-                 AND t.TABLE_SCHEMA = k.TABLE_SCHEMA
-                 AND t.TABLE_NAME = k.TABLE_NAME
-                 WHERE t.CONSTRAINT_TYPE = 'PRIMARY KEY'
-                 AND t.TABLE_SCHEMA = '${this.database}'
-                 AND t.TABLE_NAME = '${this.table}'
-                 ORDER BY k.ORDINAL_POSITION;`);
+            const primaryKeysQuery = isPostgres
+                ? `SELECT k.column_name AS "COLUMN_NAME"
+                   FROM information_schema.table_constraints t
+                   JOIN information_schema.key_column_usage k
+                     ON t.constraint_name = k.constraint_name
+                    AND t.table_schema = k.table_schema
+                    AND t.table_name = k.table_name
+                   WHERE t.constraint_type = 'PRIMARY KEY'
+                     AND t.table_schema NOT IN ('pg_catalog', 'information_schema')
+                     AND t.table_name = '${safeTable}'
+                   ORDER BY k.ordinal_position;`
+                : `SELECT k.COLUMN_NAME
+                   FROM information_schema.table_constraints t
+                   JOIN information_schema.key_column_usage k
+                     ON t.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+                    AND t.TABLE_SCHEMA = k.TABLE_SCHEMA
+                    AND t.TABLE_NAME = k.TABLE_NAME
+                   WHERE t.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                     AND t.TABLE_SCHEMA = '${safeDatabase}'
+                     AND t.TABLE_NAME = '${safeTable}'
+                   ORDER BY k.ORDINAL_POSITION;`;
+            const primaryKeys = await Utility.queryPromise<any[]>(connectionOptions, primaryKeysQuery);
 
-            const foreignKeys = await Utility.queryPromise<any[]>(connectionOptions,
-                `SELECT k.COLUMN_NAME, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME
-                 FROM information_schema.table_constraints t
-                 JOIN information_schema.key_column_usage k
-                 ON t.CONSTRAINT_NAME = k.CONSTRAINT_NAME
-                 AND t.TABLE_SCHEMA = k.TABLE_SCHEMA
-                 AND t.TABLE_NAME = k.TABLE_NAME
-                 WHERE t.CONSTRAINT_TYPE = 'FOREIGN KEY'
-                 AND t.TABLE_SCHEMA = '${this.database}'
-                 AND t.TABLE_NAME = '${this.table}'
-                 ORDER BY k.ORDINAL_POSITION;`);
+            const foreignKeysQuery = isPostgres
+                ? `SELECT kcu.column_name AS "COLUMN_NAME",
+                          ccu.table_name AS "REFERENCED_TABLE_NAME",
+                          ccu.column_name AS "REFERENCED_COLUMN_NAME"
+                   FROM information_schema.table_constraints tc
+                   JOIN information_schema.key_column_usage kcu
+                     ON tc.constraint_name = kcu.constraint_name
+                    AND tc.table_schema = kcu.table_schema
+                   JOIN information_schema.constraint_column_usage ccu
+                     ON ccu.constraint_name = tc.constraint_name
+                    AND ccu.constraint_schema = tc.constraint_schema
+                   WHERE tc.constraint_type = 'FOREIGN KEY'
+                     AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
+                     AND tc.table_name = '${safeTable}'
+                   ORDER BY kcu.ordinal_position;`
+                : `SELECT k.COLUMN_NAME, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME
+                   FROM information_schema.table_constraints t
+                   JOIN information_schema.key_column_usage k
+                     ON t.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+                    AND t.TABLE_SCHEMA = k.TABLE_SCHEMA
+                    AND t.TABLE_NAME = k.TABLE_NAME
+                   WHERE t.CONSTRAINT_TYPE = 'FOREIGN KEY'
+                     AND t.TABLE_SCHEMA = '${safeDatabase}'
+                     AND t.TABLE_NAME = '${safeTable}'
+                   ORDER BY k.ORDINAL_POSITION;`;
+            const foreignKeys = await Utility.queryPromise<any[]>(connectionOptions, foreignKeysQuery);
 
-            const indexes = await Utility.queryPromise<any[]>(connectionOptions,
-                `SELECT INDEX_NAME, COLUMN_NAME, NON_UNIQUE
-                 FROM information_schema.statistics
-                 WHERE TABLE_SCHEMA = '${this.database}' AND TABLE_NAME = '${this.table}'
-                 ORDER BY INDEX_NAME, SEQ_IN_INDEX;`);
+            const indexesQuery = isPostgres
+                ? `SELECT i.relname AS "INDEX_NAME", a.attname AS "COLUMN_NAME", CASE WHEN ix.indisunique THEN 0 ELSE 1 END AS "NON_UNIQUE"
+                   FROM pg_catalog.pg_class t
+                   JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
+                   JOIN pg_catalog.pg_index ix ON t.oid = ix.indrelid
+                   JOIN pg_catalog.pg_class i ON i.oid = ix.indexrelid
+                   JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+                   WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+                     AND t.relname = '${safeTable}'
+                   ORDER BY i.relname, a.attnum;`
+                : `SELECT INDEX_NAME, COLUMN_NAME, NON_UNIQUE
+                   FROM information_schema.statistics
+                   WHERE TABLE_SCHEMA = '${safeDatabase}' AND TABLE_NAME = '${safeTable}'
+                   ORDER BY INDEX_NAME, SEQ_IN_INDEX;`;
+            const indexes = await Utility.queryPromise<any[]>(connectionOptions, indexesQuery);
 
-            const tableInfo = await Utility.queryPromise<any[]>(connectionOptions,
-                `SELECT TABLE_COMMENT
-                 FROM information_schema.TABLES
-                 WHERE TABLE_SCHEMA = '${this.database}' AND TABLE_NAME = '${this.table}';`);
+            const tableInfoQuery = isPostgres
+                ? `SELECT COALESCE(obj_description(c.oid, 'pg_class'), '') AS "TABLE_COMMENT"
+                   FROM pg_catalog.pg_class c
+                   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                   WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+                     AND c.relname = '${safeTable}'
+                   LIMIT 1;`
+                : `SELECT TABLE_COMMENT
+                   FROM information_schema.TABLES
+                   WHERE TABLE_SCHEMA = '${safeDatabase}' AND TABLE_NAME = '${safeTable}';`;
+            const tableInfo = await Utility.queryPromise<any[]>(connectionOptions, tableInfoQuery);
             const tableComment = tableInfo && tableInfo[0] && tableInfo[0].TABLE_COMMENT ? tableInfo[0].TABLE_COMMENT : '';
 
             // Format output
@@ -254,7 +363,9 @@ export class TableNode implements INode {
 
             // Columns section
             output += `-- Columns --\n`;
-            const structureSql = `SELECT COLUMN_NAME AS '字段', COLUMN_TYPE AS '类型', IS_NULLABLE AS '允许空', COLUMN_KEY AS '键', COLUMN_DEFAULT AS '默认值', EXTRA AS '额外信息', COLUMN_COMMENT AS '注释' FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '${this.database}' AND TABLE_NAME = '${this.table}';`;
+            const structureSql = isPostgres
+                ? `SELECT column_name AS "字段", data_type AS "类型", is_nullable AS "允许空", column_default AS "默认值" FROM information_schema.columns WHERE table_name = '${safeTable}';`
+                : `SELECT COLUMN_NAME AS '字段', COLUMN_TYPE AS '类型', IS_NULLABLE AS '允许空', COLUMN_KEY AS '键', COLUMN_DEFAULT AS '默认值', EXTRA AS '额外信息', COLUMN_COMMENT AS '注释' FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '${safeDatabase}' AND TABLE_NAME = '${safeTable}';`;
             output += `${structureSql}\n\n`;
 
             if (columns.length > 0) {
@@ -329,10 +440,11 @@ export class TableNode implements INode {
 
             let orderClause = '';
             if (orderByColumn) {
-                orderClause = `ORDER BY \`${orderByColumn}\` DESC`;
+                orderClause = `ORDER BY ${quoteIdentifier(this.driver, orderByColumn)} DESC`;
             }
 
-            const sqlText = `SELECT * FROM \`${this.database}\`.\`${this.table}\` ${orderClause} LIMIT 5;`;
+            const qualifiedTable = quoteTableName(this.driver, this.database, this.table);
+            const sqlText = `SELECT * FROM ${qualifiedTable} ${orderClause} LIMIT 5;`;
             output += `${sqlText}\n\n`;
 
             const sampleData = await Utility.queryPromise<any[]>(connectionOptions, sqlText);

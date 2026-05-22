@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { DbDriver } from "./common/dbDriver";
 import { Utility } from "./common/utility";
 import { TableNode } from "./model/tableNode";
 import { Global } from "./common/global";
@@ -56,6 +57,22 @@ interface MerdFileData {
     tables: TableData[];
     relationships: Relationship[];
     comments?: CommentData[];
+}
+
+function escapeSqlString(value: string): string {
+    return value.replace(/'/g, "''");
+}
+
+function isPostgresConnection(connection: any): boolean {
+    return connection && connection.driver === "postgresql";
+}
+
+function isPrimaryKey(row: any): boolean {
+    return row.COLUMN_KEY === 'PRI' || row.Key === 'PRI';
+}
+
+function isForeignKey(row: any): boolean {
+    return row.COLUMN_KEY === 'MUL' || row.COLUMN_KEY === 'FOR' || row.Key === 'MUL' || row.Key === 'FOR';
 }
 
 export class ErdWebView {
@@ -195,13 +212,13 @@ export class ErdWebView {
             panel.webview.onDidReceiveMessage(async (message) => {
                 switch (message.command) {
                     case 'selectTable100': {
-                        const tableName = message.tableName;
-                        const database = message.database;
-                        if (tableName && database) {
-                            const sql = `SELECT * FROM \`${database}\`.\`${tableName}\` LIMIT 100;`;
-                            // 追加SQL到现有的SQL编辑器
-                            await Utility.appendSQLToEditor(sql);
-                        }
+                            const tableName = message.tableName;
+                            const database = message.database;
+                            if (tableName && database) {
+                                const sql = `SELECT * FROM \`${database}\`.\`${tableName}\` LIMIT 100;`;
+                                // 追加SQL到现有的SQL编辑器
+                                await Utility.appendSQLToEditor(sql);
+                            }
                         break;
                     }
                     case 'save':
@@ -269,75 +286,42 @@ export class ErdWebView {
         const tableName = tableNode.table;
         const database = currentDatabase;
 
-        const connection = Global.activeConnection;
+        const connection = tableNode.getConnectionOptions();
         if (!connection) {
             vscode.window.showWarningMessage("No active connection");
             return;
         }
 
         try {
-            // Get table structure with column comments from INFORMATION_SCHEMA
-            const columnQuery = `
-                SELECT
-                    COLUMN_NAME as Field,
-                    COLUMN_TYPE as Type,
-                    COLUMN_KEY as \`Key\`,
-                    COLUMN_COMMENT as Comment,
-                    EXTRA as Extra
-                FROM INFORMATION_SCHEMA.COLUMNS
-                WHERE TABLE_SCHEMA = '${database}'
-                AND TABLE_NAME = '${tableName}'
-                ORDER BY ORDINAL_POSITION;
-            `;
-            const results: any[] = await Utility.queryPromise(connection, columnQuery);
+            const results = await ErdWebView.getTableColumns(connection, database, tableName);
 
             if (!results || results.length === 0) {
                 vscode.window.showWarningMessage(`Failed to get table structure for ${tableName}`);
                 return;
             }
 
-            // Get table comment
-            const tableCommentQuery = `
-                SELECT TABLE_COMMENT
-                FROM INFORMATION_SCHEMA.TABLES
-                WHERE TABLE_SCHEMA = '${database}'
-                AND TABLE_NAME = '${tableName}';
-            `;
-            const tableCommentResult: any[] = await Utility.queryPromise(connection, tableCommentQuery);
-            const tableComment = tableCommentResult && tableCommentResult.length > 0 ? tableCommentResult[0].TABLE_COMMENT || '' : '';
+            const tableComment = await ErdWebView.getTableComment(connection, database, tableName);
 
             // Parse table structure
             const columns: ColumnData[] = [];
             for (const row of results) {
-                const field = row.Field;
-                const type = row.Type;
-                const key = row.Key || '';
-                const comment = row.Comment || '';
+                const field = row.COLUMN_NAME || row.Field;
+                const type = row.COLUMN_TYPE || row.Type;
+                const comment = row.COLUMN_COMMENT || row.Comment || '';
 
                 console.log('[ERD] Column:', field, 'Type:', type, 'Comment:', comment);
 
                 columns.push({
                     name: field,
                     type: type,
-                    isPrimaryKey: key === 'PRI',
-                    isForeignKey: key === 'MUL' || key === 'FOR',
+                    isPrimaryKey: isPrimaryKey(row),
+                    isForeignKey: isForeignKey(row),
                     comment: comment
                 });
             }
 
             // Get foreign keys
-            const fkQuery = `
-                SELECT
-                    COLUMN_NAME,
-                    REFERENCED_TABLE_NAME,
-                    REFERENCED_COLUMN_NAME
-                FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-                WHERE TABLE_SCHEMA = '${database}'
-                AND TABLE_NAME = '${tableName}'
-                AND REFERENCED_TABLE_NAME IS NOT NULL;
-            `;
-
-            const fkResults: any[] = await Utility.queryPromise(connection, fkQuery);
+            const fkResults = await ErdWebView.getForeignKeys(connection, database, tableName);
 
             if (fkResults && fkResults.length > 0) {
                 for (const row of fkResults) {
@@ -497,45 +481,23 @@ export class ErdWebView {
             if (ErdWebView.tableData.has(refTableKey)) continue;
 
             try {
-                // Get table structure with column comments from INFORMATION_SCHEMA
-                const columnQuery = `
-                    SELECT
-                        COLUMN_NAME as Field,
-                        COLUMN_TYPE as Type,
-                        COLUMN_KEY as \`Key\`,
-                        COLUMN_COMMENT as Comment,
-                        EXTRA as Extra
-                    FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = '${database}'
-                    AND TABLE_NAME = '${refTable}'
-                    ORDER BY ORDINAL_POSITION;
-                `;
-                const results: any[] = await Utility.queryPromise(connection, columnQuery);
+                const results = await ErdWebView.getTableColumns(connection, database, refTable);
 
                 if (!results || results.length === 0) continue;
 
-                // Get table comment
-                const tableCommentQuery = `
-                    SELECT TABLE_COMMENT
-                    FROM INFORMATION_SCHEMA.TABLES
-                    WHERE TABLE_SCHEMA = '${database}'
-                    AND TABLE_NAME = '${refTable}';
-                `;
-                const tableCommentResult: any[] = await Utility.queryPromise(connection, tableCommentQuery);
-                const tableComment = tableCommentResult && tableCommentResult.length > 0 ? tableCommentResult[0].TABLE_COMMENT || '' : '';
+                const tableComment = await ErdWebView.getTableComment(connection, database, refTable);
 
                 const refColumns: ColumnData[] = [];
                 for (const row of results) {
-                    const field = row.Field;
-                    const type = row.Type;
-                    const key = row.Key || '';
-                    const comment = row.Comment || '';
+                    const field = row.COLUMN_NAME || row.Field;
+                    const type = row.COLUMN_TYPE || row.Type;
+                    const comment = row.COLUMN_COMMENT || row.Comment || '';
 
                     refColumns.push({
                         name: field,
                         type: type,
-                        isPrimaryKey: key === 'PRI',
-                        isForeignKey: key === 'MUL' || key === 'FOR',
+                        isPrimaryKey: isPrimaryKey(row),
+                        isForeignKey: isForeignKey(row),
                         comment: comment
                     });
                 }
@@ -563,6 +525,90 @@ export class ErdWebView {
                 console.error(`Error loading related table ${refTable}:`, error);
             }
         }
+    }
+
+    private static async getTableColumns(connection: any, database: string, tableName: string): Promise<any[]> {
+        const rows = await DbDriver.listColumns(connection, database, tableName);
+        const primaryKeys = await ErdWebView.getPrimaryKeys(connection, database, tableName);
+        const foreignKeys = await ErdWebView.getForeignKeys(connection, database, tableName);
+        const primaryKeySet = new Set(primaryKeys.map((row) => row.COLUMN_NAME));
+        const foreignKeySet = new Set(foreignKeys.map((row) => row.COLUMN_NAME));
+
+        return rows.map((row) => ({
+            ...row,
+            COLUMN_KEY: primaryKeySet.has(row.COLUMN_NAME) ? 'PRI' : (foreignKeySet.has(row.COLUMN_NAME) ? 'MUL' : (row.COLUMN_KEY || '')),
+        }));
+    }
+
+    private static async getPrimaryKeys(connection: any, database: string, tableName: string): Promise<any[]> {
+        const safeDatabase = escapeSqlString(database);
+        const safeTable = escapeSqlString(tableName);
+        const query = isPostgresConnection(connection)
+            ? `SELECT k.column_name AS "COLUMN_NAME"
+               FROM information_schema.table_constraints t
+               JOIN information_schema.key_column_usage k
+                 ON t.constraint_name = k.constraint_name
+                AND t.table_schema = k.table_schema
+                AND t.table_name = k.table_name
+               WHERE t.constraint_type = 'PRIMARY KEY'
+                 AND t.table_schema NOT IN ('pg_catalog', 'information_schema')
+                 AND t.table_name = '${safeTable}'
+               ORDER BY k.ordinal_position;`
+            : `SELECT k.COLUMN_NAME
+               FROM information_schema.table_constraints t
+               JOIN information_schema.key_column_usage k
+                 ON t.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+                AND t.TABLE_SCHEMA = k.TABLE_SCHEMA
+                AND t.TABLE_NAME = k.TABLE_NAME
+               WHERE t.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                 AND t.TABLE_SCHEMA = '${safeDatabase}'
+                 AND t.TABLE_NAME = '${safeTable}'
+               ORDER BY k.ORDINAL_POSITION;`;
+        return Utility.queryPromise<any[]>(connection, query);
+    }
+
+    private static async getForeignKeys(connection: any, database: string, tableName: string): Promise<any[]> {
+        const safeDatabase = escapeSqlString(database);
+        const safeTable = escapeSqlString(tableName);
+        const query = isPostgresConnection(connection)
+            ? `SELECT kcu.column_name AS "COLUMN_NAME",
+                      ccu.table_name AS "REFERENCED_TABLE_NAME",
+                      ccu.column_name AS "REFERENCED_COLUMN_NAME"
+               FROM information_schema.table_constraints tc
+               JOIN information_schema.key_column_usage kcu
+                 ON tc.constraint_name = kcu.constraint_name
+                AND tc.table_schema = kcu.table_schema
+               JOIN information_schema.constraint_column_usage ccu
+                 ON ccu.constraint_name = tc.constraint_name
+                AND ccu.constraint_schema = tc.constraint_schema
+               WHERE tc.constraint_type = 'FOREIGN KEY'
+                 AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
+                 AND tc.table_name = '${safeTable}'
+               ORDER BY kcu.ordinal_position;`
+            : `SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+               FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+               WHERE TABLE_SCHEMA = '${safeDatabase}'
+                 AND TABLE_NAME = '${safeTable}'
+                 AND REFERENCED_TABLE_NAME IS NOT NULL;`;
+        return Utility.queryPromise<any[]>(connection, query);
+    }
+
+    private static async getTableComment(connection: any, database: string, tableName: string): Promise<string> {
+        const safeDatabase = escapeSqlString(database);
+        const safeTable = escapeSqlString(tableName);
+        const query = isPostgresConnection(connection)
+            ? `SELECT COALESCE(obj_description(c.oid, 'pg_class'), '') AS "TABLE_COMMENT"
+               FROM pg_catalog.pg_class c
+               JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+                 AND c.relname = '${safeTable}'
+               LIMIT 1;`
+            : `SELECT TABLE_COMMENT
+               FROM INFORMATION_SCHEMA.TABLES
+               WHERE TABLE_SCHEMA = '${safeDatabase}'
+                 AND TABLE_NAME = '${safeTable}';`;
+        const result = await Utility.queryPromise<any[]>(connection, query);
+        return result && result.length > 0 ? result[0].TABLE_COMMENT || '' : '';
     }
 
     private static findNonOverlappingPosition(tableName: string, database: string, width: number, height: number): { x: number; y: number } {

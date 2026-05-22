@@ -213,13 +213,41 @@ export class SqlResultWebView {
         return Object.keys(rows[0]);
     }
 
+    private static toWebviewSafeValue(value: any): any {
+        if (typeof value === "bigint") {
+            return value.toString();
+        }
+        if (Array.isArray(value)) {
+            return value.map((item) => SqlResultWebView.toWebviewSafeValue(item));
+        }
+        if (value && typeof value === "object") {
+            if (value instanceof Date) {
+                return value;
+            }
+            const safeObject: { [key: string]: any } = {};
+            Object.keys(value).forEach((key) => {
+                safeObject[key] = SqlResultWebView.toWebviewSafeValue(value[key]);
+            });
+            return safeObject;
+        }
+        return value;
+    }
+
+    private static toWebviewSafePayload(payload: QueryResultPayload): QueryResultPayload {
+        return {
+            ...payload,
+            rows: SqlResultWebView.toWebviewSafeValue(payload.rows),
+        };
+    }
+
     private static sendData(payload: QueryResultPayload) {
         if (!SqlResultWebView.currentPanel) {
             return;
         }
+        const safePayload = SqlResultWebView.toWebviewSafePayload(payload);
         SqlResultWebView.currentPanel.webview.postMessage({
             command: "setData",
-            ...payload,
+            ...safePayload,
         });
     }
 

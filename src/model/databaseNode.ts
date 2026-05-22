@@ -90,13 +90,14 @@ export class DatabaseNode implements INode {
                 const tableNodes = tables
                     .filter((table) => {
                         if (!filterLower) return true;
-                        const tableName = (table.TABLE_NAME || "").toLowerCase();
+                        const tableName = `${table.TABLE_SCHEMA ? table.TABLE_SCHEMA + "." : ""}${table.TABLE_NAME || ""}`.toLowerCase();
                         const tableComment = (table.TABLE_COMMENT || "").toLowerCase();
                         // Support fuzzy matching for both table name and comment
                         return tableName.includes(filterLower) || tableComment.includes(filterLower);
                     })
                     .map<TableNode>((table) => {
-                        const tableKey = `${this.host}:${this.port}:${this.database}:${table.TABLE_NAME}`;
+                        const tableName = table.TABLE_SCHEMA ? `${table.TABLE_SCHEMA}.${table.TABLE_NAME}` : table.TABLE_NAME;
+                        const tableKey = `${this.host}:${this.port}:${this.database}:${tableName}`;
                         const isPinned = pinnedTables.indexOf(tableKey) >= 0;
                         // Check if there's a column filter active or global expand - if so, auto-expand tables
                         let columnFilter = "";
@@ -121,7 +122,7 @@ export class DatabaseNode implements INode {
                             this.password,
                             this.port,
                             this.database,
-                            table.TABLE_NAME,
+                            tableName,
                             this.certPath,
                             isPinned,
                             this.treeDataProvider,

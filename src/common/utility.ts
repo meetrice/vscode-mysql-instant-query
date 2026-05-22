@@ -312,6 +312,21 @@ export class Utility {
 
         const connectionOptions = Global.activeConnection;
         connectionOptions.multipleStatements = true;
+        if (connectionOptions.driver === "duckdb") {
+            console.log("[DuckDB runQueryWithTotal] start", {
+                inputSql: sql,
+                database,
+                table,
+                updatePanel,
+                appendSQLEditor,
+                connectionOptions: {
+                    driver: connectionOptions.driver,
+                    host: connectionOptions.host,
+                    filePath: connectionOptions.filePath,
+                    database: connectionOptions.database,
+                },
+            });
+        }
 
         if (this.getConfiguration().get<boolean>("enableDelimiterOperator")) {
             sql = this.removeDelimiterInstructions(sql);
@@ -338,10 +353,25 @@ export class Utility {
 
         const totalRows = await Utility.maybeFetchTotalRowCount(connectionOptions, parsedDatabase, parsedTable);
         sql = Utility.applyAutoLimit(sql, totalRows);
+        if (connectionOptions.driver === "duckdb") {
+            console.log("[DuckDB runQueryWithTotal] before execute", {
+                parsedDatabase,
+                parsedTable,
+                totalRows,
+                finalSql: sql,
+            });
+        }
 
         OutputChannel.appendLine("[Start] Executing database query...");
         try {
             const rows = await DbDriver.executeQuery(connectionOptions, sql);
+            if (connectionOptions.driver === "duckdb") {
+                console.log("[DuckDB runQueryWithTotal] execute success", {
+                    isArray: Array.isArray(rows),
+                    rowCount: Array.isArray(rows) ? rows.length : undefined,
+                    rowsPreview: Array.isArray(rows) ? rows.slice(0, 3) : rows,
+                });
+            }
             if (Array.isArray(rows)) {
                 if (rows.some(((row) => Array.isArray(row)))) {
                     rows.forEach((row, index) => {
@@ -359,6 +389,9 @@ export class Utility {
             }
             AppInsightsClient.sendEvent("runQuery.end", { Result: "Success" });
         } catch (err) {
+            if (connectionOptions.driver === "duckdb") {
+                console.error("[DuckDB runQueryWithTotal] execute failed", err);
+            }
             OutputChannel.appendLine(String(err));
             AppInsightsClient.sendEvent("runQuery.end", { Result: "Fail", ErrorMessage: String(err) });
         }
@@ -521,10 +554,7 @@ export class Utility {
             database,
         };
 
-        const columns = await Utility.queryPromise<any[]>(connectionOptions,
-            `SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_COMMENT
-             FROM information_schema.COLUMNS
-             WHERE TABLE_SCHEMA = '${database}' AND TABLE_NAME = '${table}';`);
+        const columns = await DbDriver.listColumns(connectionOptions, database, table);
 
         if (!columns || columns.length === 0) {
             return undefined;
