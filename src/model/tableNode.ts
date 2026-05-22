@@ -46,6 +46,14 @@ function quoteTableName(driver: DatabaseDriver, database: string, table: string)
     return quoteIdentifier(driver, table);
 }
 
+function getDuckDbTableParts(database: string, table: string): { schema: string; table: string } {
+    const parts = table.split(".");
+    if (parts.length > 1) {
+        return { schema: parts[0], table: parts.slice(1).join(".") };
+    }
+    return { schema: database || "main", table };
+}
+
 export class TableNode implements INode {
     private treeDataProvider?: MySQLTreeDataProvider;
     private tableComment: string = "";
@@ -247,13 +255,18 @@ export class TableNode implements INode {
         const safeDatabase = escapeSqlString(this.database);
         const safeTable = escapeSqlString(this.table);
         const isPostgres = this.driver === "postgresql";
+        const isDuckDb = this.driver === "duckdb";
+        const duckDbParts = isDuckDb ? getDuckDbTableParts(this.database, this.table) : undefined;
+        const safeDuckDbSchema = duckDbParts ? escapeSqlString(duckDbParts.schema) : "";
+        const safeDuckDbTable = duckDbParts ? escapeSqlString(duckDbParts.table) : "";
 
         try {
-            const columnsQuery = isPostgres
-                ? `SELECT c.column_name AS "COLUMN_NAME",
-                          CASE
-                              WHEN c.data_type = 'USER-DEFINED' THEN c.udt_name
-                              WHEN c.character_maximum_length IS NOT NULL THEN c.data_type || '(' || c.character_maximum_length || ')'
+            let columnsQuery: string;
+            if (isPostgres) {
+                columnsQuery = `SELECT c.column_name AS "COLUMN_NAME",
+                           CASE
+                               WHEN c.data_type = 'USER-DEFINED' THEN c.udt_name
+                               WHEN c.character_maximum_length IS NOT NULL THEN c.data_type || '(' || c.character_maximum_length || ')'
                               WHEN c.numeric_precision IS NOT NULL AND c.numeric_scale IS NOT NULL THEN c.data_type || '(' || c.numeric_precision || ',' || c.numeric_scale || ')'
                               ELSE c.data_type
                           END AS "COLUMN_TYPE",
@@ -265,17 +278,29 @@ export class TableNode implements INode {
                    LEFT JOIN pg_catalog.pg_namespace pn ON pn.oid = pc.relnamespace AND pn.nspname = c.table_schema
                    LEFT JOIN pg_catalog.pg_attribute pa ON pa.attrelid = pc.oid AND pa.attname = c.column_name
                    LEFT JOIN pg_catalog.pg_description pgd ON pgd.objoid = pc.oid AND pgd.objsubid = pa.attnum
-                   WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
-                     AND c.table_name = '${safeTable}'
-                   ORDER BY c.ordinal_position;`
-                : `SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT
+                    WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
+                      AND c.table_name = '${safeTable}'
+                    ORDER BY c.ordinal_position;`;
+            } else if (isDuckDb) {
+                columnsQuery = `SELECT column_name AS "COLUMN_NAME",
+                           data_type AS "COLUMN_TYPE",
+                           is_nullable AS "IS_NULLABLE",
+                           column_default AS "COLUMN_DEFAULT",
+                           '' AS "COLUMN_COMMENT"
+                    FROM information_schema.columns
+                    WHERE table_schema = '${safeDuckDbSchema}' AND table_name = '${safeDuckDbTable}'
+                    ORDER BY ordinal_position;`;
+            } else {
+                columnsQuery = `SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT
                    FROM information_schema.columns
                    WHERE table_schema = '${safeDatabase}' AND table_name = '${safeTable}'
                    ORDER BY ORDINAL_POSITION;`;
+            }
             const columns = await Utility.queryPromise<any[]>(connectionOptions, columnsQuery);
 
-            const primaryKeysQuery = isPostgres
-                ? `SELECT k.column_name AS "COLUMN_NAME"
+            let primaryKeysQuery: string;
+            if (isPostgres) {
+                primaryKeysQuery = `SELECT k.column_name AS "COLUMN_NAME"
                    FROM information_schema.table_constraints t
                    JOIN information_schema.key_column_usage k
                      ON t.constraint_name = k.constraint_name
@@ -284,8 +309,15 @@ export class TableNode implements INode {
                    WHERE t.constraint_type = 'PRIMARY KEY'
                      AND t.table_schema NOT IN ('pg_catalog', 'information_schema')
                      AND t.table_name = '${safeTable}'
-                   ORDER BY k.ordinal_position;`
-                : `SELECT k.COLUMN_NAME
+                   ORDER BY k.ordinal_position;`;
+            } else if (isDuckDb) {
+                primaryKeysQuery = `SELECT unnest(constraint_column_names) AS "COLUMN_NAME"
+                   FROM duckdb_constraints()
+                   WHERE constraint_type = 'PRIMARY KEY'
+                     AND schema_name = '${safeDuckDbSchema}'
+                     AND table_name = '${safeDuckDbTable}';`;
+            } else {
+                primaryKeysQuery = `SELECT k.COLUMN_NAME
                    FROM information_schema.table_constraints t
                    JOIN information_schema.key_column_usage k
                      ON t.CONSTRAINT_NAME = k.CONSTRAINT_NAME
@@ -295,37 +327,51 @@ export class TableNode implements INode {
                      AND t.TABLE_SCHEMA = '${safeDatabase}'
                      AND t.TABLE_NAME = '${safeTable}'
                    ORDER BY k.ORDINAL_POSITION;`;
+            }
             const primaryKeys = await Utility.queryPromise<any[]>(connectionOptions, primaryKeysQuery);
 
-            const foreignKeysQuery = isPostgres
-                ? `SELECT kcu.column_name AS "COLUMN_NAME",
-                          ccu.table_name AS "REFERENCED_TABLE_NAME",
-                          ccu.column_name AS "REFERENCED_COLUMN_NAME"
-                   FROM information_schema.table_constraints tc
+            let foreignKeysQuery: string;
+            if (isPostgres) {
+                foreignKeysQuery = `SELECT kcu.column_name AS "COLUMN_NAME",
+                           ccu.table_name AS "REFERENCED_TABLE_NAME",
+                           ccu.column_name AS "REFERENCED_COLUMN_NAME"
+                    FROM information_schema.table_constraints tc
                    JOIN information_schema.key_column_usage kcu
                      ON tc.constraint_name = kcu.constraint_name
                     AND tc.table_schema = kcu.table_schema
                    JOIN information_schema.constraint_column_usage ccu
                      ON ccu.constraint_name = tc.constraint_name
                     AND ccu.constraint_schema = tc.constraint_schema
-                   WHERE tc.constraint_type = 'FOREIGN KEY'
-                     AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
-                     AND tc.table_name = '${safeTable}'
-                   ORDER BY kcu.ordinal_position;`
-                : `SELECT k.COLUMN_NAME, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME
-                   FROM information_schema.table_constraints t
-                   JOIN information_schema.key_column_usage k
-                     ON t.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+                    WHERE tc.constraint_type = 'FOREIGN KEY'
+                      AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
+                      AND tc.table_name = '${safeTable}'
+                    ORDER BY kcu.ordinal_position;`;
+            } else if (isDuckDb) {
+                foreignKeysQuery = `SELECT constraint_column_names[1] AS "COLUMN_NAME",
+                           referenced_table AS "REFERENCED_TABLE_NAME",
+                           referenced_column_names[1] AS "REFERENCED_COLUMN_NAME"
+                    FROM duckdb_constraints()
+                    WHERE constraint_type = 'FOREIGN KEY'
+                      AND schema_name = '${safeDuckDbSchema}'
+                      AND table_name = '${safeDuckDbTable}'
+                      AND referenced_table IS NOT NULL;`;
+            } else {
+                foreignKeysQuery = `SELECT k.COLUMN_NAME, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME
+                    FROM information_schema.table_constraints t
+                    JOIN information_schema.key_column_usage k
+                      ON t.CONSTRAINT_NAME = k.CONSTRAINT_NAME
                     AND t.TABLE_SCHEMA = k.TABLE_SCHEMA
                     AND t.TABLE_NAME = k.TABLE_NAME
-                   WHERE t.CONSTRAINT_TYPE = 'FOREIGN KEY'
-                     AND t.TABLE_SCHEMA = '${safeDatabase}'
-                     AND t.TABLE_NAME = '${safeTable}'
-                   ORDER BY k.ORDINAL_POSITION;`;
+                    WHERE t.CONSTRAINT_TYPE = 'FOREIGN KEY'
+                      AND t.TABLE_SCHEMA = '${safeDatabase}'
+                      AND t.TABLE_NAME = '${safeTable}'
+                    ORDER BY k.ORDINAL_POSITION;`;
+            }
             const foreignKeys = await Utility.queryPromise<any[]>(connectionOptions, foreignKeysQuery);
 
-            const indexesQuery = isPostgres
-                ? `SELECT i.relname AS "INDEX_NAME", a.attname AS "COLUMN_NAME", CASE WHEN ix.indisunique THEN 0 ELSE 1 END AS "NON_UNIQUE"
+            let indexesQuery: string | undefined;
+            if (isPostgres) {
+                indexesQuery = `SELECT i.relname AS "INDEX_NAME", a.attname AS "COLUMN_NAME", CASE WHEN ix.indisunique THEN 0 ELSE 1 END AS "NON_UNIQUE"
                    FROM pg_catalog.pg_class t
                    JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
                    JOIN pg_catalog.pg_index ix ON t.oid = ix.indrelid
@@ -333,24 +379,29 @@ export class TableNode implements INode {
                    JOIN pg_catalog.pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
                    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
                      AND t.relname = '${safeTable}'
-                   ORDER BY i.relname, a.attnum;`
-                : `SELECT INDEX_NAME, COLUMN_NAME, NON_UNIQUE
+                   ORDER BY i.relname, a.attnum;`;
+            } else if (!isDuckDb) {
+                indexesQuery = `SELECT INDEX_NAME, COLUMN_NAME, NON_UNIQUE
                    FROM information_schema.statistics
                    WHERE TABLE_SCHEMA = '${safeDatabase}' AND TABLE_NAME = '${safeTable}'
                    ORDER BY INDEX_NAME, SEQ_IN_INDEX;`;
-            const indexes = await Utility.queryPromise<any[]>(connectionOptions, indexesQuery);
+            }
+            const indexes = indexesQuery ? await Utility.queryPromise<any[]>(connectionOptions, indexesQuery) : [];
 
-            const tableInfoQuery = isPostgres
-                ? `SELECT COALESCE(obj_description(c.oid, 'pg_class'), '') AS "TABLE_COMMENT"
+            let tableInfoQuery: string | undefined;
+            if (isPostgres) {
+                tableInfoQuery = `SELECT COALESCE(obj_description(c.oid, 'pg_class'), '') AS "TABLE_COMMENT"
                    FROM pg_catalog.pg_class c
                    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
                    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
                      AND c.relname = '${safeTable}'
-                   LIMIT 1;`
-                : `SELECT TABLE_COMMENT
+                   LIMIT 1;`;
+            } else if (!isDuckDb) {
+                tableInfoQuery = `SELECT TABLE_COMMENT
                    FROM information_schema.TABLES
                    WHERE TABLE_SCHEMA = '${safeDatabase}' AND TABLE_NAME = '${safeTable}';`;
-            const tableInfo = await Utility.queryPromise<any[]>(connectionOptions, tableInfoQuery);
+            }
+            const tableInfo = tableInfoQuery ? await Utility.queryPromise<any[]>(connectionOptions, tableInfoQuery) : [];
             const tableComment = tableInfo && tableInfo[0] && tableInfo[0].TABLE_COMMENT ? tableInfo[0].TABLE_COMMENT : '';
 
             // Format output
@@ -365,7 +416,9 @@ export class TableNode implements INode {
             output += `-- Columns --\n`;
             const structureSql = isPostgres
                 ? `SELECT column_name AS "字段", data_type AS "类型", is_nullable AS "允许空", column_default AS "默认值" FROM information_schema.columns WHERE table_name = '${safeTable}';`
-                : `SELECT COLUMN_NAME AS '字段', COLUMN_TYPE AS '类型', IS_NULLABLE AS '允许空', COLUMN_KEY AS '键', COLUMN_DEFAULT AS '默认值', EXTRA AS '额外信息', COLUMN_COMMENT AS '注释' FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '${safeDatabase}' AND TABLE_NAME = '${safeTable}';`;
+                : isDuckDb
+                    ? `SELECT column_name AS "字段", data_type AS "类型", is_nullable AS "允许空", column_default AS "默认值" FROM information_schema.columns WHERE table_schema = '${safeDuckDbSchema}' AND table_name = '${safeDuckDbTable}';`
+                    : `SELECT COLUMN_NAME AS '字段', COLUMN_TYPE AS '类型', IS_NULLABLE AS '允许空', COLUMN_KEY AS '键', COLUMN_DEFAULT AS '默认值', EXTRA AS '额外信息', COLUMN_COMMENT AS '注释' FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '${safeDatabase}' AND TABLE_NAME = '${safeTable}';`;
             output += `${structureSql}\n\n`;
 
             if (columns.length > 0) {
