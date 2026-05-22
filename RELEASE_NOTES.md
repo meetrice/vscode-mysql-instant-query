@@ -1,3 +1,63 @@
+# Release Notes - Version 0.8.7
+
+## 📣 开源地址与用户交流
+
+### README 更新
+- 在 Marketplace 展示文档中新增开源仓库地址，方便用户查看源码、提交 Issue 和参与贡献
+- 新增微信号 `meetrice`，引导用户围绕数据库查询、ERD 建模、Cursor 集成和插件使用进行交流
+
+### 发布信息
+- 升级版本号到 `0.8.7`
+- 保留 `0.8.6` 中关于 SQL 查询、多数据库、结果过滤、ERD 和 Cursor 协议的功能说明
+
+## 📝 Modified Files
+- `package.json` — version update to 0.8.7
+- `package-lock.json` — lockfile version update
+- `README.md` — added open source repository and WeChat contact section
+- `RELEASE_NOTES.md` — added 0.8.7 release notes
+
+## 📋 Compatibility
+- Requires VS Code version 1.83.0 or higher
+- Compatible with MySQL, PostgreSQL, DuckDB, and SQLite
+
+---
+
+# Release Notes - Version 0.8.6
+
+## 🚀 SQL 查询与多数据库增强
+
+### SQL 查询工作流
+- 强化以 SQL 为核心的查询体验，支持多连接、多 SQL 语句查询与表驱动 SQL 生成
+- 优化查询结果视图说明与文档，突出从数据表生成 SQL、执行 SQL、分析结果的完整闭环
+
+### 查询结果过滤
+- 强化结果界面的列名过滤与记录过滤能力，提升宽表和大结果集下的数据定位效率
+- 补充表过滤、字段过滤与结果过滤的使用场景说明
+
+### ERD 实体关系图
+- 完善 ERD 能力描述，突出多表自定义连接、保存打开、导出图片、缩放与缩略图交互
+- 补充 DuckDB 表结构、主键、外键和 ERD 元数据读取能力说明
+
+### Cursor 协议集成
+- 完善 `cursor://` 文件协议使用说明，支持从网页、文档或外部工具直接唤起 Cursor 并定位指定数据表
+
+### 多数据库支持
+- 更新文档与发布说明，明确支持 MySQL、PostgreSQL、DuckDB、SQLite 等主流数据库
+- 更新 README 中文版，补充新版功能概览、使用场景和环境要求
+
+## 📝 Modified Files
+- `package.json` — version update to 0.8.6
+- `package-lock.json` — lockfile version update
+- `README.md` — updated Chinese README and feature overview
+- `README.en.md` — preserved English README
+- `images/01.gif` / `images/02.gif` / `images/03.gif` / `images/04.gif` — feature demos
+
+## 📋 Compatibility
+- Requires VS Code version 1.83.0 or higher
+- Compatible with MySQL, PostgreSQL, DuckDB, and SQLite
+
+---
+
 # Release Notes - Version 0.8.5
 
 ## 🎉 ERD 界面与导出

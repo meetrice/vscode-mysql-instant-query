@@ -171,6 +171,13 @@ MIT
 
 可在 [Visual Studio Code Marketplace](https://marketplace.visualstudio.com/items?itemName=meetrice.mysql-instant-query) 获取，并可在 Cursor 中安装。
 
+## 开源与交流
+
+- 开源地址：[https://github.com/meetrice/vscode-mysql-instant-query](https://github.com/meetrice/vscode-mysql-instant-query)
+- 微信交流：`meetrice`
+
+欢迎通过 GitHub 提交 Issue、反馈使用建议或参与贡献；如需交流数据库查询、ERD 建模、Cursor 集成和插件使用经验，也可以添加微信 `meetrice`。
+
 ---
 
 **Mysql Instant Query 致力于成为程序员高效数据库查询、数据分析与模型理解的利器。**

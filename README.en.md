@@ -1,106 +1,126 @@
 # Mysql Instant Query
 
-A powerful and efficient MySQL instant query tool for Visual Studio Code with advanced filtering, snippets, and table management capabilities.
+[中文](README.md)
 
-## Screenshots
+Mysql Instant Query is a professional SQL-centric database query and development tool. It supports mainstream databases including MySQL, PostgreSQL, DuckDB, and SQLite, helps generate SQL from database tables quickly, executes SQL instantly, and presents query results in a visual result view. It also provides column-name filtering, record filtering, professional ERD entity relationship diagrams, custom graphical relationships, and Cursor file protocol deep links for locating database tables from external tools, helping developers query, analyze, and develop against databases more efficiently.
 
-*main*
-![screenshot](images/screenshot.png)
+## Highlights
 
-*count*
-![count](images/count.png)
+### 1. SQL Query
 
-*select column*
-![select column](images/select%20column.png)
+The SQL editor supports multiple connections and multiple SQL statement execution.
 
-*select filter*
-![select filter](images/select%20filter.png)
+![SQL Query](images/01.gif)
 
+### 2. Filtered Query
 
-![view table structure](images/view%20table%20structure.png)
+Supports column-name filtering and record filtering.
 
+![Filtered Query](images/02.gif)
 
-## Features
+### 3. ERD Entity Relationship Diagram
 
-### Core Functionality
-- **Manage MySQL Connections** - Support SSL connections with secure password storage
-- **Browse MySQL Structure** - Navigate servers, databases, tables, and columns in a tree view
-- **Run SQL Queries** - Execute queries with result preview and syntax highlighting
-- **Edit Connection Display Names** - Customize how your connections appear
+Supports custom relationships across multiple tables, saving and reopening diagrams, and exporting diagrams as images.
 
-### Advanced Filtering
-- **Table Filter** - Quickly filter tables by name or comment in real-time
-- **Column Filter** - Filter columns within tables by name, type, or comment
-- **Auto-Expand** - Tables automatically expand when column filter is active
+![ERD](images/03.gif)
 
-### SQL Snippets Panel
-Quick-access buttons for common SQL keywords and patterns:
-- `SELECT *`, `COUNT`, `WHERE`, `AND`, `OR`
-- `ORDER BY`, `GROUP BY`, `LIMIT`, `LIKE`, `IN`
-- `INSERT`, `UPDATE`, `DELETE`, `JOIN`, `LEFT JOIN`
+### 4. Cursor Protocol
 
-### Table Management
-- **Pin Tables** - Pin frequently used tables to the top for quick access
-- **Double-Click Table** - Quickly select top 100 rows
-- **Table Structure View** - View detailed table structure with columns, keys, indexes, and sample data
-- **Copy Table Name** - One-click copy to clipboard
-- **Count Rows** - Get row count for any table
-- **Add Column** - Interactive column creation wizard
-- **Drop Table** - Delete tables with confirmation
-- **Backup Table** - Create timestamped table backups
+Use the `cursor://` protocol to launch Cursor directly from a web page or external tool and query a specified database table.
 
-### Column Operations
-- **Select Column** - Query a single column with auto-ordering
-- **Select with Filter** - Apply WHERE conditions to column queries
-- **Copy Column Name** - Copy column name to clipboard
-- **Insert Column Name** - Insert column name at cursor position
-- **Drop Column** - Generate DROP COLUMN SQL
+![Cursor Protocol](images/04.gif)
 
-### UI Enhancements
-- **Smart Expand/Collapse** - Dynamic icons that change based on state
-- **System Database Filter** - Hides system databases (information_schema, mysql, performance_schema, sys)
-- **Table Comments** - View table comments in tooltips and descriptions
-- **Column Details** - View column name, type, and comment in a clean format
+## Feature Overview
+
+### SQL Query And Result Analysis
+
+- **Multi-connection queries** - Execute SQL against selected connections from the SQL editor, suitable for managing multiple database environments
+- **Multiple SQL statement execution** - Write and execute multiple SQL statements in the same editor to improve debugging and data validation efficiency
+- **Table-driven SQL generation** - Quickly generate common SQL statements from tables, columns, and structure metadata to reduce repetitive manual SQL writing
+- **Visual query results** - Present SQL execution results in structured tables with large result browsing, column resizing, and result panel interactions
+- **Smart LIMIT strategy** - Configure automatic LIMIT behavior based on table size to balance query performance and result completeness
+
+### Fast Filtering
+
+- **Table filtering** - Locate target tables quickly by table name or table comment
+- **Column-name filtering** - Filter fields quickly in table structures and query results, useful for wide tables, complex schemas, and multi-column result sets
+- **Record filtering** - Filter records directly in the query result view to locate abnormal data, business samples, and key records efficiently
+- **Structure linkage** - Automatically expand related table structures when filtering fields, reducing the cost of finding columns in complex databases
+
+### ERD Entity Relationship Diagram
+
+- **Professional ERD view** - Generate entity relationship diagrams from table structures, primary keys, and foreign keys to help understand data models
+- **Custom multi-table relationships** - Create custom relationships between tables in the diagram, suitable for business databases without explicit foreign key constraints
+- **Save and reopen** - Save ERD layouts and reopen them later to preserve project-level database structure views
+- **Image export** - Export ERD diagrams as images for technical documents, reviews, and team collaboration
+- **Enhanced diagram interactions** - Provides zooming, thumbnails, and a centered toolbar for browsing large data models
+
+### Cursor Protocol Integration
+
+- **External table deep links** - Use the `cursor://` file protocol to launch Cursor from web pages, documents, or external tools and locate a specified database table directly
+- **Development workflow integration** - Connect database tables with internal systems, API documentation, development platforms, or data dictionaries to reduce context switching
+- **Fast query entry point** - Allow external tools to jump directly to target database resources and provide an efficient query entry point for developers
+
+### Multi-Database And Connection Management
+
+- **Mainstream database support** - Supports MySQL, PostgreSQL, DuckDB, SQLite, and related database workflows
+- **DuckDB deep integration** - Supports reading DuckDB table structures, primary keys, foreign keys, and ERD metadata
+- **Connection testing** - Validate connection availability when adding or editing a connection to reduce configuration errors
+- **Connection editing** - Edit connection display names, connection parameters, SSL settings, and database options
+- **Secure storage** - Store database passwords through VS Code secure storage
+
+## Use Cases
+
+- **Daily data querying** - Generate SQL from table structures and analyze data directly in the result view after execution
+- **Troubleshooting and debugging** - Use multiple SQL statements, record filtering, and column-name filtering to locate abnormal data quickly
+- **Database structure understanding** - Use table structure views and ERD diagrams to understand business data models
+- **Team knowledge sharing** - Embed ERD images, Cursor protocol links, and table entry points into documentation or internal platforms
+- **Cross-database development** - Keep a consistent query experience across MySQL, PostgreSQL, DuckDB, and SQLite
 
 ## Usage
 
-### Add MySQL Connection
+### Add Database Connection
 
 1. Click the **Mysql Instant Query** icon in the Activity Bar
 2. Click the **+** button in the sidebar
-3. Enter connection details:
-   - Host
-   - Username
-   - Password (securely stored)
-   - Port (default: 3306)
-   - SSL certificate path (optional)
+3. Select the database type and enter connection details
+4. Use connection testing to verify the configuration
+5. Save the connection and browse databases, tables, and columns
 
-### Run SQL Query
+### Execute SQL Query
 
-Open a SQL file, then use one of these methods:
+Open a SQL file or generate SQL from a database table, then execute it using one of these methods:
+
 - Right-click and select **Run MySQL Query**
 - Use shortcut: `Ctrl+Alt+E` (Windows/Linux) or `Cmd+Alt+E` (macOS)
 - Press `F1` and type `Run MySQL Query`
 
-You can also select a portion of SQL to run only the selected query.
+You can write multiple SQL statements in the same editor and execute a selected statement or selected fragment.
 
-### Quick Table Access
+### Analyze Query Results
 
-- **Double-click** any table to select the top 100 rows
-- **Pin** frequently used tables by right-clicking and selecting "Pin Table"
+- Use column-name filtering to narrow down visible fields quickly
+- Use record filtering to locate target rows quickly
+- Resize columns to inspect long text, IDs, timestamps, and business fields
+- Configure automatic LIMIT behavior based on table size to avoid accidentally querying very large tables
 
-### Filter Tables & Columns
+### Use ERD
 
-Use the **Filter & Snippets** panel at the top of the sidebar:
-- Type in the **Table** field to filter tables
-- Type in the **Column** field to filter columns within expanded tables
-- Click snippet buttons to insert SQL keywords into your editor
+- Open an ERD entity relationship diagram from a database or multiple tables
+- Generate base relationships from primary keys and foreign keys
+- Add custom relationships for business tables without foreign key constraints
+- Save the diagram layout and continue editing it later
+- Export the ERD as an image for documents or reviews
 
-### Keyboard Shortcuts
+### Use Cursor Protocol
+
+After configuring a `cursor://` link in a web page, document, or external system, you can launch Cursor directly and locate a specified database table. This is useful for data dictionaries, admin panels, API documentation, and development platforms.
+
+## Keyboard Shortcuts
 
 | Key | Command |
 |-----|---------|
-| `Ctrl+Alt+E` / `Cmd+Alt+E` | Run MySQL Query |
+| `Ctrl+Alt+E` / `Cmd+Alt+E` | Run SQL Query |
 | `Ctrl+Shift+T` / `Cmd+Shift+T` | Open Table |
 | `Ctrl+Shift+F` / `Cmd+Shift+F` | Focus Table Filter |
 
@@ -109,54 +129,47 @@ Use the **Filter & Snippets** panel at the top of the sidebar:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `mysql-instant-query.maxTableCount` | `500` | Maximum number of tables shown in tree view |
-| `mysql-instant-query.enableDelimiterOperator` | `true` | Enable support for DELIMITER operator |
+| `mysql-instant-query.enableDelimiterOperator` | `true` | Enable support for the DELIMITER operator |
 | `mysql-instant-query.enableTelemetry` | `true` | Anonymous usage collection |
-| `mysql-instant-query.enableCountQuery` | `false` | Run COUNT(*) before SELECT to choose auto LIMIT |
-| `mysql-instant-query.defaultQueryLimit` | `100` | Auto LIMIT for small tables (when count query enabled) |
-| `mysql-instant-query.largeTableQueryLimit` | `5000` | Auto LIMIT for large tables or when count query disabled |
-| `mysql-instant-query.largeTableThreshold` | `1000` | Row count threshold for large table LIMIT |
-| `mysql-instant-query.uriDefaultLimit` | `100` | Default LIMIT when opening table via URI |
+| `mysql-instant-query.enableCountQuery` | `false` | Run COUNT(*) before SELECT to choose automatic LIMIT behavior |
+| `mysql-instant-query.defaultQueryLimit` | `100` | Automatic LIMIT for small tables when count query is enabled |
+| `mysql-instant-query.largeTableQueryLimit` | `5000` | Automatic LIMIT for large tables or when count query is disabled |
+| `mysql-instant-query.largeTableThreshold` | `1000` | Row-count threshold used to determine large-table LIMIT behavior |
+| `mysql-instant-query.uriDefaultLimit` | `100` | Default LIMIT when opening a table through URI |
 
 ## Requirements
 
 - Visual Studio Code 1.83.0 or higher
-- MySQL 5.0 or higher (including MySQL 8.0+)
+- Cursor or an editor compatible with the VS Code extension ecosystem
+- MySQL 5.0+, PostgreSQL, DuckDB, or SQLite
 
 ## Publishing
 
 This extension is published to the Visual Studio Marketplace as [`meetrice.mysql-instant-query`](https://marketplace.visualstudio.com/items?itemName=meetrice.mysql-instant-query).
 
-### Quick publish
+### Quick Publish
 
 ```bash
-export VSCE_PAT="your_azure_devops_pat"   # Marketplace → Manage scope
+export VSCE_PAT="your_azure_devops_pat"   # Marketplace -> Manage scope
 ./publish.sh
 ```
 
-The script compiles TypeScript, packages a `.vsix`, and uploads to the marketplace.
+The script compiles TypeScript, packages a `.vsix`, and uploads it to the Marketplace.
 
-### Local install only (no marketplace)
+### Local Install Only (No Marketplace)
 
 ```bash
 ./build-and-install.sh
 ```
 
-### Full guide
+### Full Guide
 
 See **[docs/publishing.md](docs/publishing.md)** for:
 
 - Creating a Publisher and Personal Access Token (PAT)
 - Pre-release checklist
 - Manual step-by-step publish commands
-- Troubleshooting (expired PAT, duplicate version, etc.)
-
-## Repository
-
-This is an enhanced MySQL management tool for Visual Studio Code.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+- Troubleshooting expired PAT, duplicate version, and related issues
 
 ## License
 
@@ -166,6 +179,13 @@ MIT
 
 Available on [Visual Studio Code Marketplace](https://marketplace.visualstudio.com/items?itemName=meetrice.mysql-instant-query) and installable in Cursor.
 
+## Open Source And Community
+
+- Open source repository: [https://github.com/meetrice/vscode-mysql-instant-query](https://github.com/meetrice/vscode-mysql-instant-query)
+- WeChat: `meetrice`
+
+You are welcome to submit issues, share feedback, or contribute through GitHub. For discussions about database querying, ERD modeling, Cursor integration, or plugin usage, you can also add WeChat `meetrice`.
+
 ---
 
-**Enjoy using Mysql Instant Query!**
+**Mysql Instant Query aims to be a sharp and efficient tool for developers working on database querying, data analysis, and data model understanding.**
