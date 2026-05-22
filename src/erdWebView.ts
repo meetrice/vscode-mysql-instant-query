@@ -67,6 +67,18 @@ function isPostgresConnection(connection: any): boolean {
     return connection && connection.driver === "postgresql";
 }
 
+function isDuckDbConnection(connection: any): boolean {
+    return connection && connection.driver === "duckdb";
+}
+
+function getDuckDbTableParts(database: string, tableName: string): { schema: string; table: string } {
+    const parts = tableName.split(".");
+    if (parts.length > 1) {
+        return { schema: parts[0], table: parts.slice(1).join(".") };
+    }
+    return { schema: database || "main", table: tableName };
+}
+
 function isPrimaryKey(row: any): boolean {
     return row.COLUMN_KEY === 'PRI' || row.Key === 'PRI';
 }
@@ -543,6 +555,21 @@ export class ErdWebView {
     private static async getPrimaryKeys(connection: any, database: string, tableName: string): Promise<any[]> {
         const safeDatabase = escapeSqlString(database);
         const safeTable = escapeSqlString(tableName);
+        if (isDuckDbConnection(connection)) {
+            const parts = getDuckDbTableParts(database, tableName);
+            const safeSchema = escapeSqlString(parts.schema);
+            const safeDuckTable = escapeSqlString(parts.table);
+            try {
+                return await Utility.queryPromise<any[]>(connection,
+                    `SELECT unnest(constraint_column_names) AS "COLUMN_NAME"
+                     FROM duckdb_constraints()
+                     WHERE constraint_type = 'PRIMARY KEY'
+                       AND schema_name = '${safeSchema}'
+                       AND table_name = '${safeDuckTable}';`);
+            } catch {
+                return [];
+            }
+        }
         const query = isPostgresConnection(connection)
             ? `SELECT k.column_name AS "COLUMN_NAME"
                FROM information_schema.table_constraints t
@@ -570,6 +597,24 @@ export class ErdWebView {
     private static async getForeignKeys(connection: any, database: string, tableName: string): Promise<any[]> {
         const safeDatabase = escapeSqlString(database);
         const safeTable = escapeSqlString(tableName);
+        if (isDuckDbConnection(connection)) {
+            const parts = getDuckDbTableParts(database, tableName);
+            const safeSchema = escapeSqlString(parts.schema);
+            const safeDuckTable = escapeSqlString(parts.table);
+            try {
+                return await Utility.queryPromise<any[]>(connection,
+                    `SELECT constraint_column_names[1] AS "COLUMN_NAME",
+                            referenced_table AS "REFERENCED_TABLE_NAME",
+                            referenced_column_names[1] AS "REFERENCED_COLUMN_NAME"
+                     FROM duckdb_constraints()
+                     WHERE constraint_type = 'FOREIGN KEY'
+                       AND schema_name = '${safeSchema}'
+                       AND table_name = '${safeDuckTable}'
+                       AND referenced_table IS NOT NULL;`);
+            } catch {
+                return [];
+            }
+        }
         const query = isPostgresConnection(connection)
             ? `SELECT kcu.column_name AS "COLUMN_NAME",
                       ccu.table_name AS "REFERENCED_TABLE_NAME",
@@ -594,6 +639,9 @@ export class ErdWebView {
     }
 
     private static async getTableComment(connection: any, database: string, tableName: string): Promise<string> {
+        if (isDuckDbConnection(connection)) {
+            return '';
+        }
         const safeDatabase = escapeSqlString(database);
         const safeTable = escapeSqlString(tableName);
         const query = isPostgresConnection(connection)
