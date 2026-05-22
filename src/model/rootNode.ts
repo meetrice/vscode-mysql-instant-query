@@ -1,8 +1,11 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { INode } from "./INode";
+import { AddConnectionNode } from "./addConnectionNode";
 
 export class RootNode implements INode {
+    private readonly addConnectionNode = new AddConnectionNode();
+
     constructor(private readonly getConnectionNodes: () => Promise<INode[]>) {}
 
     public getTreeItem(): vscode.TreeItem {
@@ -16,7 +19,8 @@ export class RootNode implements INode {
         return treeItem;
     }
 
-    public getChildren(): Promise<INode[]> {
-        return this.getConnectionNodes();
+    public async getChildren(): Promise<INode[]> {
+        const connections = await this.getConnectionNodes();
+        return [this.addConnectionNode, ...connections];
     }
 }

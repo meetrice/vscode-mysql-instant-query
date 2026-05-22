@@ -37,6 +37,7 @@ export class ConnectionWebView {
             : undefined;
 
         if (ConnectionWebView.currentPanel) {
+            ConnectionWebView.currentPanel.title = existingConnection ? "编辑数据库连接" : "添加数据库连接";
             ConnectionWebView.currentPanel.reveal(column);
             ConnectionWebView.sendInit(existingConnection?.connection);
             return;
@@ -80,17 +81,18 @@ export class ConnectionWebView {
 
     private static sendInit(existing?: IConnection): void {
         const driver = normalizeDriver(existing?.driver);
+        const isFileDriver = driver === "sqlite" || driver === "duckdb";
         ConnectionWebView.currentPanel?.webview.postMessage({
             command: "init",
             data: {
                 driver,
                 displayName: existing?.displayName || "",
-                host: existing?.host || "",
+                host: isFileDriver ? "" : (existing?.host || ""),
                 port: existing?.port || ConnectionWebView.getDefaultPort(driver),
                 user: existing?.user || "",
                 password: "",
                 certPath: existing?.certPath || "",
-                filePath: existing?.filePath || existing?.host || "",
+                filePath: existing?.filePath || (isFileDriver ? existing?.host : "") || "",
                 isEdit: !!ConnectionWebView.editConnectionId,
             },
         });
@@ -355,6 +357,7 @@ export class ConnectionWebView {
         const certPathGroup = document.getElementById('certPathGroup');
         const passwordHint = document.getElementById('passwordHint');
         const pageTitle = document.getElementById('pageTitle');
+        const saveBtn = document.getElementById('saveBtn');
         const defaultPorts = { mysql: '3306', postgresql: '5432', sqlite: '', duckdb: '' };
         function isFileDriver(driver) { return driver === 'sqlite' || driver === 'duckdb'; }
         function updateFormVisibility() {
@@ -407,6 +410,13 @@ export class ConnectionWebView {
                     if (d.isEdit) {
                         pageTitle.textContent = '编辑数据库连接';
                         passwordHint.textContent = '留空则保持原密码不变';
+                        saveBtn.textContent = '保存修改';
+                        driverEl.disabled = true;
+                    } else {
+                        pageTitle.textContent = '添加数据库连接';
+                        passwordHint.textContent = '';
+                        saveBtn.textContent = '保存连接';
+                        driverEl.disabled = false;
                     }
                     updateFormVisibility();
                     break;

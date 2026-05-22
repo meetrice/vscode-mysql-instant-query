@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import { AppInsightsClient } from "./common/appInsightsClient";
 import { Constants } from "./common/constants";
 import { Global } from "./common/global";
 import { ConnectionWebView } from "./connectionWebView";
@@ -182,6 +181,20 @@ export class MySQLTreeDataProvider implements vscode.TreeDataProvider<INode> {
 
     public addConnection() {
         ConnectionWebView.show(this.context, this);
+    }
+
+    public editConnection(connectionNode: ConnectionNode) {
+        const connections = this.context.globalState.get<{ [key: string]: IConnection }>(
+            Constants.GlobalStateMySQLConectionsKey
+        );
+        if (!connections || !connections[connectionNode.getId()]) {
+            vscode.window.showErrorMessage("找不到该连接配置");
+            return;
+        }
+        ConnectionWebView.show(this.context, this, {
+            id: connectionNode.getId(),
+            connection: connections[connectionNode.getId()],
+        });
     }
 
     public refresh(element?: INode): void {

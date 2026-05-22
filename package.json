@@ -87,6 +87,11 @@
                 "category": "%commands.mysqlInstantQuery.category%"
             },
             {
+                "command": "mysqlInstantQuery.editConnection",
+                "title": "%commands.mysqlInstantQuery.editConnection.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
+            },
+            {
                 "command": "mysqlInstantQuery.runQuery",
                 "title": "%commands.mysqlInstantQuery.runQuery.title%",
                 "category": "%commands.mysqlInstantQuery.category%"
@@ -313,14 +318,19 @@
                     "group": "mysqlInstantQuery@1"
                 },
                 {
-                    "command": "mysqlInstantQuery.editDisplayName",
+                    "command": "mysqlInstantQuery.editConnection",
                     "when": "view == mysqlInstantQuery && viewItem == connection",
                     "group": "mysqlInstantQuery@2"
                 },
                 {
-                    "command": "mysqlInstantQuery.deleteConnection",
+                    "command": "mysqlInstantQuery.editDisplayName",
                     "when": "view == mysqlInstantQuery && viewItem == connection",
                     "group": "mysqlInstantQuery@3"
+                },
+                {
+                    "command": "mysqlInstantQuery.deleteConnection",
+                    "when": "view == mysqlInstantQuery && viewItem == connection",
+                    "group": "mysqlInstantQuery@4"
                 },
                 {
                     "command": "mysqlInstantQuery.selectDatabase",
