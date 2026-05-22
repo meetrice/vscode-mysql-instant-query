@@ -3,7 +3,7 @@ import { Constants } from "./common/constants";
 import { Global } from "./common/global";
 import { ConnectionWebView } from "./connectionWebView";
 import { I18n } from "./common/i18n";
-import { IConnection, normalizeDriver } from "./model/connection";
+import { IConnection, normalizeDriver, normalizeSslMode } from "./model/connection";
 import { ConnectionNode } from "./model/connectionNode";
 import { INode } from "./model/INode";
 import { RootNode } from "./model/rootNode";
@@ -221,6 +221,8 @@ export class MySQLTreeDataProvider implements vscode.TreeDataProvider<INode> {
                     this,
                     driver,
                     conn.filePath,
+                    conn.sslMode,
+                    conn.database,
                 ));
                 if (!Global.activeConnection) {
                     Global.activeConnection = {
@@ -229,7 +231,9 @@ export class MySQLTreeDataProvider implements vscode.TreeDataProvider<INode> {
                         user: conn.user,
                         password,
                         port: conn.port,
+                        database: conn.database,
                         certPath: conn.certPath,
+                        sslMode: driver === "postgresql" ? normalizeSslMode(conn.sslMode) : undefined,
                         filePath: conn.filePath,
                     };
                 }

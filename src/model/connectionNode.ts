@@ -6,16 +6,16 @@ import { DbDriver } from "../common/dbDriver";
 import { Global } from "../common/global";
 import { Utility } from "../common/utility";
 import { MySQLTreeDataProvider } from "../mysqlTreeDataProvider";
-import { DatabaseDriver, IConnection } from "./connection";
+import { DatabaseDriver, IConnection, SslMode } from "./connection";
 import { DatabaseNode } from "./databaseNode";
 import { InfoNode } from "./infoNode";
 import { INode } from "./INode";
 
-const DRIVER_ICONS: { [key: string]: string } = {
-    mysql: "server.png",
-    postgresql: "server.png",
-    sqlite: "database.svg",
-    duckdb: "database.svg",
+const DRIVER_ICONS: Record<DatabaseDriver, string> = {
+    mysql: "database-mysql.svg",
+    postgresql: "database-pgsql.svg",
+    sqlite: "database-sqlite.svg",
+    duckdb: "database-duckdb.svg",
 };
 
 export class ConnectionNode implements INode {
@@ -30,6 +30,8 @@ export class ConnectionNode implements INode {
         private readonly treeDataProvider?: MySQLTreeDataProvider,
         private readonly driver: DatabaseDriver = "mysql",
         private readonly filePath?: string,
+        private readonly sslMode?: SslMode,
+        private readonly initialDatabase?: string,
     ) {}
 
     public getConnectionOptions(database?: string): IConnection {
@@ -41,7 +43,8 @@ export class ConnectionNode implements INode {
             this.certPath,
             this.driver,
             this.filePath,
-            database,
+            database || this.initialDatabase,
+            this.sslMode,
         );
     }
 
@@ -67,8 +70,7 @@ export class ConnectionNode implements INode {
             isExpanded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed
         );
         treeItem.contextValue = "connection";
-        const iconName = DRIVER_ICONS[this.driver] || "server.png";
-        treeItem.iconPath = path.join(__filename, "..", "..", "..", "resources", iconName);
+        treeItem.iconPath = path.join(__filename, "..", "..", "..", "resources", DRIVER_ICONS[this.driver]);
         treeItem.id = `${this.id}#v${expandVersion}`;
         return treeItem;
     }
@@ -90,6 +92,7 @@ export class ConnectionNode implements INode {
                         this.treeDataProvider,
                         this.driver,
                         this.filePath,
+                        this.sslMode,
                     );
                 });
             })

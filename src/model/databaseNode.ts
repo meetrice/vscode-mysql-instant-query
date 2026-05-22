@@ -4,7 +4,7 @@ import { AppInsightsClient } from "../common/appInsightsClient";
 import { DbDriver } from "../common/dbDriver";
 import { Global } from "../common/global";
 import { Utility } from "../common/utility";
-import { DatabaseDriver } from "./connection";
+import { DatabaseDriver, SslMode } from "./connection";
 import { InfoNode } from "./infoNode";
 import { INode } from "./INode";
 import { TableNode } from "./tableNode";
@@ -18,7 +18,8 @@ export class DatabaseNode implements INode {
                 private readonly certPath: string,
                 private treeDataProvider?: MySQLTreeDataProvider,
                 private readonly driver: DatabaseDriver = "mysql",
-                private readonly filePath?: string) {
+                private readonly filePath?: string,
+                private readonly sslMode?: SslMode) {
     }
 
     private getConnectionOptions() {
@@ -31,6 +32,7 @@ export class DatabaseNode implements INode {
             this.driver,
             this.filePath,
             this.database,
+            this.sslMode,
         );
     }
 
@@ -126,6 +128,7 @@ export class DatabaseNode implements INode {
                             hasColumnFilter || allExpanded,
                             this.driver,
                             this.filePath,
+                            this.sslMode,
                         );
                         // Set table comment on the node for display
                         if (table.TABLE_COMMENT) {

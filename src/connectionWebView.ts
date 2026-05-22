@@ -5,7 +5,8 @@ import { Constants } from "./common/constants";
 import { DbDriver } from "./common/dbDriver";
 import { Global } from "./common/global";
 import { I18n } from "./common/i18n";
-import { DatabaseDriver, IConnection, IStoredConnection, normalizeDriver } from "./model/connection";
+import { OutputChannel } from "./common/outputChannel";
+import { DatabaseDriver, IConnection, IStoredConnection, normalizeDriver, normalizeSslMode, normalizeUserSelectedSslMode, SslMode } from "./model/connection";
 import { MySQLTreeDataProvider } from "./mysqlTreeDataProvider";
 
 export interface ConnectionFormData {
@@ -15,8 +16,10 @@ export interface ConnectionFormData {
     port: string;
     user: string;
     password: string;
+    database: string;
     certPath: string;
     filePath: string;
+    sslMode: SslMode;
 }
 
 export class ConnectionWebView {
@@ -102,8 +105,10 @@ export class ConnectionWebView {
                 port: existing?.port || ConnectionWebView.getDefaultPort(driver),
                 user: existing?.user || "",
                 password: "",
+                database: existing?.database || "",
                 certPath: existing?.certPath || "",
                 filePath: existing?.filePath || (isFileDriver ? existing?.host : "") || "",
+                sslMode: normalizeSslMode(existing?.sslMode),
                 isEdit: !!ConnectionWebView.editConnectionId,
             },
         });
@@ -174,15 +179,18 @@ export class ConnectionWebView {
         if (!password && ConnectionWebView.editConnectionId) {
             password = await Global.secrets.get(ConnectionWebView.editConnectionId) || "";
         }
+        const initialDatabase = data.database?.trim() || undefined;
         return {
             driver,
             host: isFileDriver ? data.filePath.trim() : data.host.trim(),
             user: isFileDriver ? "" : data.user.trim(),
             port: isFileDriver ? "" : data.port.trim(),
+            database: isFileDriver ? undefined : initialDatabase,
             certPath: data.certPath?.trim() || "",
             filePath: isFileDriver ? data.filePath.trim() : undefined,
             password,
             displayName: data.displayName?.trim() || "",
+            sslMode: driver === "postgresql" ? normalizeUserSelectedSslMode(data.sslMode) : undefined,
         };
     }
 
@@ -201,6 +209,10 @@ export class ConnectionWebView {
             const message = typeof err === "string"
                 ? err
                 : (err && (err as Error).message) ? (err as Error).message : String(err);
+            OutputChannel.appendLine("[Connection Test Failed] " + message);
+            if (/postgres/i.test(normalizeDriver(data.driver)) || /pg_hba|no encryption/i.test(message)) {
+                OutputChannel.show();
+            }
             vscode.window.showErrorMessage(I18n.format("connection.testFailed", [message]));
             ConnectionWebView.currentPanel?.webview.postMessage({ command: "testResult", success: false });
         }
@@ -237,8 +249,10 @@ export class ConnectionWebView {
             host: options.host,
             user: options.user || "",
             port: options.port || "",
+            database: options.database,
             certPath: options.certPath || "",
             filePath: options.filePath,
+            sslMode: normalizeDriver(options.driver) === "postgresql" ? normalizeUserSelectedSslMode(options.sslMode) : undefined,
         };
 
         connections[id] = stored;
@@ -407,9 +421,27 @@ export class ConnectionWebView {
             <input type="password" id="password" placeholder="${I18n.t("connection.passwordPlaceholder", "Leave empty for no password")}">
             <div class="hint" id="passwordHint"></div>
         </div>
+        <div class="form-group" id="databaseGroup">
+            <label for="database">${I18n.t("connection.database", "Initial Database (optional)")}</label>
+            <input type="text" id="database" placeholder="${I18n.t("connection.databasePlaceholder", "Database name, e.g. uranpgsql")}">
+            <div class="hint">${I18n.t("connection.databaseHint", "Leave empty to use the server default. Required if server denies the default database in pg_hba.conf.")}</div>
+        </div>
         <div class="form-group" id="certPathGroup">
             <label for="certPath">${I18n.t("connection.certPath", "SSL Certificate Path (optional)")}</label>
             <input type="text" id="certPath" placeholder="${I18n.t("connection.certPathPlaceholder", "Certificate file path")}">
+        </div>
+        <div class="form-group" id="pgSslGroup">
+            <label for="sslMode">${I18n.t("connection.sslMode", "SSL Mode")}</label>
+            <select id="sslMode">
+                <option value="disable">${I18n.t("connection.sslMode.disable", "Disable")}</option>
+                <option value="require">${I18n.t("connection.sslMode.require", "Require (encrypted)")}</option>
+                <option value="verify-ca">${I18n.t("connection.sslMode.verifyCa", "Verify CA certificate")}</option>
+            </select>
+            <div class="hint">${I18n.t("connection.sslModeHint", "Use Require or Verify CA if your server requires encrypted connections")}</div>
+        </div>
+        <div class="form-group" id="pgCertPathGroup">
+            <label for="pgCertPath">${I18n.t("connection.pgCertPath", "SSL CA Certificate (optional)")}</label>
+            <input type="text" id="pgCertPath" placeholder="${I18n.t("connection.certPathPlaceholder", "Certificate file path")}">
         </div>
     </div>
     <div id="fileSection" class="hidden">
@@ -437,7 +469,13 @@ export class ConnectionWebView {
         const portEl = document.getElementById('port');
         const userEl = document.getElementById('user');
         const passwordEl = document.getElementById('password');
+        const databaseEl = document.getElementById('database');
+        const databaseGroup = document.getElementById('databaseGroup');
         const certPathEl = document.getElementById('certPath');
+        const pgSslGroup = document.getElementById('pgSslGroup');
+        const sslModeEl = document.getElementById('sslMode');
+        const pgCertPathGroup = document.getElementById('pgCertPathGroup');
+        const pgCertPathEl = document.getElementById('pgCertPath');
         const filePathEl = document.getElementById('filePath');
         const networkSection = document.getElementById('networkSection');
         const fileSection = document.getElementById('fileSection');
@@ -448,24 +486,32 @@ export class ConnectionWebView {
         const testBtn = document.getElementById('testBtn');
         const defaultPorts = { mysql: '3306', postgresql: '5432', sqlite: '', duckdb: '' };
         function getFormData() {
+            const driver = driverEl.value;
+            const isPg = driver === 'postgresql';
             return {
-                driver: driverEl.value,
+                driver: driver,
                 displayName: displayNameEl.value,
                 host: hostEl.value,
                 port: portEl.value,
                 user: userEl.value,
                 password: passwordEl.value,
-                certPath: certPathEl.value,
+                database: databaseEl.value,
+                certPath: isPg ? pgCertPathEl.value : certPathEl.value,
                 filePath: filePathEl.value,
+                sslMode: isPg ? sslModeEl.value : 'require',
             };
         }
         function isFileDriver(driver) { return driver === 'sqlite' || driver === 'duckdb'; }
         function updateFormVisibility() {
             const driver = driverEl.value;
             const fileDriver = isFileDriver(driver);
+            const isPg = driver === 'postgresql';
             networkSection.classList.toggle('hidden', fileDriver);
             fileSection.classList.toggle('hidden', !fileDriver);
             certPathGroup.classList.toggle('hidden', driver !== 'mysql');
+            pgSslGroup.classList.toggle('hidden', !isPg);
+            pgCertPathGroup.classList.toggle('hidden', !isPg);
+            databaseGroup.classList.toggle('hidden', fileDriver);
             if (!portEl.dataset.userEdited) {
                 portEl.value = defaultPorts[driver] || '';
             }
@@ -498,7 +544,10 @@ export class ConnectionWebView {
                     portEl.dataset.userEdited = d.port ? '1' : '';
                     userEl.value = d.user || '';
                     passwordEl.value = d.password || '';
+                    databaseEl.value = d.database || '';
                     certPathEl.value = d.certPath || '';
+                    pgCertPathEl.value = d.certPath || '';
+                    sslModeEl.value = d.sslMode || 'disable';
                     filePathEl.value = d.filePath || '';
                     if (d.isEdit) {
                         pageTitle.textContent = labels.editTitle;

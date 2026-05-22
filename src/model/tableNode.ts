@@ -8,7 +8,7 @@ import { OutputChannel } from "../common/outputChannel";
 import { Utility } from "../common/utility";
 import { I18n } from "../common/i18n";
 import { ColumnNode } from "./columnNode";
-import { DatabaseDriver } from "./connection";
+import { DatabaseDriver, SslMode } from "./connection";
 import { InfoNode } from "./infoNode";
 import { INode } from "./INode";
 import { MySQLTreeDataProvider } from "../mysqlTreeDataProvider";
@@ -39,7 +39,8 @@ export class TableNode implements INode {
                 treeDataProvider?: MySQLTreeDataProvider,
                 autoExpand: boolean = false,
                 private readonly driver: DatabaseDriver = "mysql",
-                private readonly filePath?: string) {
+                private readonly filePath?: string,
+                private readonly sslMode?: SslMode) {
         this.treeDataProvider = treeDataProvider;
         this.autoExpand = autoExpand;
     }
@@ -54,6 +55,7 @@ export class TableNode implements INode {
             this.driver,
             this.filePath,
             this.database,
+            this.sslMode,
         );
     }
 
@@ -179,17 +181,11 @@ export class TableNode implements INode {
 
     public async selectTop1000() {
         AppInsightsClient.sendEvent("selectTop1000");
-        const sql = `SELECT * FROM \`${this.database}\`.\`${this.table}\` LIMIT 100;`;
+        const sql = this.driver === "postgresql"
+            ? `SELECT * FROM "${this.table.replace(/"/g, "\"\"")}" LIMIT 100;`
+            : `SELECT * FROM \`${this.database}\`.\`${this.table}\` LIMIT 100;`;
 
-        const connection = {
-            host: this.host,
-            user: this.user,
-            password: this.password,
-            port: this.port,
-            database: this.database,
-            certPath: this.certPath,
-        };
-        Global.activeConnection = connection;
+        Global.activeConnection = this.getConnectionOptions();
 
         // Use runQueryWithTotal to get total row count and pass database/table info
         // Append SQL to existing editor instead of replacing

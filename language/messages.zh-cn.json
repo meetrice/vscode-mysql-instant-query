@@ -65,6 +65,9 @@
     "connection.password": "密码",
     "connection.passwordPlaceholder": "留空表示无密码",
     "connection.passwordEditHint": "留空则保持原密码不变",
+    "connection.database": "初始数据库（可选）",
+    "connection.databasePlaceholder": "数据库名，如 uranpgsql",
+    "connection.databaseHint": "留空则连接服务器默认数据库；如果 pg_hba.conf 拒绝默认数据库，请在此填入实际可访问的数据库名",
     "connection.certPath": "SSL 证书路径（可选）",
     "connection.certPathPlaceholder": "证书文件路径",
     "connection.section.file": "文件路径",
@@ -87,5 +90,11 @@
     "connection.test": "测试连接",
     "connection.testing": "测试中...",
     "connection.testSuccess": "连接成功",
-    "connection.testFailed": "连接失败：{0}"
+    "connection.testFailed": "连接失败：{0}",
+    "connection.sslMode": "SSL 模式",
+    "connection.sslMode.require": "要求加密",
+    "connection.sslMode.verifyCa": "验证 CA 证书",
+    "connection.sslMode.disable": "禁用（不使用 SSL）",
+    "connection.sslModeHint": "本地/内网服务器选「禁用」；若报 no encryption 错误则选「要求加密」",
+    "connection.pgCertPath": "SSL CA 证书（可选）"
 }

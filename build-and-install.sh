@@ -1,15 +1,21 @@
 #!/bin/bash
-# 编译、打包、安装 VSCode 插件脚本
-#npm run compile && npx vsce package && code --install-extension mysql-instant-query-0.5.5.vsix --force
+# 编译、打包、安装 Cursor 插件脚本
 set -e  # 遇到错误时退出
+
+CURSOR_CMD="${CURSOR_CMD:-cursor}"
+
+if ! command -v "$CURSOR_CMD" &>/dev/null; then
+    echo "错误: 未找到 Cursor CLI ($CURSOR_CMD)"
+    echo "请确认 Cursor 已安装，并在 PATH 中可用（或设置 CURSOR_CMD 环境变量）"
+    exit 1
+fi
 
 echo "========================================="
 echo "0. 卸载旧版本插件..."
 echo "========================================="
-# 卸载可能存在的旧版本 code --uninstall-extension meetrice.vscode-mysql
-code --list-extensions | grep -i mysql | while read ext; do
+"$CURSOR_CMD" --list-extensions 2>/dev/null | grep -i mysql | while read -r ext; do
     echo "正在卸载: $ext"
-    code --uninstall-extension "$ext" 2>/dev/null || true
+    "$CURSOR_CMD" --uninstall-extension "$ext" 2>/dev/null || true
 done
 echo "旧版本插件卸载完成"
 
@@ -27,7 +33,7 @@ npx vsce package
 
 echo ""
 echo "========================================="
-echo "3. 安装扩展..."
+echo "3. 安装扩展到 Cursor..."
 echo "========================================="
 # 查找生成的 vsix 文件
 VSIX_FILE=$(ls -t mysql-instant-query-*.vsix 2>/dev/null | head -1)
@@ -38,34 +44,18 @@ if [ -z "$VSIX_FILE" ]; then
 fi
 
 echo "找到 VSIX 文件: $VSIX_FILE"
-code --install-extension "$VSIX_FILE" --force
+VSIX_ABS_PATH="$(cd "$(dirname "$VSIX_FILE")" && pwd)/$(basename "$VSIX_FILE")"
+INSTALL_CMD="$CURSOR_CMD --install-extension \"$VSIX_ABS_PATH\" --force"
+echo ""
+echo "执行安装命令:"
+echo "  $INSTALL_CMD"
+echo ""
+
+# NODE_NO_WARNINGS=1 用于屏蔽 Node punycode 等 DeprecationWarning
+NODE_NO_WARNINGS=1 "$CURSOR_CMD" --install-extension "$VSIX_ABS_PATH" --force
 
 echo ""
 echo "========================================="
-echo "4. 同步到 Cursor 扩展目录..."
-echo "========================================="
-CURSOR_EXT_DIR="$HOME/.cursor/extensions"
-if [ -d "$CURSOR_EXT_DIR" ]; then
-    # 从 package.json 获取扩展 ID 和版本
-    EXT_NAME="meetrice.mysql-instant-query"
-    EXT_VERSION=$(node -p "require('./package.json').version")
-    EXT_FOLDER="${EXT_NAME}-${EXT_VERSION}"
-    VSCODE_SRC="$HOME/.vscode/extensions/${EXT_FOLDER}"
-    CURSOR_DST="${CURSOR_EXT_DIR}/${EXT_FOLDER}"
-
-    if [ -d "$VSCODE_SRC" ]; then
-        echo "同步 ${EXT_FOLDER} 到 Cursor..."
-        rm -rf "$CURSOR_DST"
-        cp -r "$VSCODE_SRC" "$CURSOR_DST"
-        echo "Cursor 扩展同步完成"
-    else
-        echo "跳过: VSCode 扩展目录不存在 ${VSCODE_SRC}"
-    fi
-else
-    echo "跳过: Cursor 扩展目录不存在"
-fi
-
-echo ""
-echo "========================================="
-echo "✅ 完成! 请重新加载 VSCode/Cursor 窗口以使用更新后的扩展"
+echo "✅ 完成! 请重新加载 Cursor 窗口以使用更新后的扩展"
+echo "   命令面板 → Developer: Reload Window"
 echo "========================================="

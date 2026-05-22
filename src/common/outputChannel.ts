@@ -6,5 +6,9 @@ export class OutputChannel {
         OutputChannel.outputChannel.appendLine(value);
     }
 
-    private static outputChannel = vscode.window.createOutputChannel("MySQL");
+    public static show(): void {
+        OutputChannel.outputChannel.show(true);
+    }
+
+    private static outputChannel = vscode.window.createOutputChannel("MySQL Instant Query");
 }

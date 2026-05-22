@@ -1,7 +1,9 @@
 import * as fs from "fs";
+import * as net from "net";
 import * as mysql from "mysql2";
 import { Client as PgClient } from "pg";
-import { DatabaseDriver, IConnection, normalizeDriver } from "../model/connection";
+import { DatabaseDriver, IConnection, normalizeDriver, normalizeSslMode } from "../model/connection";
+import { OutputChannel } from "./outputChannel";
 
 export interface TableInfo {
     TABLE_NAME: string;
@@ -26,22 +28,165 @@ function getDefaultPort(driver: DatabaseDriver): string {
     }
 }
 
+function createPostgresClient(options: IConnection): PgClient {
+    const mode = normalizeSslMode(options.sslMode);
+    const port = parseInt(options.port || getDefaultPort("postgresql"), 10);
+    const database = options.database || "postgres";
+    const baseConfig = {
+        host: options.host,
+        port,
+        user: options.user,
+        password: options.password || "",
+        database,
+    };
+
+    logPostgresDebug("create client", options, { mode, sslEnabled: mode !== "disable" });
+
+    if (mode === "disable") {
+        return new PgClient({ ...baseConfig, ssl: false });
+    }
+
+    const ssl: any = mode === "verify-ca"
+        ? { rejectUnauthorized: true }
+        : { rejectUnauthorized: false };
+
+    if (options.certPath && fs.existsSync(options.certPath)) {
+        ssl.ca = fs.readFileSync(options.certPath).toString();
+    }
+
+    logPostgresDebug("ssl config", options, {
+        mode,
+        sslEnabled: true,
+        rejectUnauthorized: ssl.rejectUnauthorized,
+        hasCa: !!ssl.ca,
+    });
+
+    return new PgClient({ ...baseConfig, ssl });
+}
+
+function logPostgresDebug(stage: string, options: IConnection, extra?: any): void {
+    const certPath = options.certPath || "";
+    const payload = {
+        stage,
+        host: options.host,
+        port: options.port || getDefaultPort("postgresql"),
+        database: options.database || "postgres",
+        user: options.user,
+        sslMode: normalizeSslMode(options.sslMode),
+        certPath: certPath ? "set" : "empty",
+        certExists: certPath ? fs.existsSync(certPath) : false,
+        ...extra,
+    };
+    OutputChannel.appendLine("[PostgreSQL Debug] " + JSON.stringify(payload));
+}
+
+function getErrorMessage(err: any): string {
+    if (typeof err === "string") {
+        return err;
+    }
+    if (err && err.message) {
+        return err.message;
+    }
+    return String(err);
+}
+
+function shouldRetryWithSsl(err: any): boolean {
+    const message = getErrorMessage(err);
+    // pg_hba 拒绝明文 / 服务器在 startup 后直接关闭 / TCP reset
+    // 这些场景下应尝试启用 SSL（类似 libpq 的 sslmode=prefer 行为）
+    return (/no pg_hba\.conf entry/i.test(message) && /no encryption/i.test(message))
+        || /Connection terminated unexpectedly/i.test(message)
+        || /ECONNRESET/i.test(message);
+}
+
+function isPostgresSslUnsupportedError(err: any): boolean {
+    const message = getErrorMessage(err);
+    return /does not support SSL/i.test(message)
+        || /server does not support ssl/i.test(message);
+}
+
+function closePostgresClient(client: PgClient): void {
+    try {
+        client.end().catch(() => undefined);
+    } catch {
+        // ignore close errors
+    }
+}
+
+async function connectPostgresClient(options: IConnection): Promise<PgClient> {
+    const mode = normalizeSslMode(options.sslMode);
+    const client = createPostgresClient(options);
+    try {
+        await client.connect();
+        logPostgresDebug("connected", options, {
+            mode,
+            streamEncrypted: !!((client as any).connection && (client as any).connection.stream && (client as any).connection.stream.encrypted),
+        });
+        return client;
+    } catch (err) {
+        closePostgresClient(client);
+        logPostgresDebug("connect failed", options, {
+            mode,
+            error: typeof err === "string" ? err : (err && (err as Error).message) ? (err as Error).message : String(err),
+        });
+
+        if (mode === "disable" && shouldRetryWithSsl(err)) {
+            try {
+                return await retryPostgresConnect(options, "require", "server closed plaintext connection");
+            } catch (retryErr) {
+                // 如果 SSL 重试得到 "does not support SSL"，说明服务器既不接受明文、SSL 又不支持，
+                // 抛出原始错误更具诊断价值
+                if (isPostgresSslUnsupportedError(retryErr)) {
+                    throw err;
+                }
+                throw retryErr;
+            }
+        }
+
+        if (mode !== "disable" && isPostgresSslUnsupportedError(err)) {
+            return await retryPostgresConnect(options, "disable", "server does not support SSL");
+        }
+
+        throw err;
+    }
+}
+
+async function retryPostgresConnect(
+    options: IConnection,
+    newMode: "disable" | "require",
+    reason: string,
+): Promise<PgClient> {
+    const retryOptions = { ...options, sslMode: newMode };
+    logPostgresDebug("retry", retryOptions, { reason, newMode });
+    const retryClient = createPostgresClient(retryOptions);
+    try {
+        await retryClient.connect();
+        logPostgresDebug("retry connected", retryOptions, {
+            streamEncrypted: !!(
+                (retryClient as any).connection &&
+                (retryClient as any).connection.stream &&
+                (retryClient as any).connection.stream.encrypted
+            ),
+        });
+        return retryClient;
+    } catch (retryErr) {
+        closePostgresClient(retryClient);
+        logPostgresDebug("retry failed", retryOptions, {
+            error: typeof retryErr === "string"
+                ? retryErr
+                : (retryErr && (retryErr as Error).message) ? (retryErr as Error).message : String(retryErr),
+        });
+        throw retryErr;
+    }
+}
+
 export class DbDriver {
     public static createConnection(options: IConnection): any {
         const driver = getDriver(options);
 
         switch (driver) {
             case "postgresql": {
-                const client = new PgClient({
-                    host: options.host,
-                    port: parseInt(options.port || getDefaultPort(driver), 10),
-                    user: options.user,
-                    password: options.password || "",
-                    database: options.database || "postgres",
-                    ssl: options.certPath && fs.existsSync(options.certPath)
-                        ? { ca: fs.readFileSync(options.certPath) }
-                        : undefined,
-                });
+                const client = createPostgresClient(options);
                 return { driver, raw: client, _connected: false };
             }
             case "sqlite": {
@@ -76,19 +221,22 @@ export class DbDriver {
 
     public static async queryPromise<T>(options: IConnection, sql: string): Promise<T> {
         const driver = getDriver(options);
+        if (driver === "postgresql") {
+            const client = await connectPostgresClient(options);
+            try {
+                const result = await client.query(sql);
+                await client.end();
+                return result.rows as any;
+            } catch (err) {
+                closePostgresClient(client);
+                throw err;
+            }
+        }
+
         const connection = DbDriver.createConnection(options);
 
         try {
             switch (driver) {
-                case "postgresql": {
-                    const client = connection.raw as PgClient;
-                    if (!connection._connected) {
-                        await client.connect();
-                    }
-                    const result = await client.query(sql);
-                    await client.end();
-                    return result.rows as any;
-                }
                 case "sqlite": {
                     const db = connection.raw;
                     const trimmed = sql.trim();
@@ -134,17 +282,22 @@ export class DbDriver {
 
     public static async executeQuery(options: IConnection, sql: string): Promise<any> {
         const driver = getDriver(options);
+        if (driver === "postgresql") {
+            const client = await connectPostgresClient(options);
+            try {
+                const result = await client.query(sql);
+                await client.end();
+                return result.rows;
+            } catch (err) {
+                closePostgresClient(client);
+                throw err;
+            }
+        }
+
         const connection = DbDriver.createConnection(options);
 
         try {
             switch (driver) {
-                case "postgresql": {
-                    const client = connection.raw as PgClient;
-                    await client.connect();
-                    const result = await client.query(sql);
-                    await client.end();
-                    return result.rows;
-                }
                 case "sqlite": {
                     const db = connection.raw;
                     const trimmed = sql.trim();
@@ -330,6 +483,7 @@ export class DbDriver {
         driver: DatabaseDriver = "mysql",
         filePath?: string,
         database?: string,
+        sslMode?: IConnection["sslMode"],
     ): IConnection {
         if (isFileDriver(driver)) {
             return {
@@ -350,6 +504,7 @@ export class DbDriver {
             password,
             port: port || getDefaultPort(driver),
             certPath: certPath || "",
+            sslMode: driver === "postgresql" ? normalizeSslMode(sslMode) : sslMode,
             database,
         };
     }
@@ -362,10 +517,30 @@ export class DbDriver {
                 await DbDriver.listDatabases(options);
                 break;
             case "postgresql":
+                try {
+                    await DbDriver.queryPromise(options, "SELECT 1");
+                    await DbDriver.logPostgresServerSslStatus(options);
+                } catch (err) {
+                    // 失败时做一次 TCP 级别诊断，帮助定位是网络/防火墙/服务端问题
+                    await diagnosePostgresTcp(options).catch(() => undefined);
+                    throw err;
+                }
+                break;
             case "mysql":
             default:
                 await DbDriver.queryPromise(options, "SELECT 1");
                 break;
+        }
+    }
+
+    private static async logPostgresServerSslStatus(options: IConnection): Promise<void> {
+        try {
+            const rows = await DbDriver.queryPromise<any[]>(options,
+                "SELECT ssl, version, cipher FROM pg_stat_ssl WHERE pid = pg_backend_pid()");
+            OutputChannel.appendLine("[PostgreSQL Debug] server ssl status " + JSON.stringify(rows && rows[0] ? rows[0] : rows));
+        } catch (err) {
+            OutputChannel.appendLine("[PostgreSQL Debug] server ssl status unavailable: " +
+                (err && (err as Error).message ? (err as Error).message : String(err)));
         }
     }
 
@@ -399,4 +574,77 @@ export class DbDriver {
 function pathBasename(filePath: string): string {
     const parts = filePath.replace(/\\/g, "/").split("/");
     return parts[parts.length - 1] || "main";
+}
+
+/**
+ * 原始 TCP 探测：建立连接后发送 PostgreSQL SSLRequest 包，记录服务器返回的字节及连接状态。
+ * 用于定位 "Connection terminated unexpectedly" 类问题的根因。
+ */
+function diagnosePostgresTcp(options: IConnection): Promise<void> {
+    return new Promise((resolve) => {
+        const host = options.host;
+        const port = parseInt(options.port || getDefaultPort("postgresql"), 10);
+        const startTime = Date.now();
+        const events: string[] = [];
+        const socket = new net.Socket();
+        let bytesReceived = 0;
+        let firstBytes = "";
+
+        const finish = (extra: any) => {
+            OutputChannel.appendLine("[PostgreSQL TCP Diagnose] " + JSON.stringify({
+                host,
+                port,
+                elapsedMs: Date.now() - startTime,
+                events,
+                bytesReceived,
+                firstBytes,
+                ...extra,
+            }));
+            try { socket.destroy(); } catch { /* ignore */ }
+            resolve();
+        };
+
+        const timer = setTimeout(() => finish({ reason: "diagnose timeout (5s)" }), 5000);
+
+        socket.on("connect", () => {
+            events.push(`connect@${Date.now() - startTime}ms`);
+            // PostgreSQL SSLRequest packet: length=8, code=80877103 (1234.5679)
+            const buf = Buffer.alloc(8);
+            buf.writeInt32BE(8, 0);
+            buf.writeInt32BE(80877103, 4);
+            socket.write(buf);
+            events.push(`sent SSLRequest@${Date.now() - startTime}ms`);
+        });
+
+        socket.on("data", (data: Buffer) => {
+            bytesReceived += data.length;
+            if (firstBytes.length < 32) {
+                firstBytes += data.toString("hex");
+            }
+            events.push(`data(${data.length}B,first=0x${data[0].toString(16)})@${Date.now() - startTime}ms`);
+        });
+
+        socket.on("close", (hadErr: boolean) => {
+            events.push(`close(hadErr=${hadErr})@${Date.now() - startTime}ms`);
+            clearTimeout(timer);
+            finish({});
+        });
+
+        socket.on("error", (err: Error) => {
+            events.push(`error(${err.message})@${Date.now() - startTime}ms`);
+        });
+
+        socket.on("timeout", () => {
+            events.push(`timeout@${Date.now() - startTime}ms`);
+        });
+
+        socket.setTimeout(3000);
+        try {
+            socket.connect(port, host);
+        } catch (err) {
+            events.push(`connect-throw(${(err as Error).message})`);
+            clearTimeout(timer);
+            finish({});
+        }
+    });
 }

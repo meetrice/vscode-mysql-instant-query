@@ -65,6 +65,9 @@
     "connection.password": "Password",
     "connection.passwordPlaceholder": "Leave empty for no password",
     "connection.passwordEditHint": "Leave empty to keep current password",
+    "connection.database": "Initial Database (optional)",
+    "connection.databasePlaceholder": "Database name, e.g. uranpgsql",
+    "connection.databaseHint": "Leave empty to use the server default. Required if the server denies the default database in pg_hba.conf.",
     "connection.certPath": "SSL Certificate Path (optional)",
     "connection.certPathPlaceholder": "Certificate file path",
     "connection.section.file": "File Path",
@@ -87,6 +90,12 @@
     "connection.test": "Test Connection",
     "connection.testing": "Testing...",
     "connection.testSuccess": "Connection successful",
-    "connection.testFailed": "Connection failed: {0}"
+    "connection.testFailed": "Connection failed: {0}",
+    "connection.sslMode": "SSL Mode",
+    "connection.sslMode.require": "Require (encrypted)",
+    "connection.sslMode.verifyCa": "Verify CA certificate",
+    "connection.sslMode.disable": "Disable (no SSL)",
+    "connection.sslModeHint": "Disable for local servers; choose Require if you see 'no encryption' errors",
+    "connection.pgCertPath": "SSL CA Certificate (optional)"
 }
 

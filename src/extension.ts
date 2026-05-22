@@ -17,7 +17,7 @@ import { ErdWebView } from "./erdWebView";
 import { Constants } from "./common/constants";
 import { DbDriver } from "./common/dbDriver";
 import { OutputChannel } from "./common/outputChannel";
-import { IConnection, normalizeDriver } from "./model/connection";
+import { IConnection, normalizeDriver, normalizeSslMode } from "./model/connection";
 
 export function activate(context: vscode.ExtensionContext) {
     // Initialize i18n
@@ -622,7 +622,13 @@ export function activate(context: vscode.ExtensionContext) {
             Global.activeConnection.port,
             databaseName,
             tableName,
-            Global.activeConnection.certPath
+            Global.activeConnection.certPath,
+            false,
+            undefined,
+            false,
+            Global.activeConnection.driver,
+            Global.activeConnection.filePath,
+            Global.activeConnection.sslMode,
         );
 
         await tempTableNode.showTableStructure();
@@ -645,6 +651,7 @@ export function activate(context: vscode.ExtensionContext) {
                     certPath: Global.activeConnection.certPath,
                     driver: Global.activeConnection.driver,
                     filePath: Global.activeConnection.filePath,
+                    sslMode: Global.activeConnection.sslMode,
                 };
                 const databases = await DbDriver.listDatabases(connOptions);
                 if (databases.length > 0) {
@@ -669,6 +676,9 @@ export function activate(context: vscode.ExtensionContext) {
             port: Global.activeConnection.port,
             database: Global.activeConnection.database,
             certPath: Global.activeConnection.certPath,
+            driver: Global.activeConnection.driver,
+            filePath: Global.activeConnection.filePath,
+            sslMode: Global.activeConnection.sslMode,
         };
 
         try {
@@ -737,7 +747,13 @@ export function activate(context: vscode.ExtensionContext) {
                         Global.activeConnection.port,
                         Global.activeConnection.database,
                         selected.tableName,
-                        Global.activeConnection.certPath
+                        Global.activeConnection.certPath,
+                        false,
+                        undefined,
+                        false,
+                        Global.activeConnection.driver,
+                        Global.activeConnection.filePath,
+                        Global.activeConnection.sslMode,
                     );
 
                     await tempTableNode.showTableStructure();
@@ -924,6 +940,7 @@ async function autoSelectFirstDatabase(context: vscode.ExtensionContext) {
             port: firstConn.port,
             certPath: firstConn.certPath,
             filePath: firstConn.filePath,
+            sslMode: driver === "postgresql" ? normalizeSslMode(firstConn.sslMode) : undefined,
         };
 
         const databases = await DbDriver.listDatabases(connOptions);
@@ -937,6 +954,7 @@ async function autoSelectFirstDatabase(context: vscode.ExtensionContext) {
                 port: firstConn.port,
                 certPath: firstConn.certPath,
                 filePath: firstConn.filePath,
+                sslMode: driver === "postgresql" ? normalizeSslMode(firstConn.sslMode) : undefined,
                 database: databases[0],
             };
         } else {
@@ -948,6 +966,7 @@ async function autoSelectFirstDatabase(context: vscode.ExtensionContext) {
                 port: firstConn.port,
                 certPath: firstConn.certPath,
                 filePath: firstConn.filePath,
+                sslMode: driver === "postgresql" ? normalizeSslMode(firstConn.sslMode) : undefined,
             };
         }
     } catch {
