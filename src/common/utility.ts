@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import LRU = require("lru-cache");
 import { IConnection } from "../model/connection";
 import { SqlResultWebView } from "../sqlResultWebView";
+import { SqlStatementConnectionManager } from "../sqlStatementConnectionManager";
 import { AppInsightsClient } from "./appInsightsClient";
 import { DbDriver } from "./dbDriver";
 import { Global } from "./global";
@@ -100,8 +101,8 @@ export class Utility {
             parsedTable = parsed.table;
         }
         // Use active connection database as fallback
-        if (!parsedDatabase && Global.activeConnection && Global.activeConnection.database) {
-            parsedDatabase = Global.activeConnection.database;
+        if (!parsedDatabase && connectionOptions && connectionOptions.database) {
+            parsedDatabase = connectionOptions.database;
         }
 
         const totalRowCount = await Utility.maybeFetchTotalRowCount(connectionOptions, parsedDatabase, parsedTable);
@@ -433,6 +434,12 @@ export class Utility {
         const content = sql ? "\n" + sql : "\n";
         const textDocument = await vscode.workspace.openTextDocument({ content: content, language: "sql" });
         const editor = await vscode.window.showTextDocument(textDocument);
+        if (sql) {
+            const lines = sql.split('\n');
+            const start = new vscode.Position(1, 0);
+            const end = new vscode.Position(1 + lines.length - 1, lines[lines.length - 1].length);
+            SqlStatementConnectionManager.registerStatement(textDocument, new vscode.Range(start, end), sql);
+        }
         // Move cursor to the first line (empty line)
         const position = new vscode.Position(0, 0);
         editor.selection = new vscode.Selection(position, position);
@@ -452,10 +459,15 @@ export class Utility {
             // Add two newlines (blank line separator) before the new SQL
             const insertPosition = new vscode.Position(lastLine, lastLineLength);
             const content = "\n\n" + sql;
+            const sqlLines = sql.split('\n');
+            const startLine = lastLine + 2;
+            const start = new vscode.Position(startLine, 0);
+            const end = new vscode.Position(startLine + sqlLines.length - 1, sqlLines[sqlLines.length - 1].length);
 
             await editor.edit(editBuilder => {
                 editBuilder.insert(insertPosition, content);
             });
+            SqlStatementConnectionManager.registerStatement(document, new vscode.Range(start, end), sql);
 
             // Scroll to the newly added SQL
             // Calculate the new line count after insertion

@@ -13,6 +13,7 @@ import { Global } from "./common/global";
 import { I18n } from "./common/i18n";
 import { SqlResultWebView } from "./sqlResultWebView";
 import { RunNowCodeLensProvider } from "./runButtonProvider";
+import { SqlStatementConnectionManager } from "./sqlStatementConnectionManager";
 import { ErdWebView } from "./erdWebView";
 import { Constants } from "./common/constants";
 import { DbDriver } from "./common/dbDriver";
@@ -28,6 +29,7 @@ export function activate(context: vscode.ExtensionContext) {
     const mysqlTreeDataProvider = new MySQLTreeDataProvider(context);
 
     Global.secrets = context.secrets;
+    SqlStatementConnectionManager.initialize(context);
 
     // 启动时自动选中第一个连接的第一个用户数据库
     autoSelectFirstDatabase(context);
@@ -190,8 +192,16 @@ export function activate(context: vscode.ExtensionContext) {
         connectionNode.editDisplayName(context, mysqlTreeDataProvider);
     }));
 
-    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.runQuery", (sql?: string, updateSQLEditor: boolean = true) => {
-        Utility.runQuery(sql, undefined, undefined, updateSQLEditor);
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.runQuery", (sql?: string, updateSQLEditor: boolean = true, connectionOptions?: IConnection) => {
+        if (connectionOptions) {
+            Global.activeConnection = connectionOptions;
+        }
+        Utility.runQuery(sql, connectionOptions, undefined, updateSQLEditor);
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.selectStatementConnection", async (documentUri: vscode.Uri, rangeData: number[], sql: string) => {
+        await SqlStatementConnectionManager.pickStatementConnection(documentUri, rangeData, sql);
+        runNowCodeLensProvider.refresh();
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.newQuery", (databaseOrConnectionNode: DatabaseNode | ConnectionNode) => {

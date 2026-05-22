@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { SqlStatementConnectionManager } from "./sqlStatementConnectionManager";
 
 export class RunNowCodeLensProvider implements vscode.CodeLensProvider {
     private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
@@ -16,6 +17,10 @@ export class RunNowCodeLensProvider implements vscode.CodeLensProvider {
                 this._onDidChangeCodeLenses.fire();
             }
         });
+    }
+
+    public refresh() {
+        this._onDidChangeCodeLenses.fire();
     }
 
     public provideCodeLenses(
@@ -38,11 +43,25 @@ export class RunNowCodeLensProvider implements vscode.CodeLensProvider {
 
         // Add code lens for each SQL statement
         for (const statement of sqlStatements) {
+            const connection = SqlStatementConnectionManager.getStatementConnection(document, statement.range, statement.sql);
+            const rangeData = [
+                statement.range.start.line,
+                statement.range.start.character,
+                statement.range.end.line,
+                statement.range.end.character,
+            ];
             lenses.push(
                 new vscode.CodeLens(statement.range, {
-                    title: "▶ Run Now",
+                    title: "▶ execute sql",
                     command: "mysqlInstantQuery.runQuery",
-                    arguments: [statement.sql, false] // false = don't update SQL editor
+                    arguments: [statement.sql, false, connection] // false = don't update SQL editor
+                })
+            );
+            lenses.push(
+                new vscode.CodeLens(statement.range, {
+                    title: `${SqlStatementConnectionManager.getConnectionLabel(connection)} ▼`,
+                    command: "mysqlInstantQuery.selectStatementConnection",
+                    arguments: [document.uri, rangeData, statement.sql]
                 })
             );
         }

@@ -113,7 +113,7 @@ export class RunButtonDecoration {
 <body>
     <button class="run-button" id="runBtn">
         <span class="icon">▶</span>
-        <span>Run Now</span>
+        <span>execute sql</span>
     </button>
     <script>
         const vscode = acquireVsCodeApi();
