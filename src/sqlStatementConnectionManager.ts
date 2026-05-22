@@ -41,7 +41,16 @@ export class SqlStatementConnectionManager {
             }
         }
 
-        return Global.activeConnection;
+        if (Global.activeConnection) {
+            const connection = { ...Global.activeConnection };
+            SqlStatementConnectionManager.statementConnections.set(
+                SqlStatementConnectionManager.getKey(document.uri, range, sql),
+                { sql, connection },
+            );
+            return connection;
+        }
+
+        return undefined;
     }
 
     public static async pickStatementConnection(documentUri: vscode.Uri, rangeData: number[], sql: string) {
@@ -80,7 +89,6 @@ export class SqlStatementConnectionManager {
             SqlStatementConnectionManager.getKey(documentUri, range, sql),
             { sql, connection: { ...selected.connection } },
         );
-        Global.activeConnection = { ...selected.connection };
         vscode.commands.executeCommand("vscode.executeCodeLensProvider", documentUri);
     }
 
@@ -88,7 +96,7 @@ export class SqlStatementConnectionManager {
         if (!connection) {
             return "No connection";
         }
-        const name = connection.displayName || connection.host || connection.filePath || "Database";
+        const name = connection.displayName || "Database";
         return connection.database ? `${name} / ${connection.database}` : name;
     }
 
