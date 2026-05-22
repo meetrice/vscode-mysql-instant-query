@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
+import { I18n } from "../common/i18n";
 import { INode } from "./INode";
 import { AddConnectionNode } from "./addConnectionNode";
 
@@ -10,7 +11,7 @@ export class RootNode implements INode {
 
     public getTreeItem(): vscode.TreeItem {
         const treeItem = new vscode.TreeItem(
-            "数据库",
+            I18n.t("tree.rootDatabases", "Database"),
             vscode.TreeItemCollapsibleState.Expanded
         );
         treeItem.contextValue = "databasesRoot";

@@ -281,16 +281,6 @@
             ],
             "view/title": [
                 {
-                    "command": "mysqlInstantQuery.addConnection",
-                    "when": "view == mysqlInstantQuery",
-                    "group": "navigation@1"
-                },
-                {
-                    "command": "mysqlInstantQuery.addConnection",
-                    "when": "view == mysqlInstantQueryFilter",
-                    "group": "navigation@1"
-                },
-                {
                     "command": "mysqlInstantQuery.expandAll",
                     "when": "view == mysqlInstantQuery && !mysqlInstantQueryTreeAllExpanded",
                     "group": "navigation@2"

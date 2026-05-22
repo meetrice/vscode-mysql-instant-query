@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { Constants } from "./common/constants";
 import { Global } from "./common/global";
 import { ConnectionWebView } from "./connectionWebView";
+import { I18n } from "./common/i18n";
 import { IConnection, normalizeDriver } from "./model/connection";
 import { ConnectionNode } from "./model/connectionNode";
 import { INode } from "./model/INode";
@@ -188,7 +189,7 @@ export class MySQLTreeDataProvider implements vscode.TreeDataProvider<INode> {
             Constants.GlobalStateMySQLConectionsKey
         );
         if (!connections || !connections[connectionNode.getId()]) {
-            vscode.window.showErrorMessage("找不到该连接配置");
+            vscode.window.showErrorMessage(I18n.t("connection.error.notFound"));
             return;
         }
         ConnectionWebView.show(this.context, this, {

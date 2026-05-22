@@ -81,9 +81,6 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
                             vscode.window.showInformationMessage(`Copied to clipboard: ${textToInsert}`);
                         }
                         break;
-                    case 'addConnection':
-                        vscode.commands.executeCommand('mysqlInstantQuery.addConnection');
-                        break;
                 }
             },
             null,
@@ -127,35 +124,6 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
             flex-direction: column;
             gap: 4px;
             width: 100%;
-        }
-        .toolbar {
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            padding: 2px 4px 0 4px;
-            width: 100%;
-        }
-        .add-connection-btn {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 22px;
-            height: 22px;
-            padding: 0;
-            border: none;
-            background: transparent;
-            color: var(--vscode-foreground);
-            cursor: pointer;
-            border-radius: 4px;
-            font-size: 16px;
-            line-height: 1;
-            flex-shrink: 0;
-        }
-        .add-connection-btn:hover {
-            background-color: var(--vscode-toolbar-hoverBackground);
-        }
-        .add-connection-btn:active {
-            background-color: var(--vscode-toolbar-activeBackground);
         }
         .input-container {
             display: flex;
@@ -241,9 +209,6 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
     <div class="filter-container">
-        <div class="toolbar">
-            <button id="addConnectionBtn" class="add-connection-btn" title="添加连接">+</button>
-        </div>
         <div class="input-container">
             <span class="filter-label">Table:</span>
             <input type="text" id="tableFilterInput" placeholder="Filter tables..." autocomplete="off">
@@ -279,11 +244,6 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
         const tableClearBtn = document.getElementById('tableClearBtn');
         const columnInput = document.getElementById('columnFilterInput');
         const columnClearBtn = document.getElementById('columnClearBtn');
-        const addConnectionBtn = document.getElementById('addConnectionBtn');
-
-        addConnectionBtn.addEventListener('click', () => {
-            vscode.postMessage({ command: 'addConnection' });
-        });
 
         let tableTimeout = null;
         let columnTimeout = null;

@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { AppInsightsClient } from "./common/appInsightsClient";
 import { Constants } from "./common/constants";
 import { Global } from "./common/global";
+import { I18n } from "./common/i18n";
 import { DatabaseDriver, IConnection, IStoredConnection, normalizeDriver } from "./model/connection";
 import { MySQLTreeDataProvider } from "./mysqlTreeDataProvider";
 
@@ -37,7 +38,7 @@ export class ConnectionWebView {
             : undefined;
 
         if (ConnectionWebView.currentPanel) {
-            ConnectionWebView.currentPanel.title = existingConnection ? "编辑数据库连接" : "添加数据库连接";
+            ConnectionWebView.currentPanel.title = ConnectionWebView.getPanelTitle(!!existingConnection);
             ConnectionWebView.currentPanel.reveal(column);
             ConnectionWebView.sendInit(existingConnection?.connection);
             return;
@@ -45,7 +46,7 @@ export class ConnectionWebView {
 
         const panel = vscode.window.createWebviewPanel(
             "mysqlInstantQueryConnection",
-            existingConnection ? "编辑数据库连接" : "添加数据库连接",
+            ConnectionWebView.getPanelTitle(!!existingConnection),
             column || vscode.ViewColumn.One,
             {
                 enableScripts: true,
@@ -77,6 +78,12 @@ export class ConnectionWebView {
             ConnectionWebView.currentPanel = undefined;
             ConnectionWebView.editConnectionId = undefined;
         });
+    }
+
+    private static getPanelTitle(isEdit: boolean): string {
+        return isEdit
+            ? I18n.t("connection.panel.editTitle", "Edit Database Connection")
+            : I18n.t("connection.panel.addTitle", "Add Database Connection");
     }
 
     private static sendInit(existing?: IConnection): void {
@@ -118,7 +125,7 @@ export class ConnectionWebView {
 
         const result = await vscode.window.showOpenDialog({
             canSelectMany: false,
-            openLabel: "选择数据库文件",
+            openLabel: I18n.t("connection.browseDialogLabel", "Select database file"),
             filters,
         });
 
@@ -139,26 +146,26 @@ export class ConnectionWebView {
         const isFileDriver = driver === "sqlite" || driver === "duckdb";
 
         if (!data.displayName?.trim()) {
-            vscode.window.showErrorMessage("请填写连接显示名称");
+            vscode.window.showErrorMessage(I18n.t("connection.error.displayNameRequired"));
             return;
         }
 
         if (isFileDriver) {
             if (!data.filePath?.trim()) {
-                vscode.window.showErrorMessage("请选择数据库文件路径");
+                vscode.window.showErrorMessage(I18n.t("connection.error.filePathRequired"));
                 return;
             }
         } else {
             if (!data.host?.trim()) {
-                vscode.window.showErrorMessage("请填写主机地址");
+                vscode.window.showErrorMessage(I18n.t("connection.error.hostRequired"));
                 return;
             }
             if (!data.user?.trim()) {
-                vscode.window.showErrorMessage("请填写用户名");
+                vscode.window.showErrorMessage(I18n.t("connection.error.userRequired"));
                 return;
             }
             if (!data.port?.trim()) {
-                vscode.window.showErrorMessage("请填写端口号");
+                vscode.window.showErrorMessage(I18n.t("connection.error.portRequired"));
                 return;
             }
         }
@@ -195,18 +202,29 @@ export class ConnectionWebView {
 
         AppInsightsClient.sendEvent("addConnection.end");
         vscode.window.showInformationMessage(
-            ConnectionWebView.editConnectionId ? "连接已更新" : "连接已添加"
+            ConnectionWebView.editConnectionId
+                ? I18n.t("connection.info.updated")
+                : I18n.t("connection.info.added")
         );
     }
 
     private static getHtml(): string {
+        const labels = {
+            addTitle: I18n.t("connection.panel.addTitle", "Add Database Connection"),
+            editTitle: I18n.t("connection.panel.editTitle", "Edit Database Connection"),
+            passwordEditHint: I18n.t("connection.passwordEditHint", "Leave empty to keep current password"),
+            save: I18n.t("connection.save", "Save Connection"),
+            saveEdit: I18n.t("connection.saveEdit", "Save Changes"),
+        };
+        const labelsJson = JSON.stringify(labels);
+
         return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${I18n.getLocale()}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
-    <title>数据库连接</title>
+    <title>${I18n.t("connection.panel.addTitle", "Add Database Connection")}</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -287,9 +305,9 @@ export class ConnectionWebView {
     </style>
 </head>
 <body>
-    <h1 id="pageTitle">添加数据库连接</h1>
+    <h1 id="pageTitle">${I18n.t("connection.panel.addTitle", "Add Database Connection")}</h1>
     <div class="form-group">
-        <label for="driver">数据库类型</label>
+        <label for="driver">${I18n.t("connection.driver", "Database Type")}</label>
         <select id="driver">
             <option value="mysql">MySQL</option>
             <option value="postgresql">PostgreSQL</option>
@@ -298,51 +316,52 @@ export class ConnectionWebView {
         </select>
     </div>
     <div class="form-group">
-        <label for="displayName">显示名称</label>
-        <input type="text" id="displayName" placeholder="例如：本地开发库">
+        <label for="displayName">${I18n.t("connection.displayName", "Display Name")}</label>
+        <input type="text" id="displayName" placeholder="${I18n.t("connection.displayNamePlaceholder", "e.g. Local Dev")}">
     </div>
     <div id="networkSection">
-        <div class="section-title">连接信息</div>
+        <div class="section-title">${I18n.t("connection.section.network", "Connection Info")}</div>
         <div class="form-group">
-            <label for="host">主机地址</label>
-            <input type="text" id="host" placeholder="localhost">
+            <label for="host">${I18n.t("connection.host", "Host")}</label>
+            <input type="text" id="host" placeholder="${I18n.t("connection.hostPlaceholder", "localhost")}">
         </div>
         <div class="row">
             <div class="form-group">
-                <label for="port">端口</label>
+                <label for="port">${I18n.t("connection.port", "Port")}</label>
                 <input type="text" id="port" placeholder="3306">
             </div>
             <div class="form-group">
-                <label for="user">用户名</label>
-                <input type="text" id="user" placeholder="root">
+                <label for="user">${I18n.t("connection.user", "Username")}</label>
+                <input type="text" id="user" placeholder="${I18n.t("connection.userPlaceholder", "root")}">
             </div>
         </div>
         <div class="form-group">
-            <label for="password">密码</label>
-            <input type="password" id="password" placeholder="留空表示无密码">
+            <label for="password">${I18n.t("connection.password", "Password")}</label>
+            <input type="password" id="password" placeholder="${I18n.t("connection.passwordPlaceholder", "Leave empty for no password")}">
             <div class="hint" id="passwordHint"></div>
         </div>
         <div class="form-group" id="certPathGroup">
-            <label for="certPath">SSL 证书路径（可选）</label>
-            <input type="text" id="certPath" placeholder="证书文件路径">
+            <label for="certPath">${I18n.t("connection.certPath", "SSL Certificate Path (optional)")}</label>
+            <input type="text" id="certPath" placeholder="${I18n.t("connection.certPathPlaceholder", "Certificate file path")}">
         </div>
     </div>
     <div id="fileSection" class="hidden">
-        <div class="section-title">文件路径</div>
+        <div class="section-title">${I18n.t("connection.section.file", "File Path")}</div>
         <div class="form-group">
-            <label for="filePath">数据库文件</label>
+            <label for="filePath">${I18n.t("connection.filePath", "Database File")}</label>
             <div class="file-row">
-                <input type="text" id="filePath" placeholder="选择 .db / .sqlite / .duckdb 文件">
-                <button type="button" class="btn-browse" id="browseBtn">浏览...</button>
+                <input type="text" id="filePath" placeholder="${I18n.t("connection.filePathPlaceholder", "Select .db / .sqlite / .duckdb file")}">
+                <button type="button" class="btn-browse" id="browseBtn">${I18n.t("connection.fileBrowse", "Browse...")}</button>
             </div>
-            <div class="hint">SQLite 和 DuckDB 通过本地文件连接</div>
+            <div class="hint">${I18n.t("connection.fileHint", "SQLite and DuckDB connect via local file")}</div>
         </div>
     </div>
     <div class="actions">
-        <button type="button" class="btn-primary" id="saveBtn">保存连接</button>
-        <button type="button" class="btn-secondary" id="cancelBtn">取消</button>
+        <button type="button" class="btn-primary" id="saveBtn">${I18n.t("connection.save", "Save Connection")}</button>
+        <button type="button" class="btn-secondary" id="cancelBtn">${I18n.t("connection.cancel", "Cancel")}</button>
     </div>
     <script>
+        const labels = ${labelsJson};
         const vscode = acquireVsCodeApi();
         const driverEl = document.getElementById('driver');
         const displayNameEl = document.getElementById('displayName');
@@ -408,14 +427,14 @@ export class ConnectionWebView {
                     certPathEl.value = d.certPath || '';
                     filePathEl.value = d.filePath || '';
                     if (d.isEdit) {
-                        pageTitle.textContent = '编辑数据库连接';
-                        passwordHint.textContent = '留空则保持原密码不变';
-                        saveBtn.textContent = '保存修改';
+                        pageTitle.textContent = labels.editTitle;
+                        passwordHint.textContent = labels.passwordEditHint;
+                        saveBtn.textContent = labels.saveEdit;
                         driverEl.disabled = true;
                     } else {
-                        pageTitle.textContent = '添加数据库连接';
+                        pageTitle.textContent = labels.addTitle;
                         passwordHint.textContent = '';
-                        saveBtn.textContent = '保存连接';
+                        saveBtn.textContent = labels.save;
                         driverEl.disabled = false;
                     }
                     updateFormVisibility();
