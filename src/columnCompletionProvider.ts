@@ -16,6 +16,7 @@ import {
 const CACHE_TTL = 60000;
 const MULTI_SELECT_LABEL = "$(list-selection) 多选字段…";
 const FILTER_VALUE_BUTTON = "设置筛选值";
+const CLOSE_BUTTON = "关闭";
 const DOUBLE_CLICK_MS = 450;
 
 interface ColumnQuickPickItem extends vscode.QuickPickItem {
@@ -64,12 +65,30 @@ function buildColumnQuickPickItems(
     });
 }
 
-function getFilteredQuickPickItems(items: ColumnQuickPickItem[], filterValue: string): ColumnQuickPickItem[] {
-    const keyword = filterValue.trim().toLowerCase();
-    if (!keyword) {
+function fuzzyIncludes(text: string, pattern: string): boolean {
+    const source = text.toLowerCase();
+    const query = pattern.toLowerCase().trim();
+    if (!query) {
+        return true;
+    }
+    if (source.includes(query)) {
+        return true;
+    }
+    let queryIndex = 0;
+    for (let i = 0; i < source.length && queryIndex < query.length; i++) {
+        if (source[i] === query[queryIndex]) {
+            queryIndex++;
+        }
+    }
+    return queryIndex === query.length;
+}
+
+function filterColumnItems(items: ColumnQuickPickItem[], keyword: string): ColumnQuickPickItem[] {
+    const query = keyword.trim();
+    if (!query) {
         return items;
     }
-    return items.filter((item) => item.searchText.toLowerCase().includes(keyword));
+    return items.filter((item) => fuzzyIncludes(item.searchText, query));
 }
 
 async function getColumnList(connection: IConnection, tableName: string): Promise<any[]> {
@@ -203,6 +222,7 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
         const quickPick = vscode.window.createQuickPick<ColumnQuickPickItem>();
         activeColumnQuickPick = quickPick;
 
+        let baseItems = allItems;
         let suppressItemEvents = false;
         let promptingFilter = false;
         let suppressAcceptUntil = 0;
@@ -220,7 +240,7 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
             suppressItemEvents = false;
         };
 
-        const refreshItems = () => {
+        const applySearchFilter = () => {
             suppressItemEvents = true;
             const selectedNames = new Set(quickPick.selectedItems.map((item) => item.columnName));
             for (const [columnName, filterValue] of filterValues.entries()) {
@@ -229,7 +249,12 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
                 }
             }
             const activeName = quickPick.activeItems[0]?.columnName;
-            quickPick.items = buildColumnQuickPickItems(columns, filterValues);
+            const keyword = quickPick.value.trim();
+            const filtered = filterColumnItems(baseItems, keyword);
+            quickPick.items = filtered.map((item) => ({
+                ...item,
+                alwaysShow: keyword.length > 0,
+            }));
             quickPick.selectedItems = quickPick.items.filter((item) => selectedNames.has(item.columnName));
             if (activeName) {
                 const activeItem = quickPick.items.find((item) => item.columnName === activeName);
@@ -238,6 +263,11 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
                 }
             }
             suppressItemEvents = false;
+        };
+
+        const refreshItems = () => {
+            baseItems = buildColumnQuickPickItems(columns, filterValues);
+            applySearchFilter();
         };
 
         const promptFilterValue = async (item: ColumnQuickPickItem) => {
@@ -293,18 +323,25 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
 
         quickPick.canSelectMany = true;
         quickPick.matchOnDescription = true;
+        quickPick.matchOnDetail = true;
         quickPick.ignoreFocusOut = true;
-        quickPick.placeholder = `搜索字段 · ${selectContext.tableName}（单击勾选；双击输入筛选值；Enter 确认）`;
-        quickPick.items = allItems;
+        quickPick.placeholder = `搜索字段名/类型/注释 · ${selectContext.tableName}（单击勾选；双击输入筛选值；Enter 确认）`;
+        refreshItems();
         quickPick.buttons = [
             { iconPath: new vscode.ThemeIcon("checklist"), tooltip: "全选" },
             { iconPath: new vscode.ThemeIcon("clear-all"), tooltip: "取消全选" },
             { iconPath: new vscode.ThemeIcon("edit"), tooltip: FILTER_VALUE_BUTTON },
+            { iconPath: new vscode.ThemeIcon("close"), tooltip: CLOSE_BUTTON },
         ];
 
         if (initialFilter) {
             quickPick.value = initialFilter;
+            applySearchFilter();
         }
+
+        quickPick.onDidChangeValue(() => {
+            applySearchFilter();
+        });
 
         quickPick.onDidChangeSelection(() => {
             if (suppressItemEvents || promptingFilter) {
@@ -340,6 +377,10 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
         });
 
         quickPick.onDidTriggerButton(async (button) => {
+            if (button.tooltip === CLOSE_BUTTON) {
+                quickPick.hide();
+                return;
+            }
             if (button.tooltip === FILTER_VALUE_BUTTON) {
                 const active = quickPick.activeItems[0];
                 if (!active) {
@@ -350,7 +391,7 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
                 return;
             }
 
-            const filteredItems = getFilteredQuickPickItems(buildColumnQuickPickItems(columns, filterValues), quickPick.value);
+            const filteredItems = filterColumnItems(baseItems, quickPick.value);
             if (button.tooltip === "全选") {
                 const selected = new Map(quickPick.selectedItems.map((item) => [item.columnName, item]));
                 filteredItems.forEach((item) => selected.set(item.columnName, item));
