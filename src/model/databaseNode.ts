@@ -8,7 +8,7 @@ import { DatabaseDriver, SslMode } from "./connection";
 import { InfoNode } from "./infoNode";
 import { INode } from "./INode";
 import { TableNode } from "./tableNode";
-import { MySQLTreeDataProvider } from "../mysqlTreeDataProvider";
+import { MySQLTreeDataProvider, TableFilterState } from "../mysqlTreeDataProvider";
 
 export class DatabaseNode implements INode {
     private allExpanded: boolean = false;
@@ -40,29 +40,20 @@ export class DatabaseNode implements INode {
         this.allExpanded = value;
     }
 
+    public getExpandKey(): string {
+        return `${this.connectionId}:${this.database}`;
+    }
+
     public getTreeItem(): vscode.TreeItem {
-        // Check global expand state
-        let isExpanded = this.allExpanded;
-        let expandVersion = 0;
-        try {
-            if (this.treeDataProvider) {
-                if ((this.treeDataProvider as any).getAllExpanded) {
-                    isExpanded = (this.treeDataProvider as any).getAllExpanded() || false;
-                }
-                if ((this.treeDataProvider as any).getExpandVersion) {
-                    expandVersion = (this.treeDataProvider as any).getExpandVersion() || 0;
-                }
-            }
-        } catch (e) {
-            // Ignore
-        }
+        const isExpanded = TableFilterState.instance.getDatabaseExpanded(this.getExpandKey());
+
         const treeItem = new vscode.TreeItem(
             this.database || "(unknown)",
             isExpanded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed
         );
         treeItem.contextValue = "database";
         treeItem.iconPath = path.join(__filename, "..", "..", "..", "resources", "database.svg");
-        treeItem.id = `${this.connectionId}:${this.database}#v${expandVersion}`;
+        treeItem.id = this.getExpandKey();
         return treeItem;
     }
 
@@ -70,52 +61,55 @@ export class DatabaseNode implements INode {
         const options = this.getConnectionOptions();
 
         return DbDriver.listTables(options, this.database)
-            .then((tables) => {
+            .then(async (tables) => {
                 // Get pinned tables from global state
                 const pinnedTables: string[] = this.treeDataProvider ? this.treeDataProvider.getPinnedTables() : [];
 
-                // Get filter text from global filter state (import dynamically to avoid circular dependency)
-                let filterText = "";
-                try {
-                    // Access the filter state through the treeDataProvider if available
-                    if (this.treeDataProvider && (this.treeDataProvider as any).getFilterText) {
-                        filterText = (this.treeDataProvider as any).getFilterText() || "";
-                    }
-                } catch (e) {
-                    // Ignore if filter is not available
-                }
+                const tableFilterText = TableFilterState.instance.filterText;
+                const columnFilterText = TableFilterState.instance.columnFilterText;
+                const tableFilterLower = tableFilterText.toLowerCase().trim();
+                const columnFilterLower = columnFilterText.toLowerCase().trim();
+                const hasColumnFilter = columnFilterLower.length > 0;
 
-                const filterLower = filterText.toLowerCase().trim();
+                let matchingColumnTables: Set<string> | undefined;
+                if (hasColumnFilter) {
+                    matchingColumnTables = await DbDriver.listTableNamesMatchingColumnFilter(
+                        options,
+                        this.database,
+                        columnFilterLower,
+                    );
+                }
 
                 const tableNodes = tables
                     .filter((table) => {
-                        if (!filterLower) return true;
-                        const tableName = `${table.TABLE_SCHEMA ? table.TABLE_SCHEMA + "." : ""}${table.TABLE_NAME || ""}`.toLowerCase();
+                        const tableName = table.TABLE_SCHEMA
+                            ? `${table.TABLE_SCHEMA}.${table.TABLE_NAME}`
+                            : (table.TABLE_NAME || "");
+                        const tableNameLower = tableName.toLowerCase();
                         const tableComment = (table.TABLE_COMMENT || "").toLowerCase();
-                        // Support fuzzy matching for both table name and comment
-                        return tableName.includes(filterLower) || tableComment.includes(filterLower);
+
+                        if (tableFilterLower) {
+                            const matchesTable = tableNameLower.includes(tableFilterLower)
+                                || tableComment.includes(tableFilterLower);
+                            if (!matchesTable) {
+                                return false;
+                            }
+                        }
+
+                        if (matchingColumnTables) {
+                            const bareName = (table.TABLE_NAME || "").toLowerCase();
+                            if (!matchingColumnTables.has(tableNameLower) && !matchingColumnTables.has(bareName)) {
+                                return false;
+                            }
+                        }
+
+                        return true;
                     })
                     .map<TableNode>((table) => {
                         const tableName = table.TABLE_SCHEMA ? `${table.TABLE_SCHEMA}.${table.TABLE_NAME}` : table.TABLE_NAME;
                         const tableKey = `${this.host}:${this.port}:${this.database}:${tableName}`;
                         const isPinned = pinnedTables.indexOf(tableKey) >= 0;
-                        // Check if there's a column filter active or global expand - if so, auto-expand tables
-                        let columnFilter = "";
-                        let hasColumnFilter = false;
-                        let allExpanded = false;
-                        try {
-                            if (this.treeDataProvider) {
-                                if ((this.treeDataProvider as any).getColumnFilterText) {
-                                    columnFilter = (this.treeDataProvider as any).getColumnFilterText() || "";
-                                    hasColumnFilter = columnFilter.length > 0;
-                                }
-                                if ((this.treeDataProvider as any).getAllExpanded) {
-                                    allExpanded = (this.treeDataProvider as any).getAllExpanded() || false;
-                                }
-                            }
-                        } catch (e) {
-                            // Ignore
-                        }
+                        const allExpanded = this.treeDataProvider?.getAllExpanded() || false;
                         const tableNode = new TableNode(
                             this.host,
                             this.user,
@@ -126,7 +120,7 @@ export class DatabaseNode implements INode {
                             this.certPath,
                             isPinned,
                             this.treeDataProvider,
-                            hasColumnFilter || allExpanded,
+                            allExpanded,
                             this.driver,
                             this.filePath,
                             this.sslMode,

@@ -1,7 +1,9 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { I18n } from "../common/i18n";
+import { ConnectionNode } from "./connectionNode";
 import { INode } from "./INode";
+import { TableFilterState } from "../mysqlTreeDataProvider";
 import { AddConnectionNode } from "./addConnectionNode";
 import { NewQueryNode } from "./newQueryNode";
 
@@ -24,6 +26,15 @@ export class RootNode implements INode {
 
     public async getChildren(): Promise<INode[]> {
         const connections = await this.getConnectionNodes();
-        return [this.newQueryNode, this.addConnectionNode, ...connections];
+        const filterLower = TableFilterState.instance.connectionFilterText.toLowerCase().trim();
+        const filteredConnections = filterLower
+            ? connections.filter((node) => {
+                if (node instanceof ConnectionNode) {
+                    return node.getDisplayLabel().toLowerCase().includes(filterLower);
+                }
+                return true;
+            })
+            : connections;
+        return [this.newQueryNode, this.addConnectionNode, ...filteredConnections];
     }
 }

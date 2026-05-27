@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { I18n } from "./common/i18n";
 import { TableFilterState } from "./mysqlTreeDataProvider";
 
 export class FilterInputPanel {
@@ -36,11 +37,31 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
         webviewView.webview.onDidReceiveMessage(
             message => {
                 switch (message.command) {
+                    case 'updateConnectionFilter':
+                        TableFilterState.instance.setConnectionFilterText(message.text);
+                        break;
+                    case 'updateDatabaseFilter':
+                        TableFilterState.instance.setDatabaseFilterText(message.text);
+                        break;
                     case 'updateFilter':
                         TableFilterState.instance.setFilterText(message.text);
                         break;
                     case 'updateColumnFilter':
                         TableFilterState.instance.setColumnFilterText(message.text);
+                        break;
+                    case 'clearConnectionFilter':
+                        TableFilterState.instance.setConnectionFilterText("");
+                        this._view?.webview.postMessage({
+                            command: 'setConnectionFilter',
+                            text: ''
+                        });
+                        break;
+                    case 'clearDatabaseFilter':
+                        TableFilterState.instance.setDatabaseFilterText("");
+                        this._view?.webview.postMessage({
+                            command: 'setDatabaseFilter',
+                            text: ''
+                        });
                         break;
                     case 'clearFilter':
                         TableFilterState.instance.setFilterText("");
@@ -59,6 +80,14 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
                     case 'clearAll':
                         TableFilterState.instance.clear();
                         this._view?.webview.postMessage({
+                            command: 'setConnectionFilter',
+                            text: ''
+                        });
+                        this._view?.webview.postMessage({
+                            command: 'setDatabaseFilter',
+                            text: ''
+                        });
+                        this._view?.webview.postMessage({
                             command: 'setTableFilter',
                             text: ''
                         });
@@ -66,20 +95,6 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
                             command: 'setColumnFilter',
                             text: ''
                         });
-                        break;
-                    case 'insertText':
-                        // Insert text at cursor or copy to clipboard
-                        const textToInsert = message.text;
-                        if (vscode.window.activeTextEditor) {
-                            const editor = vscode.window.activeTextEditor;
-                            const position = editor.selection.active;
-                            editor.edit(editBuilder => {
-                                editBuilder.insert(position, textToInsert);
-                            });
-                        } else {
-                            vscode.env.clipboard.writeText(textToInsert);
-                            vscode.window.showInformationMessage(`Copied to clipboard: ${textToInsert}`);
-                        }
                         break;
                 }
             },
@@ -90,6 +105,8 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
         TableFilterState.instance.onDidChangeFilter(() => {
             this._view?.webview.postMessage({
                 command: 'setFilters',
+                connectionFilter: TableFilterState.instance.connectionFilterText,
+                databaseFilter: TableFilterState.instance.databaseFilterText,
                 tableFilter: TableFilterState.instance.filterText,
                 columnFilter: TableFilterState.instance.columnFilterText
             });
@@ -97,8 +114,18 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
     }
 
     private getWebviewContent(): string {
+        const labelConnection = this.escapeHtml(I18n.t("filterPanel.label.connection", "Connection:"));
+        const labelDatabase = this.escapeHtml(I18n.t("filterPanel.label.database", "Database:"));
+        const labelTable = this.escapeHtml(I18n.t("filterPanel.label.table", "Table:"));
+        const labelColumn = this.escapeHtml(I18n.t("filterPanel.label.column", "Column:"));
+        const placeholderConnection = this.escapeHtml(I18n.t("placeholder.filterConnections", "Filter connections..."));
+        const placeholderDatabase = this.escapeHtml(I18n.t("placeholder.filterDatabases", "Filter databases..."));
+        const placeholderTable = this.escapeHtml(I18n.t("placeholder.filterTables", "Filter tables..."));
+        const placeholderColumn = this.escapeHtml(I18n.t("placeholder.filterColumns", "Filter columns..."));
+        const lang = I18n.getLocale().toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+
         return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -180,73 +207,73 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
         .clear-btn.visible {
             display: block;
         }
-        .quick-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-            padding: 4px 4px 6px 4px;
-        }
-        .quick-btn {
-            padding: 3px 8px;
-            border: 1px solid var(--vscode-button-border);
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-            cursor: pointer;
-            border-radius: 2px;
-            font-family: var(--vscode-font-family);
-            font-size: 11px;
-            flex-shrink: 0;
-            line-height: 1.4;
-            white-space: nowrap;
-        }
-        .quick-btn:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
-        }
-        .quick-btn:active {
-            background-color: var(--vscode-button-secondaryActiveBackground);
-        }
     </style>
 </head>
 <body>
     <div class="filter-container">
         <div class="input-container">
-            <span class="filter-label">Table:</span>
-            <input type="text" id="tableFilterInput" placeholder="Filter tables..." autocomplete="off">
+            <span class="filter-label">${labelConnection}</span>
+            <input type="text" id="connectionFilterInput" placeholder="${placeholderConnection}" autocomplete="off">
+            <button id="connectionClearBtn" class="clear-btn">✕</button>
+        </div>
+        <div class="input-container">
+            <span class="filter-label">${labelDatabase}</span>
+            <input type="text" id="databaseFilterInput" placeholder="${placeholderDatabase}" autocomplete="off">
+            <button id="databaseClearBtn" class="clear-btn">✕</button>
+        </div>
+        <div class="input-container">
+            <span class="filter-label">${labelTable}</span>
+            <input type="text" id="tableFilterInput" placeholder="${placeholderTable}" autocomplete="off">
             <button id="tableClearBtn" class="clear-btn">✕</button>
         </div>
         <div class="input-container">
-            <span class="filter-label">Column:</span>
-            <input type="text" id="columnFilterInput" placeholder="Filter columns..." autocomplete="off">
+            <span class="filter-label">${labelColumn}</span>
+            <input type="text" id="columnFilterInput" placeholder="${placeholderColumn}" autocomplete="off">
             <button id="columnClearBtn" class="clear-btn">✕</button>
-        </div>
-        <div class="quick-actions">
-            <button class="quick-btn" data-text="SELECT * FROM ">SELECT *</button>
-            <button class="quick-btn" data-text="SELECT COUNT(*) FROM ">COUNT</button>
-            <button class="quick-btn" data-text="WHERE ">WHERE</button>
-            <button class="quick-btn" data-text="AND ">AND</button>
-            <button class="quick-btn" data-text="OR ">OR</button>
-            <button class="quick-btn" data-text="ORDER BY ">ORDER BY</button>
-            <button class="quick-btn" data-text="GROUP BY ">GROUP BY</button>
-            <button class="quick-btn" data-text="LIMIT ">LIMIT</button>
-            <button class="quick-btn" data-text="LIKE '%">LIKE</button>
-            <button class="quick-btn" data-text="IN ()">IN</button>
-            <button class="quick-btn" data-text="INSERT INTO  VALUES ()">INSERT</button>
-            <button class="quick-btn" data-text="UPDATE  SET ">UPDATE</button>
-            <button class="quick-btn" data-text="DELETE FROM ">DELETE</button>
-            <button class="quick-btn" data-text="JOIN ">JOIN</button>
-            <button class="quick-btn" data-text="LEFT JOIN ">LEFT JOIN</button>
         </div>
     </div>
 
     <script>
         const vscode = acquireVsCodeApi();
+        const connectionInput = document.getElementById('connectionFilterInput');
+        const connectionClearBtn = document.getElementById('connectionClearBtn');
+        const databaseInput = document.getElementById('databaseFilterInput');
+        const databaseClearBtn = document.getElementById('databaseClearBtn');
         const tableInput = document.getElementById('tableFilterInput');
         const tableClearBtn = document.getElementById('tableClearBtn');
         const columnInput = document.getElementById('columnFilterInput');
         const columnClearBtn = document.getElementById('columnClearBtn');
 
+        let connectionTimeout = null;
+        let databaseTimeout = null;
         let tableTimeout = null;
         let columnTimeout = null;
+
+        connectionInput.addEventListener('input', (e) => {
+            const text = e.target.value;
+            updateClearButton('connection', text);
+
+            clearTimeout(connectionTimeout);
+            connectionTimeout = setTimeout(() => {
+                vscode.postMessage({
+                    command: 'updateConnectionFilter',
+                    text: text
+                });
+            }, 100);
+        });
+
+        databaseInput.addEventListener('input', (e) => {
+            const text = e.target.value;
+            updateClearButton('database', text);
+
+            clearTimeout(databaseTimeout);
+            databaseTimeout = setTimeout(() => {
+                vscode.postMessage({
+                    command: 'updateDatabaseFilter',
+                    text: text
+                });
+            }, 100);
+        });
 
         tableInput.addEventListener('input', (e) => {
             const text = e.target.value;
@@ -274,6 +301,18 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
             }, 100);
         });
 
+        connectionInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                clearConnectionFilter();
+            }
+        });
+
+        databaseInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                clearDatabaseFilter();
+            }
+        });
+
         tableInput.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 clearTableFilter();
@@ -286,20 +325,28 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
             }
         });
 
+        connectionClearBtn.addEventListener('click', clearConnectionFilter);
+        databaseClearBtn.addEventListener('click', clearDatabaseFilter);
         tableClearBtn.addEventListener('click', clearTableFilter);
         columnClearBtn.addEventListener('click', clearColumnFilter);
 
-        // Quick action buttons
-        const quickBtns = document.querySelectorAll('.quick-btn');
-        quickBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const textToInsert = btn.getAttribute('data-text');
-                vscode.postMessage({
-                    command: 'insertText',
-                    text: textToInsert
-                });
+        function clearConnectionFilter() {
+            connectionInput.value = '';
+            updateClearButton('connection', '');
+            vscode.postMessage({
+                command: 'clearConnectionFilter'
             });
-        });
+            connectionInput.focus();
+        }
+
+        function clearDatabaseFilter() {
+            databaseInput.value = '';
+            updateClearButton('database', '');
+            vscode.postMessage({
+                command: 'clearDatabaseFilter'
+            });
+            databaseInput.focus();
+        }
 
         function clearTableFilter() {
             tableInput.value = '';
@@ -320,7 +367,10 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
         }
 
         function updateClearButton(type, text) {
-            const btn = type === 'table' ? tableClearBtn : columnClearBtn;
+            const btn = type === 'connection' ? connectionClearBtn
+                : type === 'database' ? databaseClearBtn
+                : type === 'table' ? tableClearBtn
+                : columnClearBtn;
             if (text) {
                 btn.classList.add('visible');
             } else {
@@ -332,10 +382,20 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
         window.addEventListener('message', event => {
             const message = event.data;
             if (message.command === 'setFilters') {
+                connectionInput.value = message.connectionFilter || '';
+                databaseInput.value = message.databaseFilter || '';
                 tableInput.value = message.tableFilter || '';
                 columnInput.value = message.columnFilter || '';
+                updateClearButton('connection', message.connectionFilter || '');
+                updateClearButton('database', message.databaseFilter || '');
                 updateClearButton('table', message.tableFilter || '');
                 updateClearButton('column', message.columnFilter || '');
+            } else if (message.command === 'setConnectionFilter') {
+                connectionInput.value = message.text || '';
+                updateClearButton('connection', message.text || '');
+            } else if (message.command === 'setDatabaseFilter') {
+                databaseInput.value = message.text || '';
+                updateClearButton('database', message.text || '');
             } else if (message.command === 'setTableFilter') {
                 tableInput.value = message.text || '';
                 updateClearButton('table', message.text || '');
@@ -345,10 +405,18 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
             }
         });
 
-        // Focus table input on load
-        tableInput.focus();
+        // Focus connection input on load
+        connectionInput.focus();
     </script>
 </body>
 </html>`;
+    }
+
+    private escapeHtml(text: string): string {
+        return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
     }
 }

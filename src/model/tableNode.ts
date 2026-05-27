@@ -11,7 +11,7 @@ import { ColumnNode } from "./columnNode";
 import { DatabaseDriver, SslMode } from "./connection";
 import { InfoNode } from "./infoNode";
 import { INode } from "./INode";
-import { MySQLTreeDataProvider } from "../mysqlTreeDataProvider";
+import { MySQLTreeDataProvider, TableFilterState } from "../mysqlTreeDataProvider";
 
 // Polyfill for padEnd (not available in older TypeScript)
 function padEnd(str: string, targetLength: number, padString: string = " "): string {
@@ -110,27 +110,7 @@ export class TableNode implements INode {
         const tooltip = this.tableComment ? `${this.table} - ${this.tableComment}` : this.table;
 
         // Get expand version to force TreeItem recreation
-        let expandVersion = 0;
-        try {
-            if (this.treeDataProvider && (this.treeDataProvider as any).getExpandVersion) {
-                expandVersion = (this.treeDataProvider as any).getExpandVersion() || 0;
-            }
-        } catch (e) {
-            // Ignore
-        }
-
-        // Get expand state from TableFilterState (per-table toggle)
-        const isExpanded = (() => {
-            try {
-                if (this.treeDataProvider && (this.treeDataProvider as any).filterState) {
-                    const filterState = (this.treeDataProvider as any).filterState;
-                    return filterState.getTableExpanded(this.getKey());
-                }
-            } catch (e) {
-                // Ignore
-            }
-            return false;
-        })();
+        const isExpanded = this.autoExpand || TableFilterState.instance.getTableExpanded(this.getKey());
 
         const collapsibleState = isExpanded ?
             vscode.TreeItemCollapsibleState.Expanded :
@@ -138,8 +118,7 @@ export class TableNode implements INode {
         const treeItem = new vscode.TreeItem(label, collapsibleState);
         treeItem.contextValue = this.pinned ? "pinnedTable" : "table";
         treeItem.iconPath = path.join(__filename, "..", "..", "..", "resources", "table.svg");
-        // Add version to id to force TreeView to recreate the item when expand state changes
-        treeItem.id = `${this.getKey()}#v${expandVersion}`;
+        treeItem.id = this.getKey();
         treeItem.tooltip = tooltip;
         // Set description to show comment (visible in tree view)
         treeItem.description = this.tableComment || "";
@@ -177,10 +156,7 @@ export class TableNode implements INode {
     public async getChildren(): Promise<INode[]> {
         const options = this.getConnectionOptions();
 
-        let columnFilter = "";
-        if (this.treeDataProvider && (this.treeDataProvider as any).getColumnFilterText) {
-            columnFilter = (this.treeDataProvider as any).getColumnFilterText() || "";
-        }
+        const columnFilter = TableFilterState.instance.columnFilterText;
 
         return DbDriver.listColumns(options, this.database, this.table)
             .then((columns) => {

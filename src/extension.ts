@@ -9,6 +9,7 @@ import { TableNode } from "./model/tableNode";
 import { ColumnNode } from "./model/columnNode";
 import { MySQLTreeDataProvider, TableFilterState } from "./mysqlTreeDataProvider";
 import { FilterInputPanel } from "./filterInputPanel";
+import { CodeSnippetsPanel } from "./codeSnippetsPanel";
 import { Global } from "./common/global";
 import { I18n } from "./common/i18n";
 import { SqlResultWebView } from "./sqlResultWebView";
@@ -69,8 +70,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand('setContext', 'resourceExtname', undefined);
     vscode.commands.executeCommand('setContext', 'resourceLangId', undefined);
 
-    // Initialize filter input panel FIRST (before tree view) so it appears above
+    // Initialize filter and snippets panels FIRST (before tree view) so they appear above
     FilterInputPanel.initialize(context);
+    CodeSnippetsPanel.initialize(context);
 
     // Register CodeLens provider for SQL editor
     const runNowCodeLensProvider = new RunNowCodeLensProvider();
@@ -122,7 +124,6 @@ export function activate(context: vscode.ExtensionContext) {
         }
         TableFilterState.instance.setAllExpanded(true);
         await vscode.commands.executeCommand('setContext', 'mysqlInstantQueryTreeAllExpanded', true);
-        // Force refresh by triggering tree data change event
         mysqlTreeDataProvider.refresh();
     }));
 
@@ -135,10 +136,34 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
         TableFilterState.instance.setAllExpanded(false);
+        TableFilterState.instance.clearConnectionExpandState();
+        TableFilterState.instance.clearDatabaseExpandState();
+        TableFilterState.instance.clearTableExpandState();
         await vscode.commands.executeCommand('setContext', 'mysqlInstantQueryTreeAllExpanded', false);
-        // Force refresh by triggering tree data change event
         mysqlTreeDataProvider.refresh();
     }));
+
+    treeView.onDidExpandElement((e) => {
+        const node = e.element;
+        if (node instanceof ConnectionNode) {
+            TableFilterState.instance.setConnectionExpanded(node.getId(), true);
+        } else if (node instanceof DatabaseNode) {
+            TableFilterState.instance.setDatabaseExpanded(node.getExpandKey(), true);
+        } else if (node instanceof TableNode) {
+            TableFilterState.instance.setTableExpanded(node.getKey(), true);
+        }
+    });
+
+    treeView.onDidCollapseElement((e) => {
+        const node = e.element;
+        if (node instanceof ConnectionNode) {
+            TableFilterState.instance.setConnectionExpanded(node.getId(), false);
+        } else if (node instanceof DatabaseNode) {
+            TableFilterState.instance.setDatabaseExpanded(node.getExpandKey(), false);
+        } else if (node instanceof TableNode) {
+            TableFilterState.instance.setTableExpanded(node.getKey(), false);
+        }
+    });
 
     treeView.onDidChangeSelection(async (e) => {
         console.log('[DEBUG] onDidChangeSelection fired, selection length:', e.selection.length);

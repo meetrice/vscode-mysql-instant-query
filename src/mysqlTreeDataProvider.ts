@@ -13,6 +13,8 @@ const PINNED_TABLES_KEY = "mysqlInstantQuery.pinnedTables";
 // Global filter state for table filtering
 export class TableFilterState {
     private static _instance: TableFilterState;
+    private _connectionFilterText: string = "";
+    private _databaseFilterText: string = "";
     private _filterText: string = "";
     private _columnFilterText: string = "";
     private _allExpanded: boolean = false;
@@ -20,6 +22,8 @@ export class TableFilterState {
     private _onDidChangeFilter: vscode.EventEmitter<INode> = new vscode.EventEmitter<INode>();
     // Per-table expand state: table key -> expanded (true) / collapsed (false)
     private _tableExpandState: Map<string, boolean> = new Map();
+    private _connectionExpandState: Map<string, boolean> = new Map();
+    private _databaseExpandState: Map<string, boolean> = new Map();
     public readonly onDidChangeFilter: vscode.Event<INode> = this._onDidChangeFilter.event;
 
     private constructor() {}
@@ -62,13 +66,64 @@ export class TableFilterState {
         const current = this.getTableExpanded(tableKey);
         const next = !current;
         this._tableExpandState.set(tableKey, next);
-        this._expandVersion++;
         return next;
+    }
+
+    public setTableExpanded(tableKey: string, expanded: boolean): void {
+        this._tableExpandState.set(tableKey, expanded);
     }
 
     public clearTableExpandState(): void {
         this._tableExpandState.clear();
         this._expandVersion++;
+    }
+
+    public getConnectionExpanded(connectionId: string): boolean {
+        if (this._allExpanded) return true;
+        return this._connectionExpandState.get(connectionId) ?? false;
+    }
+
+    public setConnectionExpanded(connectionId: string, expanded: boolean): void {
+        this._connectionExpandState.set(connectionId, expanded);
+    }
+
+    public clearConnectionExpandState(): void {
+        this._connectionExpandState.clear();
+    }
+
+    public getDatabaseExpanded(databaseKey: string): boolean {
+        if (this._allExpanded) return true;
+        return this._databaseExpandState.get(databaseKey) ?? false;
+    }
+
+    public setDatabaseExpanded(databaseKey: string, expanded: boolean): void {
+        this._databaseExpandState.set(databaseKey, expanded);
+    }
+
+    public clearDatabaseExpandState(): void {
+        this._databaseExpandState.clear();
+    }
+
+    public get connectionFilterText(): string {
+        return this._connectionFilterText;
+    }
+
+    public setConnectionFilterText(text: string): void {
+        if (this._connectionFilterText !== text) {
+            this._connectionFilterText = text;
+            this._onDidChangeFilter.fire(null);
+        }
+    }
+
+    public get databaseFilterText(): string {
+        return this._databaseFilterText;
+    }
+
+    public setDatabaseFilterText(text: string): void {
+        if (this._databaseFilterText !== text) {
+            this._databaseFilterText = text;
+            this._onDidChangeFilter.fire(null);
+        }
     }
 
     public get filterText(): string {
@@ -94,6 +149,8 @@ export class TableFilterState {
     }
 
     public clear(): void {
+        this.setConnectionFilterText("");
+        this.setDatabaseFilterText("");
         this.setFilterText("");
         this.setColumnFilterText("");
     }
@@ -111,6 +168,14 @@ export class MySQLTreeDataProvider implements vscode.TreeDataProvider<INode> {
         this.rootNode = new RootNode(() => this.buildConnectionNodes());
     }
 
+    public getConnectionFilterText(): string {
+        return this.filterState.connectionFilterText;
+    }
+
+    public getDatabaseFilterText(): string {
+        return this.filterState.databaseFilterText;
+    }
+
     public getFilterText(): string {
         return this.filterState.filterText;
     }
@@ -121,6 +186,14 @@ export class MySQLTreeDataProvider implements vscode.TreeDataProvider<INode> {
 
     public get onFilterChanged(): vscode.Event<INode> {
         return this.filterState.onDidChangeFilter;
+    }
+
+    public get hasConnectionFilter(): boolean {
+        return this.filterState.connectionFilterText.length > 0;
+    }
+
+    public get hasDatabaseFilter(): boolean {
+        return this.filterState.databaseFilterText.length > 0;
     }
 
     public get hasTableFilter(): boolean {

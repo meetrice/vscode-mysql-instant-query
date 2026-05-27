@@ -56,6 +56,11 @@
                     "type": "webview"
                 },
                 {
+                    "id": "mysqlInstantQuerySnippets",
+                    "name": "%views.mysqlInstantQuery-sidebar.mysqlInstantQuerySnippets.name%",
+                    "type": "webview"
+                },
+                {
                     "id": "mysqlInstantQuery",
                     "name": "%views.mysqlInstantQuery-sidebar.mysqlInstantQuery.name%"
                 }

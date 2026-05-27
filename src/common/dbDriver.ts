@@ -458,6 +458,91 @@ export class DbDriver {
         }
     }
 
+    public static async listTableNamesMatchingColumnFilter(
+        options: IConnection,
+        database: string,
+        filterLower: string,
+    ): Promise<Set<string>> {
+        const matches = new Set<string>();
+        if (!filterLower) {
+            return matches;
+        }
+
+        const driver = getDriver(options);
+        const likePattern = `%${filterLower.replace(/'/g, "''")}%`;
+        const safeDatabase = database.replace(/'/g, "''");
+
+        const addMatch = (tableName: string, schema?: string) => {
+            const bare = (tableName || "").toLowerCase();
+            if (!bare) {
+                return;
+            }
+            matches.add(bare);
+            if (schema) {
+                matches.add(`${schema}.${bare}`.toLowerCase());
+            }
+        };
+
+        switch (driver) {
+            case "sqlite": {
+                const tables = await DbDriver.listTables(options, database);
+                for (const table of tables) {
+                    const tableName = table.TABLE_NAME || "";
+                    const columns = await DbDriver.listColumns(options, database, tableName);
+                    const hasMatch = columns.some((column) => {
+                        const columnName = (column.COLUMN_NAME || "").toLowerCase();
+                        const columnType = (column.COLUMN_TYPE || "").toLowerCase();
+                        return columnName.includes(filterLower) || columnType.includes(filterLower);
+                    });
+                    if (hasMatch) {
+                        addMatch(tableName);
+                    }
+                }
+                return matches;
+            }
+            case "postgresql": {
+                const connOpts = { ...options, database };
+                const rows = await DbDriver.queryPromise<any[]>(connOpts,
+                    `SELECT DISTINCT table_name AS "TABLE_NAME"
+                     FROM information_schema.columns
+                     WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+                       AND (
+                           LOWER(column_name) LIKE '${likePattern}'
+                           OR LOWER(data_type) LIKE '${likePattern}'
+                       )`);
+                rows.forEach((row) => addMatch(row.TABLE_NAME || row.table_name));
+                return matches;
+            }
+            case "duckdb": {
+                const rows = await DbDriver.queryPromise<any[]>(options,
+                    `SELECT DISTINCT table_schema AS "TABLE_SCHEMA", table_name AS "TABLE_NAME"
+                     FROM information_schema.columns
+                     WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
+                       AND (
+                           LOWER(column_name) LIKE '${likePattern}'
+                           OR LOWER(data_type) LIKE '${likePattern}'
+                       )`);
+                rows.forEach((row) => addMatch(row.TABLE_NAME || row.table_name, row.TABLE_SCHEMA || row.table_schema));
+                return matches;
+            }
+            case "mysql":
+            default: {
+                const connOpts = { ...options, database };
+                const rows = await DbDriver.queryPromise<any[]>(connOpts,
+                    `SELECT DISTINCT TABLE_NAME
+                     FROM information_schema.columns
+                     WHERE TABLE_SCHEMA = '${safeDatabase}'
+                       AND (
+                           LOWER(COLUMN_NAME) LIKE '${likePattern}'
+                           OR LOWER(COLUMN_COMMENT) LIKE '${likePattern}'
+                           OR LOWER(COLUMN_TYPE) LIKE '${likePattern}'
+                       )`);
+                rows.forEach((row) => addMatch(row.TABLE_NAME || row.table_name));
+                return matches;
+            }
+        }
+    }
+
     public static async listColumns(options: IConnection, database: string, table: string): Promise<any[]> {
         const driver = getDriver(options);
         const safeTable = table.replace(/'/g, "''");

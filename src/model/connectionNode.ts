@@ -6,7 +6,7 @@ import { DbDriver } from "../common/dbDriver";
 import { Global } from "../common/global";
 import { I18n } from "../common/i18n";
 import { Utility } from "../common/utility";
-import { MySQLTreeDataProvider } from "../mysqlTreeDataProvider";
+import { MySQLTreeDataProvider, TableFilterState } from "../mysqlTreeDataProvider";
 import { DatabaseDriver, IConnection, SslMode } from "./connection";
 import { DatabaseNode } from "./databaseNode";
 import { InfoNode } from "./infoNode";
@@ -49,21 +49,12 @@ export class ConnectionNode implements INode {
         );
     }
 
+    public getDisplayLabel(): string {
+        return this.displayName || this.host;
+    }
+
     public getTreeItem(): vscode.TreeItem {
-        let isExpanded = false;
-        let expandVersion = 0;
-        try {
-            if (this.treeDataProvider) {
-                if ((this.treeDataProvider as any).getAllExpanded) {
-                    isExpanded = (this.treeDataProvider as any).getAllExpanded() || false;
-                }
-                if ((this.treeDataProvider as any).getExpandVersion) {
-                    expandVersion = (this.treeDataProvider as any).getExpandVersion() || 0;
-                }
-            }
-        } catch (e) {
-            // Ignore
-        }
+        const isExpanded = TableFilterState.instance.getConnectionExpanded(this.id);
 
         const driverLabel = this.driver !== "mysql" ? ` (${this.driver})` : "";
         const treeItem = new vscode.TreeItem(
@@ -72,7 +63,7 @@ export class ConnectionNode implements INode {
         );
         treeItem.contextValue = "connection";
         treeItem.iconPath = path.join(__filename, "..", "..", "..", "resources", DRIVER_ICONS[this.driver]);
-        treeItem.id = `${this.id}#v${expandVersion}`;
+        treeItem.id = this.id;
         return treeItem;
     }
 
@@ -95,7 +86,12 @@ export class ConnectionNode implements INode {
 
             return DbDriver.listDatabases(options)
                 .then((databases) => {
-                    return databases.map<DatabaseNode>((database) => {
+                    const filterLower = TableFilterState.instance.databaseFilterText.toLowerCase().trim();
+                    const filteredDatabases = filterLower
+                        ? databases.filter((database) => database.toLowerCase().includes(filterLower))
+                        : databases;
+
+                    return filteredDatabases.map<DatabaseNode>((database) => {
                         return new DatabaseNode(
                             this.id,
                             this.host,

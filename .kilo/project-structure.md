@@ -10,7 +10,8 @@ src/
 ├── extension.ts                 # 扩展入口：注册所有命令、TreeView、URI Handler
 ├── mysqlTreeDataProvider.ts     # TreeView 数据提供器 + 表/列过滤状态管理
 ├── connectionWebView.ts         # 连接管理 WebView（增/删/改连接表单）
-├── filterInputPanel.ts          # 侧边栏表名过滤 WebView
+├── filterInputPanel.ts          # 侧边栏表名/列名过滤 WebView
+├── codeSnippetsPanel.ts         # 侧边栏 SQL 代码片段 WebView
 ├── erdWebView.ts                # ERD 可视化 WebView（~3891行，核心视图）
 ├── sqlResultWebView.ts          # SQL 查询结果 WebView（~1821行，结果展示）
 ├── runButtonProvider.ts         # SQL 编辑器 CodeLens（Run Now 按钮）
