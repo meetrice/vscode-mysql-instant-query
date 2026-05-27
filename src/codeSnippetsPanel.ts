@@ -54,19 +54,27 @@ class CodeSnippetsViewProvider implements vscode.WebviewViewProvider {
             margin: 0;
             padding: 0;
         }
+        html {
+            background: transparent;
+            overflow-x: hidden;
+        }
         body {
-            padding: 0;
+            background: transparent;
+            pointer-events: none;
+            overflow-x: hidden;
             font-family: var(--vscode-font-family);
             font-size: 12px;
             color: var(--vscode-foreground);
-            background-color: var(--vscode-sideBar-background);
             line-height: 1;
         }
         .quick-actions {
+            pointer-events: auto;
             display: flex;
             flex-wrap: wrap;
             gap: 4px;
-            padding: 4px 4px 6px 4px;
+            padding: 4px 16px 6px 8px;
+            overflow-x: hidden;
+            max-width: 100%;
         }
         .quick-btn {
             padding: 3px 8px;
