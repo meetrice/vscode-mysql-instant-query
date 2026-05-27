@@ -226,7 +226,7 @@ export class MySQLTreeDataProvider implements vscode.TreeDataProvider<INode> {
 
     public getChildren(element?: INode): Thenable<INode[]> | INode[] {
         if (!element) {
-            return [this.rootNode];
+            return this.rootNode.getChildren();
         }
 
         return element.getChildren();

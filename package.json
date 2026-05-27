@@ -318,7 +318,7 @@
             "view/item/context": [
                 {
                     "command": "mysqlInstantQuery.addConnection",
-                    "when": "view == mysqlInstantQuery && viewItem == databasesRoot",
+                    "when": "view == mysqlInstantQuery && viewItem == addConnection",
                     "group": "mysqlInstantQuery@0"
                 },
                 {
