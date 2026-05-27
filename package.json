@@ -308,11 +308,6 @@
                     "command": "mysqlInstantQuery.collapseAll",
                     "when": "view == mysqlInstantQuery && mysqlInstantQueryTreeAllExpanded",
                     "group": "navigation@2"
-                },
-                {
-                    "command": "mysqlInstantQuery.openSettings",
-                    "when": "view == mysqlInstantQuery",
-                    "group": "navigation@3"
                 }
             ],
             "view/item/context": [

@@ -6,9 +6,11 @@ import { INode } from "./INode";
 import { TableFilterState } from "../mysqlTreeDataProvider";
 import { AddConnectionNode } from "./addConnectionNode";
 import { NewQueryNode } from "./newQueryNode";
+import { SettingsNode } from "./settingsNode";
 
 export class RootNode implements INode {
     private readonly addConnectionNode = new AddConnectionNode();
+    private readonly settingsNode = new SettingsNode();
     private readonly newQueryNode = new NewQueryNode();
 
     constructor(private readonly getConnectionNodes: () => Promise<INode[]>) {}
@@ -35,6 +37,6 @@ export class RootNode implements INode {
                 return true;
             })
             : connections;
-        return [this.newQueryNode, this.addConnectionNode, ...filteredConnections];
+        return [this.newQueryNode, this.addConnectionNode, this.settingsNode, ...filteredConnections];
     }
 }

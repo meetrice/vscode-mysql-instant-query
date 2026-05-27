@@ -58,6 +58,7 @@
     "selectFilter.placeholder": "过滤值",
     "tree.rootDatabases": "数据库",
     "tree.addConnection": "添加连接",
+    "tree.settings": "设置",
     "tree.newQuery": "新建查询",
     "connection.panel.addTitle": "添加数据库连接",
     "connection.panel.editTitle": "编辑数据库连接",
