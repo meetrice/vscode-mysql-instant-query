@@ -410,33 +410,19 @@ export class Utility {
         OutputChannel.appendLine("[Done] Finished database query.");
     }
 
+    private static isUntitledSqlEditor(editor: vscode.TextEditor | undefined): editor is vscode.TextEditor {
+        return !!editor
+            && editor.document.languageId === "sql"
+            && editor.document.uri.scheme === "untitled";
+    }
+
     public static async createSQLTextDocument(sql: string = "", appendToExisting: boolean = true) {
-        // Check if we should append to existing SQL editor
+        // Only append to an active untitled SQL editor; never open existing project SQL files
         if (appendToExisting) {
-            // First, try to use the active editor if it's a SQL file
-            let sqlEditor = vscode.window.activeTextEditor;
-            if (sqlEditor && sqlEditor.document.languageId === 'sql') {
+            const sqlEditor = vscode.window.activeTextEditor;
+            if (Utility.isUntitledSqlEditor(sqlEditor)) {
                 await Utility.appendSQLToEditor(sql, sqlEditor);
                 return sqlEditor;
-            }
-
-            // If active editor is not SQL, check all visible editors for a SQL file
-            const visibleEditors = vscode.window.visibleTextEditors;
-            for (const editor of visibleEditors) {
-                if (editor.document.languageId === 'sql') {
-                    await Utility.appendSQLToEditor(sql, editor);
-                    return editor;
-                }
-            }
-
-            // If no visible SQL editor, check all open text documents
-            const sqlDocuments = vscode.workspace.textDocuments.filter(doc => doc.languageId === 'sql');
-            if (sqlDocuments.length > 0) {
-                // Open the first SQL document
-                const doc = await vscode.workspace.openTextDocument(sqlDocuments[0].uri);
-                const editor = await vscode.window.showTextDocument(doc, { preview: false });
-                await Utility.appendSQLToEditor(sql, editor);
-                return editor;
             }
         }
 
@@ -458,10 +444,9 @@ export class Utility {
     }
 
     public static async appendSQLToEditor(sql: string, targetEditor?: vscode.TextEditor) {
-        // Use provided editor or fall back to active editor
         const editor = targetEditor || vscode.window.activeTextEditor;
 
-        if (editor && editor.document.languageId === 'sql') {
+        if (Utility.isUntitledSqlEditor(editor)) {
             // Append to existing SQL document
             const document = editor.document;
             const lastLine = document.lineCount - 1;
@@ -490,8 +475,7 @@ export class Utility {
             editor.selection = new vscode.Selection(endPosition, endPosition);
             editor.revealRange(new vscode.Range(targetLine, 0, targetLine, 0), vscode.TextEditorRevealType.InCenter);
         } else {
-            // Create new SQL document if no active SQL editor
-            await Utility.createSQLTextDocument(sql);
+            await Utility.createSQLTextDocument(sql, false);
         }
     }
 
