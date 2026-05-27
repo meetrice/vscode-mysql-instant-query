@@ -223,6 +223,11 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
         const refreshItems = () => {
             suppressItemEvents = true;
             const selectedNames = new Set(quickPick.selectedItems.map((item) => item.columnName));
+            for (const [columnName, filterValue] of filterValues.entries()) {
+                if (filterValue.trim()) {
+                    selectedNames.add(columnName);
+                }
+            }
             const activeName = quickPick.activeItems[0]?.columnName;
             quickPick.items = buildColumnQuickPickItems(columns, filterValues);
             quickPick.selectedItems = quickPick.items.filter((item) => selectedNames.has(item.columnName));
