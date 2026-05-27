@@ -2,6 +2,7 @@ import * as uuidv1 from "uuid/v1";
 import * as vscode from "vscode";
 import { Constants } from "./common/constants";
 import { I18n } from "./common/i18n";
+import { registerSnippetsWebviewView } from "./sidebarViewTitles";
 
 export interface ICodeSnippet {
     id: string;
@@ -71,6 +72,7 @@ class CodeSnippetsViewProvider implements vscode.WebviewViewProvider {
         _token: vscode.CancellationToken,
     ) {
         this._view = webviewView;
+        registerSnippetsWebviewView(webviewView);
 
         webviewView.webview.options = {
             enableScripts: true,

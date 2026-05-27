@@ -29,9 +29,16 @@ export class I18n {
     /**
      * 运行时切换语言
      */
+    private static localeChangeListeners: Array<() => void> = [];
+
+    public static onLocaleChange(listener: () => void): void {
+        this.localeChangeListeners.push(listener);
+    }
+
     public static setLocale(locale: string): void {
         this.locale = locale;
         this.loadMessages(locale);
+        this.localeChangeListeners.forEach((listener) => listener());
     }
 
     private static getVSCodeLocale(): string {

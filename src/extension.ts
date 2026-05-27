@@ -21,11 +21,13 @@ import { Constants } from "./common/constants";
 import { DbDriver } from "./common/dbDriver";
 import { OutputChannel } from "./common/outputChannel";
 import { SettingsWebView } from "./settingsWebView";
+import { applySidebarViewTitles, registerSidebarTreeView } from "./sidebarViewTitles";
 import { IConnection, normalizeDriver, normalizeSslMode } from "./model/connection";
 
 export function activate(context: vscode.ExtensionContext) {
     // Initialize i18n
     I18n.init(context);
+    I18n.onLocaleChange(applySidebarViewTitles);
 
     // Initialize custom settings from global state
     const storedLimit = context.globalState.get<number>(Constants.GlobalStateSettingsDataLimit);
@@ -112,6 +114,7 @@ export function activate(context: vscode.ExtensionContext) {
         treeDataProvider: mysqlTreeDataProvider
     });
     context.subscriptions.push(treeView);
+    registerSidebarTreeView(treeView);
 
     // Make treeView accessible for collapse/expand functionality
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.expandAll", async () => {

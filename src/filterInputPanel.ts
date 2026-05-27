@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { I18n } from "./common/i18n";
 import { TableFilterState } from "./mysqlTreeDataProvider";
+import { registerFilterWebviewView } from "./sidebarViewTitles";
 
 export class FilterInputPanel {
     private static panel: vscode.WebviewView | undefined = undefined;
@@ -26,6 +27,7 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
         _token: vscode.CancellationToken,
     ) {
         this._view = webviewView;
+        registerFilterWebviewView(webviewView);
 
         webviewView.webview.options = {
             enableScripts: true,

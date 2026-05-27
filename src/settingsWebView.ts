@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { Constants } from "./common/constants";
 import { I18n } from "./common/i18n";
+import { KeybindingUtility } from "./common/keybindingUtility";
 import { Utility } from "./common/utility";
 
 interface SettingsData {
@@ -70,7 +71,18 @@ export class SettingsWebView {
             }
         });
 
+        const keybindingsWatcher = KeybindingUtility.watchUserKeybindings(() => {
+            SettingsWebView.sendSettingsData();
+        });
+
+        panel.onDidChangeViewState((e) => {
+            if (e.webviewPanel.visible) {
+                SettingsWebView.sendSettingsData();
+            }
+        });
+
         panel.onDidDispose(() => {
+            keybindingsWatcher.dispose();
             SettingsWebView.currentPanel = undefined;
         });
     }
@@ -78,8 +90,8 @@ export class SettingsWebView {
     private static getSettings(context: vscode.ExtensionContext): SettingsData {
         const language = context.globalState.get<string>(Constants.GlobalStateSettingsLanguage, I18n.getLocale());
         const dataLimit = context.globalState.get<number>(Constants.GlobalStateSettingsDataLimit, 5000);
-        const keybindingRunQuery = context.globalState.get<string>(Constants.GlobalStateSettingsKeybindingRunQuery, "ctrl+alt+e");
-        const keybindingOpenTable = context.globalState.get<string>(Constants.GlobalStateSettingsKeybindingOpenTable, "cmd+shift+t");
+        const keybindingRunQuery = KeybindingUtility.getKeybindingForCommand(context, "mysqlInstantQuery.runQuery");
+        const keybindingOpenTable = KeybindingUtility.getKeybindingForCommand(context, "mysqlInstantQuery.openTable");
 
         const packageJson = JSON.parse(require("fs").readFileSync(require("path").join(context.extensionPath, "package.json"), "utf-8"));
 
@@ -117,13 +129,6 @@ export class SettingsWebView {
             await context.globalState.update(Constants.GlobalStateSettingsDataLimit, data.dataLimit);
             Utility.customDataLimit = data.dataLimit;
         }
-        if (data.keybindingRunQuery !== undefined) {
-            await context.globalState.update(Constants.GlobalStateSettingsKeybindingRunQuery, data.keybindingRunQuery);
-        }
-        if (data.keybindingOpenTable !== undefined) {
-            await context.globalState.update(Constants.GlobalStateSettingsKeybindingOpenTable, data.keybindingOpenTable);
-        }
-
         vscode.window.showInformationMessage(I18n.t("settings.saved", "Settings saved"));
     }
 
@@ -135,8 +140,8 @@ export class SettingsWebView {
         const settings = {
             language: context.globalState.get(Constants.GlobalStateSettingsLanguage, I18n.getLocale()),
             dataLimit: context.globalState.get(Constants.GlobalStateSettingsDataLimit, 5000),
-            keybindingRunQuery: context.globalState.get(Constants.GlobalStateSettingsKeybindingRunQuery, "ctrl+alt+e"),
-            keybindingOpenTable: context.globalState.get(Constants.GlobalStateSettingsKeybindingOpenTable, "cmd+shift+t"),
+            keybindingRunQuery: KeybindingUtility.getKeybindingForCommand(context, "mysqlInstantQuery.runQuery"),
+            keybindingOpenTable: KeybindingUtility.getKeybindingForCommand(context, "mysqlInstantQuery.openTable"),
         };
 
         const exportData = {
@@ -193,12 +198,6 @@ export class SettingsWebView {
                 if (importData.settings.dataLimit !== undefined) {
                     await context.globalState.update(Constants.GlobalStateSettingsDataLimit, importData.settings.dataLimit);
                 }
-                if (importData.settings.keybindingRunQuery !== undefined) {
-                    await context.globalState.update(Constants.GlobalStateSettingsKeybindingRunQuery, importData.settings.keybindingRunQuery);
-                }
-                if (importData.settings.keybindingOpenTable !== undefined) {
-                    await context.globalState.update(Constants.GlobalStateSettingsKeybindingOpenTable, importData.settings.keybindingOpenTable);
-                }
             }
 
             vscode.window.showInformationMessage(I18n.t("settings.imported", "Settings imported successfully"));
@@ -221,7 +220,7 @@ export class SettingsWebView {
             menuGeneral: I18n.t("settings.menu.general", "General"),
             menuData: I18n.t("settings.menu.data", "Data"),
             menuShortcuts: I18n.t("settings.menu.shortcuts", "Shortcuts"),
-            menuBackup: I18n.t("settings.menu.backup", "Backup"),
+            menuBackup: I18n.t("settings.menu.backup", "Backup Settings"),
             menuMember: I18n.t("settings.menu.member", "Member"),
             menuAbout: I18n.t("settings.menu.about", "About"),
             generalLanguage: I18n.t("settings.general.language", "Language"),
