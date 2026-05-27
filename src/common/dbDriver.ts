@@ -39,6 +39,7 @@ function createPostgresClient(options: IConnection): PgClient {
         user: options.user,
         password: options.password || "",
         database,
+        connectionTimeoutMillis: 3000,
     };
 
     logPostgresDebug("create client", options, { mode, sslEnabled: mode !== "disable" });
@@ -214,6 +215,7 @@ export class DbDriver {
                         ca: fs.readFileSync(options.certPath),
                     };
                 }
+                newConnectionOptions.connectTimeout = 3000;
                 newConnectionOptions.flags = "+MYSQL_OPT_ALLOW_ENCRYPTED_CONNECTION";
                 return { driver: "mysql", raw: mysql.createConnection(newConnectionOptions) };
             }
@@ -554,6 +556,7 @@ export class DbDriver {
                 break;
             case "postgresql":
                 try {
+                    await probeTcp(options.host, parseInt(options.port || getDefaultPort("postgresql"), 10), 2000);
                     await DbDriver.queryPromise(options, "SELECT 1");
                     await DbDriver.logPostgresServerSslStatus(options);
                 } catch (err) {
@@ -564,6 +567,9 @@ export class DbDriver {
                 break;
             case "mysql":
             default:
+                await probeTcp(options.host, parseInt(options.port || getDefaultPort("mysql"), 10), 2000).catch((tcpErr) => {
+                    throw new Error(`服务器 ${options.host}:${options.port || getDefaultPort("mysql")} 不可达: ${tcpErr.message}`);
+                });
                 await DbDriver.queryPromise(options, "SELECT 1");
                 break;
         }
@@ -605,6 +611,48 @@ export class DbDriver {
             // ignore close errors
         }
     }
+}
+
+/**
+ * TCP 预探测：在发起完整数据库握手前，先检查目标 host:port 是否可达。
+ * 如果连接失败或超时（默认 2s），立即 reject，避免用户在 connectTimeout 期间无反馈等待。
+ */
+function probeTcp(host: string, port: number, timeoutMs: number = 2000): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const socket = new net.Socket();
+        let finished = false;
+        const cleanup = () => {
+            finished = true;
+            try { socket.destroy(); } catch { /* ignore */ }
+        };
+        const timer = setTimeout(() => {
+            if (!finished) {
+                cleanup();
+                reject(new Error(`连接超时 (${timeoutMs}ms)`));
+            }
+        }, timeoutMs);
+        socket.on("connect", () => {
+            if (!finished) {
+                clearTimeout(timer);
+                cleanup();
+                resolve();
+            }
+        });
+        socket.on("error", (err) => {
+            if (!finished) {
+                clearTimeout(timer);
+                cleanup();
+                reject(new Error(err.message));
+            }
+        });
+        try {
+            socket.connect(port, host);
+        } catch (err) {
+            clearTimeout(timer);
+            cleanup();
+            reject(new Error((err as Error).message));
+        }
+    });
 }
 
 function pathBasename(filePath: string): string {

@@ -4,6 +4,7 @@ import { AppInsightsClient } from "../common/appInsightsClient";
 import { Constants } from "../common/constants";
 import { DbDriver } from "../common/dbDriver";
 import { Global } from "../common/global";
+import { I18n } from "../common/i18n";
 import { Utility } from "../common/utility";
 import { MySQLTreeDataProvider } from "../mysqlTreeDataProvider";
 import { DatabaseDriver, IConnection, SslMode } from "./connection";
@@ -78,30 +79,45 @@ export class ConnectionNode implements INode {
     public async getChildren(): Promise<INode[]> {
         const options = this.getConnectionOptions();
 
-        return DbDriver.listDatabases(options)
-            .then((databases) => {
-                return databases.map<DatabaseNode>((database) => {
-                    return new DatabaseNode(
-                        this.id,
-                        this.host,
-                        this.user,
-                        this.password,
-                        this.port,
-                        database,
-                        this.certPath,
-                        this.treeDataProvider,
-                        this.driver,
-                        this.filePath,
-                        this.sslMode,
-                    );
-                });
-            })
-            .catch((err) => {
+        return vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: I18n.format("connection.connecting", [this.displayName || this.host]),
+        }, async () => {
+            try {
+                await DbDriver.testConnection(options);
+            } catch (err) {
                 const message = typeof err === "string"
                     ? err
-                    : (err && err.message) ? err.message : String(err);
+                    : (err && (err as Error).message) ? (err as Error).message : String(err);
+                vscode.window.showErrorMessage(I18n.format("connection.testFailed", [message]));
                 return [new InfoNode(message)];
-            });
+            }
+
+            return DbDriver.listDatabases(options)
+                .then((databases) => {
+                    return databases.map<DatabaseNode>((database) => {
+                        return new DatabaseNode(
+                            this.id,
+                            this.host,
+                            this.user,
+                            this.password,
+                            this.port,
+                            database,
+                            this.certPath,
+                            this.treeDataProvider,
+                            this.driver,
+                            this.filePath,
+                            this.sslMode,
+                        );
+                    });
+                })
+                .catch((err) => {
+                    const message = typeof err === "string"
+                        ? err
+                        : (err && (err as Error).message) ? (err as Error).message : String(err);
+                    return [new InfoNode(message)];
+                });
+        });
     }
 
     public async newQuery() {

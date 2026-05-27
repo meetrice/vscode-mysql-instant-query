@@ -87,6 +87,7 @@
     "connection.info.added": "连接已添加",
     "connection.info.updated": "连接已更新",
     "connection.error.notFound": "找不到该连接配置",
+    "connection.connecting": "正在连接 {0}...",
     "connection.test": "测试连接",
     "connection.testing": "测试中...",
     "connection.testSuccess": "连接成功",

@@ -87,6 +87,7 @@
     "connection.info.added": "Connection added",
     "connection.info.updated": "Connection updated",
     "connection.error.notFound": "Connection configuration not found",
+    "connection.connecting": "Connecting to {0}...",
     "connection.test": "Test Connection",
     "connection.testing": "Testing...",
     "connection.testSuccess": "Connection successful",
