@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-Mysql Instant Query is a professional SQL-centric database query and development tool. It supports mainstream databases including MySQL, PostgreSQL, DuckDB, and SQLite, helps generate SQL from database tables quickly, executes SQL instantly, and presents query results in a visual result view. It also provides column-name filtering, record filtering, professional ERD entity relationship diagrams, custom graphical relationships, and Cursor file protocol deep links for locating database tables from external tools, helping developers query, analyze, and develop against databases more efficiently.
+Mysql Instant Query is a professional SQL-centric database query and development tool. It supports mainstream databases including MySQL, PostgreSQL, DuckDB, and SQLite, helps generate SQL from database tables quickly, provides column completion and multi-select in the editor, executes SQL instantly, and presents query results in a visual result view. It also provides column-name filtering, record filtering, professional ERD entity relationship diagrams, custom graphical relationships, and Cursor file protocol deep links for locating database tables from external tools, helping developers query, analyze, and develop against databases more efficiently.
 
 ## Highlights
 
@@ -37,8 +37,17 @@ Use the `cursor://` protocol to launch Cursor directly from a web page or extern
 - **Multi-connection queries** - Execute SQL against selected connections from the SQL editor, suitable for managing multiple database environments
 - **Multiple SQL statement execution** - Write and execute multiple SQL statements in the same editor to improve debugging and data validation efficiency
 - **Table-driven SQL generation** - Quickly generate common SQL statements from tables, columns, and structure metadata to reduce repetitive manual SQL writing
+- **SELECT column completion and multi-select** - Complete column names and open a multi-select QuickPick in `SELECT ... FROM table` statements, then generate the SELECT list from checked columns
+- **Column filter values and WHERE generation** - Set filter values on columns and generate a `WHERE` clause on confirm; strings default to `LIKE '%value%'`, numeric and boolean columns use type-appropriate comparisons
 - **Visual query results** - Present SQL execution results in structured tables with large result browsing, column resizing, and result panel interactions
+- **Result panel reuse** - Reuse the same result panel for queries against the same table to reduce duplicate tabs
 - **Smart LIMIT strategy** - Configure automatic LIMIT behavior based on table size to balance query performance and result completeness
+
+### SQL Column Completion UX
+
+- **Multi-select QuickPick** - Trigger column multi-select between SELECT and FROM, with select all, clear all, and close actions
+- **Comment fuzzy search** - Search by column name, type, or comment with fuzzy matching to locate fields quickly
+- **Filter value input** - Double-click a column or use **Set Filter Value** to enter a filter; columns with filter values stay checked automatically
 
 ### Fast Filtering
 
@@ -68,10 +77,12 @@ Use the `cursor://` protocol to launch Cursor directly from a web page or extern
 - **Connection testing** - Validate connection availability when adding or editing a connection to reduce configuration errors
 - **Connection editing** - Edit connection display names, connection parameters, SSL settings, and database options
 - **Secure storage** - Store database passwords through VS Code secure storage
+- **Localized settings page** - Display the localized extension name correctly on the settings page
+- **Sidebar layout** - Improved ordering of the query tree and code snippets panels
 
 ## Use Cases
 
-- **Daily data querying** - Generate SQL from table structures and analyze data directly in the result view after execution
+- **Daily data querying** - Generate SQL from table structures, use column completion and multi-select to write SELECT quickly, and analyze data directly in the result view after execution
 - **Troubleshooting and debugging** - Use multiple SQL statements, record filtering, and column-name filtering to locate abnormal data quickly
 - **Database structure understanding** - Use table structure views and ERD diagrams to understand business data models
 - **Team knowledge sharing** - Embed ERD images, Cursor protocol links, and table entry points into documentation or internal platforms
@@ -96,6 +107,17 @@ Open a SQL file or generate SQL from a database table, then execute it using one
 - Press `F1` and type `Run MySQL Query`
 
 You can write multiple SQL statements in the same editor and execute a selected statement or selected fragment.
+
+### Use Column Completion And Multi-Select
+
+When writing `SELECT ... FROM table_name` with the cursor between SELECT and FROM:
+
+1. Press `Ctrl+Space` (macOS: `Cmd+Space`) to trigger completion, or choose **Multi-select columns…**
+2. Check the columns you need in the QuickPick; the search box supports fuzzy matching by name, type, or comment
+3. Double-click a column or click **Set Filter Value** to enter a filter condition (optional)
+4. Press Enter to generate the full SELECT statement; if filter values are set, a WHERE clause is generated as well
+
+The QuickPick toolbar supports select all, clear all, set filter value, and close.
 
 ### Analyze Query Results
 

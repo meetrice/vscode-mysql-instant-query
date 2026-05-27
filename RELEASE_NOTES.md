@@ -1,3 +1,45 @@
+# Release Notes - Version 0.8.8
+
+## 🚀 SQL 字段补全与多选
+
+### SELECT 字段补全
+- 在 `SELECT ... FROM 表` 语句中支持字段名补全与「多选字段」QuickPick
+- 支持勾选多个字段，确认后自动生成 `SELECT` 列表；有筛选值时一并生成 `WHERE` 条件
+
+### 字段筛选值
+- 双击字段或工具栏「设置筛选值」可为字段输入筛选条件
+- 字符串默认 `LIKE '%值%'`，数值/布尔类型按列类型生成合适比较表达式
+- 已设置筛选值的字段自动保持勾选
+
+### QuickPick 交互优化
+- 搜索框支持按字段名、类型、**注释**模糊匹配
+- 工具栏新增关闭按钮；保留全选、取消全选
+- 修复确认后弹窗重复弹出、筛选值输入后选中状态丢失等问题
+
+## 🔧 其他改进
+
+### 查询结果 WebView
+- 同一数据表的查询结果复用同一结果面板，减少重复打开标签
+
+### 设置与侧边栏
+- 修复设置页扩展名称本地化显示
+- 调整查询树与代码片段面板的展示顺序
+
+## 📝 Modified Files
+- `package.json` — version update to 0.8.8
+- `package-lock.json` — lockfile version update
+- `src/columnCompletionProvider.ts` — 字段多选、筛选、搜索与关闭
+- `src/sqlCompletionUtils.ts` — SELECT/WHERE SQL 生成
+- `src/sqlResultWebView.ts` — 按表复用结果面板
+- `src/settingsWebView.ts` — 版本号与本地化
+- `RELEASE_NOTES.md` — added 0.8.8 release notes
+
+## 📋 Compatibility
+- Requires VS Code version 1.83.0 or higher
+- Compatible with MySQL, PostgreSQL, DuckDB, and SQLite
+
+---
+
 # Release Notes - Version 0.8.7
 
 ## 📣 开源地址与用户交流

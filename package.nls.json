@@ -44,5 +44,6 @@
     "configuration.enableCountQuery.description": "Run COUNT(*) before SELECT to choose auto LIMIT. Disabled by default for faster queries.",
     "configuration.defaultQueryLimit.description": "Auto LIMIT for small tables when enableCountQuery is on.",
     "configuration.largeTableQueryLimit.description": "Auto LIMIT for large tables, or when enableCountQuery is off.",
-    "configuration.largeTableThreshold.description": "Row count above which largeTableQueryLimit applies (requires enableCountQuery)."
+    "configuration.largeTableThreshold.description": "Row count above which largeTableQueryLimit applies (requires enableCountQuery).",
+    "commands.mysqlInstantQuery.openSettings.title": "Settings"
 }
