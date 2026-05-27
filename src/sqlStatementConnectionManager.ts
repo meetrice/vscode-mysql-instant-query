@@ -33,8 +33,21 @@ export class SqlStatementConnectionManager {
             return exact.connection;
         }
 
-        const normalizedSql = SqlStatementConnectionManager.normalizeSql(sql);
         const uri = document.uri.toString();
+
+        const startKey = `${uri}|${range.start.line}:${range.start.character}`;
+        for (const [key, entry] of SqlStatementConnectionManager.statementConnections.entries()) {
+            if (key.startsWith(startKey)) {
+                SqlStatementConnectionManager.statementConnections.delete(key);
+                SqlStatementConnectionManager.statementConnections.set(
+                    SqlStatementConnectionManager.getKey(document.uri, range, sql),
+                    { sql, connection: { ...entry.connection } },
+                );
+                return entry.connection;
+            }
+        }
+
+        const normalizedSql = SqlStatementConnectionManager.normalizeSql(sql);
         for (const [key, entry] of SqlStatementConnectionManager.statementConnections.entries()) {
             if (key.startsWith(`${uri}|`) && SqlStatementConnectionManager.normalizeSql(entry.sql) === normalizedSql) {
                 return entry.connection;
@@ -96,7 +109,7 @@ export class SqlStatementConnectionManager {
         if (!connection) {
             return "No connection";
         }
-        const name = connection.displayName || "Database";
+        const name = connection.displayName || `${connection.user}@${connection.host}`;
         return connection.database ? `${name} / ${connection.database}` : name;
     }
 
