@@ -72,9 +72,8 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand('setContext', 'resourceExtname', undefined);
     vscode.commands.executeCommand('setContext', 'resourceLangId', undefined);
 
-    // Initialize filter and snippets panels FIRST (before tree view) so they appear above
+    // Initialize filter panel before tree view so it appears above the tree
     FilterInputPanel.initialize(context);
-    CodeSnippetsPanel.initialize(context);
 
     // Register CodeLens provider for SQL editor
     const runNowCodeLensProvider = new RunNowCodeLensProvider();
@@ -115,6 +114,7 @@ export function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(treeView);
     registerSidebarTreeView(treeView);
+    CodeSnippetsPanel.initialize(context);
 
     // Make treeView accessible for collapse/expand functionality
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.expandAll", async () => {
