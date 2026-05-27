@@ -12,13 +12,84 @@ export interface QueryResultPayload {
     table?: string;
 }
 
+interface QueryInfo {
+    sql?: string;
+    database?: string;
+    table?: string;
+    columnComments?: { [key: string]: string };
+    columnTypes?: { [key: string]: string };
+}
+
+interface PanelState {
+    panel: vscode.WebviewPanel;
+    queryInfo: QueryInfo;
+    pendingPayload?: QueryResultPayload;
+    webviewReady: boolean;
+    messageDisposable?: vscode.Disposable;
+}
+
 export class SqlResultWebView {
-    private static currentPanel: vscode.WebviewPanel | undefined;
-    private static lastQueryInfo: { sql?: string; database?: string; table?: string; columnComments?: { [key: string]: string }; columnTypes?: { [key: string]: string } } | undefined;
+    private static readonly panelStates = new Map<vscode.WebviewPanel, PanelState>();
+    private static activePanel: vscode.WebviewPanel | undefined;
     private static layoutInitialized = false;
-    private static pendingPayload: QueryResultPayload | undefined;
-    private static messageDisposable: vscode.Disposable | undefined;
-    private static webviewReady = false;
+
+    private static tableKey(database?: string, table?: string): string | undefined {
+        if (!table) {
+            return undefined;
+        }
+        const db = (database ?? "").toLowerCase();
+        return `${db}\0${table.toLowerCase()}`;
+    }
+
+    private static tablesMatch(
+        aDatabase: string | undefined,
+        aTable: string | undefined,
+        bDatabase: string | undefined,
+        bTable: string | undefined,
+    ): boolean {
+        const keyA = SqlResultWebView.tableKey(aDatabase, aTable);
+        const keyB = SqlResultWebView.tableKey(bDatabase, bTable);
+        return !!keyA && keyA === keyB;
+    }
+
+    private static findPanelStateByTable(database?: string, table?: string): PanelState | undefined {
+        for (const state of SqlResultWebView.panelStates.values()) {
+            if (SqlResultWebView.tablesMatch(
+                database,
+                table,
+                state.queryInfo.database,
+                state.queryInfo.table,
+            )) {
+                return state;
+            }
+        }
+        return undefined;
+    }
+
+    private static getPanelState(panel: vscode.WebviewPanel | undefined): PanelState | undefined {
+        if (!panel) {
+            return undefined;
+        }
+        return SqlResultWebView.panelStates.get(panel);
+    }
+
+    private static setActivePanel(panel: vscode.WebviewPanel) {
+        SqlResultWebView.activePanel = panel;
+    }
+
+    private static getActivePanelState(): PanelState | undefined {
+        return SqlResultWebView.getPanelState(SqlResultWebView.activePanel);
+    }
+
+    private static resolvePanelStateForUpdate(database?: string, table?: string): PanelState | undefined {
+        if (table) {
+            const matched = SqlResultWebView.findPanelStateByTable(database, table);
+            if (matched) {
+                return matched;
+            }
+        }
+        return SqlResultWebView.getActivePanelState();
+    }
 
     public static async show(
         data: any[],
@@ -73,32 +144,49 @@ export class SqlResultWebView {
             table,
         };
 
-        SqlResultWebView.lastQueryInfo = { sql, database, table, columnComments, columnTypes };
+        const queryInfo: QueryInfo = { sql, database, table, columnComments, columnTypes };
+        const existingState = table ? SqlResultWebView.findPanelStateByTable(database, table) : undefined;
 
-        if (SqlResultWebView.currentPanel) {
-            SqlResultWebView.currentPanel.title = panelTitle;
-            SqlResultWebView.sendData(payload);
+        if (existingState) {
+            const panel = existingState.panel;
+            existingState.queryInfo = queryInfo;
+            panel.title = panelTitle;
+            SqlResultWebView.setActivePanel(panel);
+            SqlResultWebView.sendDataToPanel(panel, payload);
+            panel.reveal(vscode.ViewColumn.Two);
             return;
         }
 
-        SqlResultWebView.webviewReady = false;
         const panel = vscode.window.createWebviewPanel("MySQL", panelTitle, vscode.ViewColumn.Two, {
             retainContextWhenHidden: true,
             enableScripts: true,
         });
 
-        SqlResultWebView.currentPanel = panel;
-        SqlResultWebView.pendingPayload = payload;
-        SqlResultWebView.registerMessageHandler(panel);
+        const state: PanelState = {
+            panel,
+            queryInfo,
+            pendingPayload: payload,
+            webviewReady: false,
+        };
+        SqlResultWebView.panelStates.set(panel, state);
+        SqlResultWebView.setActivePanel(panel);
+        SqlResultWebView.registerMessageHandler(panel, state);
         panel.webview.html = SqlResultWebView.getShellHtml();
 
+        panel.onDidChangeViewState((e) => {
+            if (e.webviewPanel.visible) {
+                SqlResultWebView.setActivePanel(panel);
+            }
+        });
+
         panel.onDidDispose(() => {
-            SqlResultWebView.currentPanel = undefined;
-            SqlResultWebView.pendingPayload = undefined;
-            SqlResultWebView.webviewReady = false;
-            if (SqlResultWebView.messageDisposable) {
-                SqlResultWebView.messageDisposable.dispose();
-                SqlResultWebView.messageDisposable = undefined;
+            SqlResultWebView.panelStates.delete(panel);
+            if (state.messageDisposable) {
+                state.messageDisposable.dispose();
+                state.messageDisposable = undefined;
+            }
+            if (SqlResultWebView.activePanel === panel) {
+                SqlResultWebView.activePanel = undefined;
             }
         });
     }
@@ -112,7 +200,8 @@ export class SqlResultWebView {
         totalRows?: number,
         columnTypes?: { [key: string]: string },
     ) {
-        if (!SqlResultWebView.currentPanel) {
+        const state = SqlResultWebView.resolvePanelStateForUpdate(database, table);
+        if (!state) {
             return;
         }
 
@@ -130,25 +219,27 @@ export class SqlResultWebView {
             }
         }
 
+        const info = state.queryInfo;
         if (sql || database || table || columnComments || columnTypes) {
-            SqlResultWebView.lastQueryInfo = {
-                sql: sql || SqlResultWebView.lastQueryInfo?.sql,
-                database: database || SqlResultWebView.lastQueryInfo?.database,
-                table: table || SqlResultWebView.lastQueryInfo?.table,
-                columnComments: columnComments || SqlResultWebView.lastQueryInfo?.columnComments,
-                columnTypes: columnTypes || SqlResultWebView.lastQueryInfo?.columnTypes,
+            state.queryInfo = {
+                sql: sql || info.sql,
+                database: database || info.database,
+                table: table || info.table,
+                columnComments: columnComments || info.columnComments,
+                columnTypes: columnTypes || info.columnTypes,
             };
         }
 
-        SqlResultWebView.sendData({
+        SqlResultWebView.setActivePanel(state.panel);
+        SqlResultWebView.sendDataToPanel(state.panel, {
             rows: data,
             fields: SqlResultWebView.extractFields(data),
-            columnComments: columnComments || SqlResultWebView.lastQueryInfo?.columnComments,
-            columnTypes: columnTypes || SqlResultWebView.lastQueryInfo?.columnTypes,
+            columnComments: columnComments || state.queryInfo.columnComments,
+            columnTypes: columnTypes || state.queryInfo.columnTypes,
             totalRows,
-            sql: sql || SqlResultWebView.lastQueryInfo?.sql,
-            database: database || SqlResultWebView.lastQueryInfo?.database,
-            table: table || SqlResultWebView.lastQueryInfo?.table,
+            sql: sql || state.queryInfo.sql,
+            database: database || state.queryInfo.database,
+            table: table || state.queryInfo.table,
         });
     }
 
@@ -156,41 +247,40 @@ export class SqlResultWebView {
         columnComments: { [key: string]: string },
         columnTypes?: { [key: string]: string },
     ) {
-        if (!SqlResultWebView.currentPanel) {
+        const state = SqlResultWebView.getActivePanelState();
+        if (!state) {
             return;
         }
-        if (SqlResultWebView.lastQueryInfo) {
-            SqlResultWebView.lastQueryInfo.columnComments = columnComments;
+        state.queryInfo.columnComments = columnComments;
+        if (columnTypes) {
+            state.queryInfo.columnTypes = columnTypes;
+        }
+        if (state.pendingPayload) {
+            state.pendingPayload.columnComments = columnComments;
             if (columnTypes) {
-                SqlResultWebView.lastQueryInfo.columnTypes = columnTypes;
-            }
-        }
-        if (SqlResultWebView.pendingPayload) {
-            SqlResultWebView.pendingPayload.columnComments = columnComments;
-            if (columnTypes) {
-                SqlResultWebView.pendingPayload.columnTypes = columnTypes;
+                state.pendingPayload.columnTypes = columnTypes;
             }
             return;
         }
-        if (!SqlResultWebView.webviewReady) {
+        if (!state.webviewReady) {
             return;
         }
-        SqlResultWebView.currentPanel.webview.postMessage({
+        state.panel.webview.postMessage({
             command: "updateColumnMetadata",
             columnComments,
             columnTypes,
         });
     }
 
-    private static flushColumnMetadata() {
-        if (!SqlResultWebView.currentPanel || !SqlResultWebView.webviewReady) {
+    private static flushColumnMetadata(state: PanelState) {
+        if (!state.webviewReady) {
             return;
         }
-        const info = SqlResultWebView.lastQueryInfo;
-        if (!info?.columnComments && !info?.columnTypes) {
+        const info = state.queryInfo;
+        if (!info.columnComments && !info.columnTypes) {
             return;
         }
-        SqlResultWebView.currentPanel.webview.postMessage({
+        state.panel.webview.postMessage({
             command: "updateColumnMetadata",
             columnComments: info.columnComments || {},
             columnTypes: info.columnTypes,
@@ -203,7 +293,7 @@ export class SqlResultWebView {
     }
 
     public static getLastQueryInfo(): { sql?: string; database?: string; table?: string } | undefined {
-        return SqlResultWebView.lastQueryInfo;
+        return SqlResultWebView.getActivePanelState()?.queryInfo;
     }
 
     private static extractFields(rows: any[]): string[] {
@@ -240,36 +330,42 @@ export class SqlResultWebView {
         };
     }
 
-    private static sendData(payload: QueryResultPayload) {
-        if (!SqlResultWebView.currentPanel) {
+    private static sendDataToPanel(panel: vscode.WebviewPanel, payload: QueryResultPayload) {
+        const state = SqlResultWebView.getPanelState(panel);
+        if (!state) {
+            return;
+        }
+        if (!state.webviewReady) {
+            state.pendingPayload = payload;
             return;
         }
         const safePayload = SqlResultWebView.toWebviewSafePayload(payload);
-        SqlResultWebView.currentPanel.webview.postMessage({
+        panel.webview.postMessage({
             command: "setData",
             ...safePayload,
         });
     }
 
-    private static registerMessageHandler(panel: vscode.WebviewPanel) {
-        if (SqlResultWebView.messageDisposable) {
-            SqlResultWebView.messageDisposable.dispose();
+    private static registerMessageHandler(panel: vscode.WebviewPanel, state: PanelState) {
+        if (state.messageDisposable) {
+            state.messageDisposable.dispose();
         }
-        SqlResultWebView.messageDisposable = panel.webview.onDidReceiveMessage((message) => {
+        state.messageDisposable = panel.webview.onDidReceiveMessage((message) => {
+            SqlResultWebView.setActivePanel(panel);
             if (message.command === "ready") {
-                SqlResultWebView.webviewReady = true;
-                if (SqlResultWebView.pendingPayload) {
-                    const info = SqlResultWebView.lastQueryInfo;
-                    if (info?.columnComments) {
-                        SqlResultWebView.pendingPayload.columnComments = info.columnComments;
+                state.webviewReady = true;
+                if (state.pendingPayload) {
+                    const info = state.queryInfo;
+                    if (info.columnComments) {
+                        state.pendingPayload.columnComments = info.columnComments;
                     }
-                    if (info?.columnTypes) {
-                        SqlResultWebView.pendingPayload.columnTypes = info.columnTypes;
+                    if (info.columnTypes) {
+                        state.pendingPayload.columnTypes = info.columnTypes;
                     }
-                    SqlResultWebView.sendData(SqlResultWebView.pendingPayload);
-                    SqlResultWebView.pendingPayload = undefined;
+                    SqlResultWebView.sendDataToPanel(panel, state.pendingPayload);
+                    state.pendingPayload = undefined;
                 }
-                SqlResultWebView.flushColumnMetadata();
+                SqlResultWebView.flushColumnMetadata(state);
                 return;
             }
             if (message.command === "refreshData") {

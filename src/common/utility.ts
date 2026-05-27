@@ -117,14 +117,14 @@ export class Utility {
                 if (rows.some(((row) => Array.isArray(row)))) {
                     rows.forEach((row, index) => {
                         if (Array.isArray(row)) {
-                             Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRowCount !== undefined ? totalRowCount : totalRows, undefined, undefined, false, updateSQLEditor, appendSQLEditor);
+                             Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRowCount !== undefined ? totalRowCount : totalRows, parsedDatabase, parsedTable, false, updateSQLEditor, appendSQLEditor);
                         } else {
                             OutputChannel.show();
                             OutputChannel.appendLine(JSON.stringify(row));
                         }
                     });
                 } else {
-                    Utility.showQueryResult(rows, "Results", sql, totalRowCount !== undefined ? totalRowCount : totalRows, undefined, undefined, false, updateSQLEditor, appendSQLEditor);
+                    Utility.showQueryResult(rows, "Results", sql, totalRowCount !== undefined ? totalRowCount : totalRows, parsedDatabase, parsedTable, false, updateSQLEditor, appendSQLEditor);
                 }
             } else {
                 OutputChannel.show();
