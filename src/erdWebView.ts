@@ -1231,6 +1231,39 @@ export class ErdWebView {
         .resize-handle-vertical.dragging {
             background: rgba(0, 122, 204, 0.4);
         }
+        .resize-handle-corner {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            z-index: 6;
+        }
+        .resize-handle-corner-tl {
+            top: -5px;
+            left: -5px;
+            cursor: nwse-resize;
+        }
+        .resize-handle-corner-tr {
+            top: -5px;
+            right: -5px;
+            cursor: nesw-resize;
+        }
+        .resize-handle-corner-bl {
+            bottom: -5px;
+            left: -5px;
+            cursor: nesw-resize;
+        }
+        .resize-handle-corner-br {
+            bottom: -5px;
+            right: -5px;
+            cursor: nwse-resize;
+        }
+        .resize-handle-corner:hover,
+        .table-node:hover .resize-handle-corner {
+            background: rgba(0, 122, 204, 0.2);
+        }
+        .resize-handle-corner.dragging {
+            background: rgba(0, 122, 204, 0.4);
+        }
          /* Table body scrollable */
          .table-body {
              padding: 8px;
@@ -3026,6 +3059,10 @@ function initCommentEvents(commentEl) {
             let startY = 0;
             let startWidth = 0;
             let startHeight = 0;
+            let isResizingCorner = false;
+            let resizeCorner = null;
+            let startLeft = 0;
+            let startTop = 0;
 
             document.querySelectorAll('.table-node').forEach(function(table) {
                 // Handle horizontal resize
@@ -3062,6 +3099,31 @@ function initCommentEvents(commentEl) {
                     table.style.zIndex = '1000';
                 });
 
+                // Create 4 corner resize handles
+                ['tl', 'tr', 'bl', 'br'].forEach(function(corner) {
+                    const cornerHandle = document.createElement('div');
+                    cornerHandle.className = 'resize-handle-corner resize-handle-corner-' + corner;
+                    table.appendChild(cornerHandle);
+
+                    cornerHandle.addEventListener('mousedown', function(e) {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        isResizing = true;
+                        isResizingVertical = false;
+                        isResizingCorner = true;
+                        resizeCorner = corner;
+                        resizeElement = table;
+                        startX = e.clientX;
+                        startY = e.clientY;
+                        startWidth = table.offsetWidth;
+                        startHeight = table.offsetHeight;
+                        startLeft = parseFloat(table.style.left) || 0;
+                        startTop = parseFloat(table.style.top) || 0;
+                        cornerHandle.classList.add('dragging');
+                        table.style.zIndex = '1000';
+                    });
+                });
+
                 // Right-click context menu
                 table.addEventListener('contextmenu', function(e) {
                     e.preventDefault();
@@ -3084,6 +3146,8 @@ function initCommentEvents(commentEl) {
                 table.addEventListener('mousedown', function(e) {
                     if (e.target.classList.contains('toggle-comments-btn')) return;
                     if (e.target.classList.contains('resize-handle')) return;
+                    if (e.target.classList.contains('resize-handle-vertical')) return;
+                    if (e.target.classList.contains('resize-handle-corner')) return;
                     if (e.target.classList.contains('connection-point')) return;
                     
                     // 只有在点击 table-header 时才允许拖动
@@ -3249,6 +3313,51 @@ function initCommentEvents(commentEl) {
                         // Set table body height to allow scrolling
                         const bodyHeight = newHeight - headerHeight - 16; // subtract padding (8px top + 8px bottom)
                         tableBody.style.maxHeight = bodyHeight + 'px';
+                    } else if (isResizingCorner) {
+                        // Corner resizing
+                        const deltaX = (e.clientX - startX) / zoom;
+                        const deltaY = (e.clientY - startY) / zoom;
+
+                        const tableHeader = resizeElement.querySelector('.table-header');
+                        const tableBody = resizeElement.querySelector('.table-body');
+                        const headerHeight = tableHeader.offsetHeight;
+                        const columnRows = tableBody.querySelectorAll('.column-row');
+                        const minHeight = headerHeight + (columnRows.length > 0 ? Math.min(columnRows.length, 2) * columnRows[0].offsetHeight : 60) + 16;
+                        let totalContentHeight = headerHeight + 1;
+                        columnRows.forEach(function(row) {
+                            totalContentHeight += row.offsetHeight;
+                        });
+                        const maxHeight = totalContentHeight + 200;
+
+                        let newLeft = startLeft;
+                        let newTop = startTop;
+                        let newWidth = startWidth;
+                        let newHeight = startHeight;
+
+                        if (resizeCorner === 'tl' || resizeCorner === 'bl') {
+                            const desiredWidth = Math.max(150, startWidth - deltaX);
+                            newWidth = desiredWidth;
+                            newLeft = startLeft + startWidth - newWidth;
+                        }
+                        if (resizeCorner === 'tr' || resizeCorner === 'br') {
+                            newWidth = Math.max(150, startWidth + deltaX);
+                        }
+                        if (resizeCorner === 'tl' || resizeCorner === 'tr') {
+                            const desiredHeight = Math.max(minHeight, Math.min(maxHeight, startHeight - deltaY));
+                            newHeight = desiredHeight;
+                            newTop = startTop + startHeight - newHeight;
+                        }
+                        if (resizeCorner === 'bl' || resizeCorner === 'br') {
+                            newHeight = Math.max(minHeight, Math.min(maxHeight, startHeight + deltaY));
+                        }
+
+                        resizeElement.style.left = newLeft + 'px';
+                        resizeElement.style.top = newTop + 'px';
+                        resizeElement.style.width = newWidth + 'px';
+                        resizeElement.style.height = newHeight + 'px';
+
+                        const bodyHeight = newHeight - headerHeight - 16;
+                        tableBody.style.maxHeight = bodyHeight + 'px';
                     } else {
                         // Horizontal resizing
                         const deltaX = (e.clientX - startX) / zoom;
@@ -3284,6 +3393,9 @@ function initCommentEvents(commentEl) {
                     if (isResizingVertical) {
                         const handle = resizeElement?.querySelector('.resize-handle-vertical');
                         if (handle) handle.classList.remove('dragging');
+                    } else if (isResizingCorner) {
+                        const handle = resizeElement?.querySelector('.resize-handle-corner.dragging');
+                        if (handle) handle.classList.remove('dragging');
                     } else {
                         const handle = resizeElement?.querySelector('.resize-handle');
                         if (handle) handle.classList.remove('dragging');
@@ -3291,6 +3403,8 @@ function initCommentEvents(commentEl) {
                     if (resizeElement) resizeElement.style.zIndex = '';
                     isResizing = false;
                     isResizingVertical = false;
+                    isResizingCorner = false;
+                    resizeCorner = null;
                     resizeElement = null;
                 }
 
