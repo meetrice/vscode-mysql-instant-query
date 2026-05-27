@@ -59,6 +59,79 @@ export function formatSelectListColumnText(columnNames: string[]): string {
     return ` ${columnNames.map(formatSqlIdentifier).join(", ")} `;
 }
 
+export function parseTableReferenceFromStatement(statementText: string, fallbackTableName: string): string {
+    const fromMatch = statementText.match(/\bFROM\b\s+((?:`[^`]+`|\w+)(?:\.(?:`[^`]+`|\w+))?)/i);
+    if (!fromMatch) {
+        return formatSqlIdentifier(fallbackTableName);
+    }
+    const tableRef = fromMatch[1].replace(/`/g, "");
+    if (tableRef.includes(".")) {
+        return tableRef.split(".").map(formatSqlIdentifier).join(".");
+    }
+    return formatSqlIdentifier(tableRef);
+}
+
+function escapeSqlValue(value: string): string {
+    return value.replace(/'/g, "''");
+}
+
+export function buildWhereCondition(columnName: string, columnType: string, value: string): string | undefined {
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+
+    const column = formatSqlIdentifier(columnName);
+    const type = (columnType || "").toLowerCase();
+
+    if (/\b(int|integer|bigint|smallint|tinyint|mediumint|decimal|numeric|float|double|real|number)\b/.test(type)) {
+        if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+            return `${column} = ${trimmed}`;
+        }
+    }
+
+    if (/\b(bool|boolean|bit)\b/.test(type)) {
+        const lower = trimmed.toLowerCase();
+        if (["0", "1", "true", "false", "yes", "no"].includes(lower)) {
+            const boolValue = ["1", "true", "yes"].includes(lower) ? "1" : "0";
+            return `${column} = ${boolValue}`;
+        }
+    }
+
+    return `${column} LIKE '%${escapeSqlValue(trimmed)}%'`;
+}
+
+export function buildSelectWithWhereSql(
+    tableReference: string,
+    selectColumns: string[],
+    filters: Array<{ columnName: string; columnType: string; value: string }>,
+): string {
+    const selectList = selectColumns.map(formatSqlIdentifier).join(", ");
+    let sql = `SELECT ${selectList} FROM ${tableReference}`;
+    const conditions = filters
+        .map((filter) => buildWhereCondition(filter.columnName, filter.columnType, filter.value))
+        .filter((condition): condition is string => Boolean(condition));
+    if (conditions.length > 0) {
+        sql += ` WHERE ${conditions.join(" AND ")}`;
+    }
+    return sql;
+}
+
+export function buildFilteredSelectSql(
+    tableReference: string,
+    filters: Array<{ columnName: string; columnType: string; value: string }>,
+): string | undefined {
+    const conditions = filters
+        .map((filter) => buildWhereCondition(filter.columnName, filter.columnType, filter.value))
+        .filter((condition): condition is string => Boolean(condition));
+
+    if (conditions.length === 0) {
+        return undefined;
+    }
+
+    return `SELECT * FROM ${tableReference} WHERE ${conditions.join(" AND ")}`;
+}
+
 export function parseTableFromFromClause(fromClause: string): string | undefined {
     const match = fromClause.match(/\bFROM\b\s+((?:`[^`]+`|\w+)(?:\.(?:`[^`]+`|\w+))?)/i);
     if (!match) {
