@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 import { Constants } from "./common/constants";
 import { I18n } from "./common/i18n";
@@ -93,7 +95,7 @@ export class SettingsWebView {
         const keybindingRunQuery = KeybindingUtility.getKeybindingForCommand(context, "mysqlInstantQuery.runQuery");
         const keybindingOpenTable = KeybindingUtility.getKeybindingForCommand(context, "mysqlInstantQuery.openTable");
 
-        const packageJson = JSON.parse(require("fs").readFileSync(require("path").join(context.extensionPath, "package.json"), "utf-8"));
+        const packageJson = context.extension.packageJSON;
 
         return {
             language,
@@ -101,10 +103,35 @@ export class SettingsWebView {
             keybindingRunQuery,
             keybindingOpenTable,
             pluginVersion: packageJson.version || "0.8.7",
-            pluginName: packageJson.displayName || "Mysql Instant Query",
+            pluginName: SettingsWebView.resolveDisplayName(context),
             repoUrl: "https://github.com/meetrice/vscode-mysql-instant-query",
             supportInfo: "https://github.com/meetrice/vscode-mysql-instant-query",
         };
+    }
+
+    private static resolveDisplayName(context: vscode.ExtensionContext): string {
+        const displayName = context.extension.packageJSON.displayName as string | undefined;
+        if (displayName && !displayName.startsWith("%")) {
+            return displayName;
+        }
+
+        const locale = I18n.getLocale().toLowerCase();
+        const nlsCandidates = locale.startsWith("zh")
+            ? ["package.nls.zh-cn.json", "package.nls.json"]
+            : ["package.nls.json"];
+
+        for (const file of nlsCandidates) {
+            const nlsPath = path.join(context.extensionPath, file);
+            if (!fs.existsSync(nlsPath)) {
+                continue;
+            }
+            const nls = JSON.parse(fs.readFileSync(nlsPath, "utf-8")) as { displayName?: string };
+            if (nls.displayName) {
+                return nls.displayName;
+            }
+        }
+
+        return "Mysql Instant Query";
     }
 
     private static sendSettingsData(): void {
