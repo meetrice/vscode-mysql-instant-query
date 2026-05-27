@@ -140,6 +140,17 @@
     "settings.exportFailed": "Failed to export settings: {0}",
     "settings.imported": "Settings imported successfully",
     "settings.importFailed": "Failed to import settings: {0}",
-    "settings.importInvalid": "Invalid settings file"
+    "settings.importInvalid": "Invalid settings file",
+    "snippetsPanel.label.displayName": "Display name:",
+    "snippetsPanel.label.codeSnippet": "Code snippet:",
+    "snippetsPanel.dialog.addTitle": "Add code snippet",
+    "snippetsPanel.dialog.editTitle": "Edit code snippet",
+    "snippetsPanel.menu.edit": "Edit",
+    "snippetsPanel.menu.delete": "Delete",
+    "snippetsPanel.menu.pinToTop": "Pin to top",
+    "snippetsPanel.button.add": "Add",
+    "snippetsPanel.button.save": "Save",
+    "snippetsPanel.error.emptyDisplayName": "Display name cannot be empty",
+    "snippetsPanel.error.emptyCodeSnippet": "Code snippet cannot be empty"
 }
 

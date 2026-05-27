@@ -8,4 +8,5 @@ export class Constants {
     public static GlobalStateSettingsKeybindingRunQuery = "mysqlInstantQuery.settings.keybinding.runQuery";
     public static GlobalStateSettingsKeybindingOpenTable = "mysqlInstantQuery.settings.keybinding.openTable";
     public static GlobalStateSettingsExportedData = "mysqlInstantQuery.settings.exportedData";
+    public static GlobalStateCodeSnippetsKey = "mysqlInstantQuery.codeSnippets";
 }
