@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 
 export class OutputChannel {
     public static appendLine(value: string) {
+        OutputChannel.show();
         OutputChannel.outputChannel.appendLine(value);
     }
 

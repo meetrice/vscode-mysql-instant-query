@@ -108,6 +108,7 @@ export class Utility {
         const totalRowCount = await Utility.maybeFetchTotalRowCount(connectionOptions, parsedDatabase, parsedTable);
         sql = Utility.applyAutoLimit(sql, totalRowCount);
 
+        OutputChannel.show();
         OutputChannel.appendLine("[Start] Executing database query...");
         try {
             const rows = await DbDriver.executeQuery(connectionOptions, sql);
@@ -117,6 +118,7 @@ export class Utility {
                         if (Array.isArray(row)) {
                              Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRowCount !== undefined ? totalRowCount : totalRows, undefined, undefined, false, updateSQLEditor, appendSQLEditor);
                         } else {
+                            OutputChannel.show();
                             OutputChannel.appendLine(JSON.stringify(row));
                         }
                     });
@@ -124,13 +126,16 @@ export class Utility {
                     Utility.showQueryResult(rows, "Results", sql, totalRowCount !== undefined ? totalRowCount : totalRows, undefined, undefined, false, updateSQLEditor, appendSQLEditor);
                 }
             } else {
+                OutputChannel.show();
                 OutputChannel.appendLine(JSON.stringify(rows));
             }
             AppInsightsClient.sendEvent("runQuery.end", { Result: "Success" });
         } catch (err) {
+            OutputChannel.show();
             OutputChannel.appendLine(String(err));
             AppInsightsClient.sendEvent("runQuery.end", { Result: "Fail", ErrorMessage: String(err) });
         }
+        OutputChannel.show();
         OutputChannel.appendLine("[Done] Finished database query.");
     }
 
@@ -363,6 +368,7 @@ export class Utility {
             });
         }
 
+        OutputChannel.show();
         OutputChannel.appendLine("[Start] Executing database query...");
         try {
             const rows = await DbDriver.executeQuery(connectionOptions, sql);
@@ -379,6 +385,7 @@ export class Utility {
                         if (Array.isArray(row)) {
                              Utility.showQueryResult(row, "Results " + (index + 1), sql, totalRows, parsedDatabase, parsedTable, updatePanel, true, appendSQLEditor);
                         } else {
+                            OutputChannel.show();
                             OutputChannel.appendLine(JSON.stringify(row));
                         }
                     });
@@ -386,6 +393,7 @@ export class Utility {
                     Utility.showQueryResult(rows, "Results", sql, totalRows, parsedDatabase, parsedTable, updatePanel, true, appendSQLEditor);
                 }
             } else {
+                OutputChannel.show();
                 OutputChannel.appendLine(JSON.stringify(rows));
             }
             AppInsightsClient.sendEvent("runQuery.end", { Result: "Success" });
@@ -393,9 +401,11 @@ export class Utility {
             if (connectionOptions.driver === "duckdb") {
                 console.error("[DuckDB runQueryWithTotal] execute failed", err);
             }
+            OutputChannel.show();
             OutputChannel.appendLine(String(err));
             AppInsightsClient.sendEvent("runQuery.end", { Result: "Fail", ErrorMessage: String(err) });
         }
+        OutputChannel.show();
         OutputChannel.appendLine("[Done] Finished database query.");
     }
 
