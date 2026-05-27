@@ -244,6 +244,15 @@
                     "dark": "resources/dark/erd.svg"
                 },
                 "category": "%commands.mysqlInstantQuery.category%"
+            },
+            {
+                "command": "mysqlInstantQuery.openSettings",
+                "title": "%commands.mysqlInstantQuery.openSettings.title%",
+                "icon": {
+                    "light": "resources/light/settings.svg",
+                    "dark": "resources/dark/settings.svg"
+                },
+                "category": "%commands.mysqlInstantQuery.category%"
             }
         ],
         "keybindings": [
@@ -294,6 +303,11 @@
                     "command": "mysqlInstantQuery.collapseAll",
                     "when": "view == mysqlInstantQuery && mysqlInstantQueryTreeAllExpanded",
                     "group": "navigation@2"
+                },
+                {
+                    "command": "mysqlInstantQuery.openSettings",
+                    "when": "view == mysqlInstantQuery",
+                    "group": "navigation@3"
                 }
             ],
             "view/item/context": [

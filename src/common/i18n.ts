@@ -8,20 +8,30 @@ import * as fs from "fs";
 export class I18n {
     private static messages: any = {};
     private static locale: string = "en";
+    private static extensionPath: string = "";
 
     /**
      * 初始化多语言
      */
     public static init(context: vscode.ExtensionContext) {
+        this.extensionPath = context.extensionPath;
         this.locale = this.getVSCodeLocale();
-        this.loadMessages(context, this.locale);
+        this.loadMessages(this.locale);
     }
 
     /**
-     * 获取 VSCode 当前语言
+     * 获取当前语言
      */
     public static getLocale(): string {
         return this.locale;
+    }
+
+    /**
+     * 运行时切换语言
+     */
+    public static setLocale(locale: string): void {
+        this.locale = locale;
+        this.loadMessages(locale);
     }
 
     private static getVSCodeLocale(): string {
@@ -31,7 +41,7 @@ export class I18n {
     /**
      * 加载语言包
      */
-    private static loadMessages(context: vscode.ExtensionContext, locale: string) {
+    private static loadMessages(locale: string) {
         try {
             const localeMap: { [key: string]: string } = {
                 "zh": "zh-cn",
@@ -47,7 +57,7 @@ export class I18n {
             };
 
             const localeKey = localeMap[locale.toLowerCase()] || "en";
-            const languageFile = path.join(context.extensionPath, "language", `messages.${localeKey}.json`);
+            const languageFile = path.join(this.extensionPath, "language", `messages.${localeKey}.json`);
 
             if (fs.existsSync(languageFile)) {
                 const content = fs.readFileSync(languageFile, "utf-8");
@@ -55,7 +65,7 @@ export class I18n {
                 return;
             }
 
-            const defaultLanguageFile = path.join(context.extensionPath, "language", "messages.en.json");
+            const defaultLanguageFile = path.join(this.extensionPath, "language", "messages.en.json");
             if (fs.existsSync(defaultLanguageFile)) {
                 const content = fs.readFileSync(defaultLanguageFile, "utf-8");
                 this.messages = JSON.parse(content);

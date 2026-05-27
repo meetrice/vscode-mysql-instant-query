@@ -13,6 +13,7 @@ import { OutputChannel } from "./outputChannel";
 
 export class Utility {
     public static readonly maxTableCount = Utility.getConfiguration().get<number>("maxTableCount");
+    public static customDataLimit: number | undefined = undefined;
 
     private static columnMetadataCache = new LRU<string, { comments: { [key: string]: string }; types: { [key: string]: string } }>({
         max: 100,
@@ -627,7 +628,7 @@ export class Utility {
 
         const config = Utility.getConfiguration();
         const defaultLimit = config.get<number>("defaultQueryLimit", 100);
-        const largeLimit = config.get<number>("largeTableQueryLimit", 5000);
+        const largeLimit = Utility.customDataLimit || config.get<number>("largeTableQueryLimit", 5000);
         const largeThreshold = config.get<number>("largeTableThreshold", 1000);
         const enableCountQuery = config.get<boolean>("enableCountQuery", false);
 

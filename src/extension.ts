@@ -14,15 +14,27 @@ import { I18n } from "./common/i18n";
 import { SqlResultWebView } from "./sqlResultWebView";
 import { RunNowCodeLensProvider } from "./runButtonProvider";
 import { SqlStatementConnectionManager } from "./sqlStatementConnectionManager";
+import { TableCompletionProvider } from "./tableCompletionProvider";
 import { ErdWebView } from "./erdWebView";
 import { Constants } from "./common/constants";
 import { DbDriver } from "./common/dbDriver";
 import { OutputChannel } from "./common/outputChannel";
+import { SettingsWebView } from "./settingsWebView";
 import { IConnection, normalizeDriver, normalizeSslMode } from "./model/connection";
 
 export function activate(context: vscode.ExtensionContext) {
     // Initialize i18n
     I18n.init(context);
+
+    // Initialize custom settings from global state
+    const storedLimit = context.globalState.get<number>(Constants.GlobalStateSettingsDataLimit);
+    if (storedLimit) {
+        Utility.customDataLimit = storedLimit;
+    }
+    const storedLanguage = context.globalState.get<string>(Constants.GlobalStateSettingsLanguage);
+    if (storedLanguage) {
+        I18n.setLocale(storedLanguage);
+    }
 
     AppInsightsClient.sendEvent("loadExtension");
 
@@ -72,6 +84,21 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.languages.registerCodeLensProvider(
             { language: 'sql', scheme: 'untitled' },
             runNowCodeLensProvider
+        )
+    );
+
+    // Register completion provider for SQL editor (table name suggestions after FROM)
+    const tableCompletionProvider = new TableCompletionProvider();
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+            { language: 'sql', scheme: 'file' },
+            tableCompletionProvider,
+        )
+    );
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+            { language: 'sql', scheme: 'untitled' },
+            tableCompletionProvider,
         )
     );
 
@@ -260,6 +287,10 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.openErdFile", async () => {
         await ErdWebView.openFromFile();
+    }));
+
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.openSettings", () => {
+        SettingsWebView.show(context);
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.viewAsErd", async () => {
