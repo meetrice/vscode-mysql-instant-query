@@ -118,7 +118,7 @@ export class ConnectionNode implements INode {
 
     public async newQuery() {
         AppInsightsClient.sendEvent("newQuery", { viewItem: "connection" });
-        Utility.createSQLTextDocument();
+        Utility.createSQLTextDocument("", false);
 
         Global.activeConnection = this.getConnectionOptions();
     }

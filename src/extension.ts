@@ -233,7 +233,7 @@ export function activate(context: vscode.ExtensionContext) {
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.newQueryFromTree", () => {
-        Utility.createSQLTextDocument("");
+        Utility.createSQLTextDocument("", false);
     }));
 
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.editConnection", (connectionNode: ConnectionNode) => {
