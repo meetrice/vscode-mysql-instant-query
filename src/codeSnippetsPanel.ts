@@ -85,11 +85,11 @@ class CodeSnippetsViewProvider implements vscode.WebviewViewProvider {
                     case "insertText":
                         this.insertText(message.text);
                         break;
-                    case "addSnippet":
-                        await this.addSnippet(message.label, message.text);
+                    case "openAddDialog":
+                        await this.showSnippetDialog("add");
                         break;
-                    case "updateSnippet":
-                        await this.updateSnippet(message.id, message.label, message.text);
+                    case "openEditDialog":
+                        await this.showSnippetDialog("edit", message.id);
                         break;
                     case "deleteSnippet":
                         await this.deleteSnippet(message.id);
@@ -117,6 +117,70 @@ class CodeSnippetsViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(
                 I18n.format("info.copied", [textToInsert])
             );
+        }
+    }
+
+    private async showSnippetDialog(mode: "add" | "edit", snippetId?: string) {
+        const existing =
+            mode === "edit" && snippetId
+                ? CodeSnippetsPanel.getSnippets().find((s) => s.id === snippetId)
+                : undefined;
+
+        if (mode === "edit" && !existing) {
+            return;
+        }
+
+        const dialogTitle =
+            mode === "add"
+                ? I18n.t("snippetsPanel.dialog.addTitle", "Add code snippet")
+                : I18n.t("snippetsPanel.dialog.editTitle", "Edit code snippet");
+        const emptyNameError = I18n.t(
+            "snippetsPanel.error.emptyDisplayName",
+            "Display name cannot be empty"
+        );
+        const emptyTextError = I18n.t(
+            "snippetsPanel.error.emptyCodeSnippet",
+            "Code snippet cannot be empty"
+        );
+
+        const label = await vscode.window.showInputBox({
+            title: dialogTitle,
+            prompt: I18n.t("snippetsPanel.label.displayName", "Display name:"),
+            placeHolder: I18n.t("snippetsPanel.label.displayName", "Display name:"),
+            value: existing?.label ?? "",
+            ignoreFocusOut: true,
+            validateInput: (value) => {
+                if (!value?.trim()) {
+                    return emptyNameError;
+                }
+                return undefined;
+            },
+        });
+        if (label === undefined) {
+            return;
+        }
+
+        const text = await vscode.window.showInputBox({
+            title: dialogTitle,
+            prompt: I18n.t("snippetsPanel.label.codeSnippet", "Code snippet:"),
+            placeHolder: I18n.t("snippetsPanel.label.codeSnippet", "Code snippet:"),
+            value: existing?.text ?? "",
+            ignoreFocusOut: true,
+            validateInput: (value) => {
+                if (!value) {
+                    return emptyTextError;
+                }
+                return undefined;
+            },
+        });
+        if (text === undefined) {
+            return;
+        }
+
+        if (mode === "add") {
+            await this.addSnippet(label, text);
+        } else if (existing) {
+            await this.updateSnippet(existing.id, label, text);
         }
     }
 
@@ -183,38 +247,11 @@ class CodeSnippetsViewProvider implements vscode.WebviewViewProvider {
     private getWebviewContent(): string {
         const snippets = CodeSnippetsPanel.getSnippets();
         const snippetsJson = JSON.stringify(snippets);
-        const i18nJson = JSON.stringify({
-            dialogAddTitle: I18n.t("snippetsPanel.dialog.addTitle", "Add code snippet"),
-            dialogEditTitle: I18n.t("snippetsPanel.dialog.editTitle", "Edit code snippet"),
-            buttonAdd: I18n.t("snippetsPanel.button.add", "Add"),
-            buttonSave: I18n.t("snippetsPanel.button.save", "Save"),
-            errorEmptyDisplayName: I18n.t(
-                "snippetsPanel.error.emptyDisplayName",
-                "Display name cannot be empty"
-            ),
-            errorEmptyCodeSnippet: I18n.t(
-                "snippetsPanel.error.emptyCodeSnippet",
-                "Code snippet cannot be empty"
-            ),
-        });
-
-        const labelDisplayName = this.escapeHtml(
-            I18n.t("snippetsPanel.label.displayName", "Display name:")
-        );
-        const labelCodeSnippet = this.escapeHtml(
-            I18n.t("snippetsPanel.label.codeSnippet", "Code snippet:")
-        );
-        const dialogAddTitle = this.escapeHtml(
-            I18n.t("snippetsPanel.dialog.addTitle", "Add code snippet")
-        );
         const menuEdit = this.escapeHtml(I18n.t("snippetsPanel.menu.edit", "Edit"));
         const menuDelete = this.escapeHtml(I18n.t("snippetsPanel.menu.delete", "Delete"));
         const menuPinToTop = this.escapeHtml(
             I18n.t("snippetsPanel.menu.pinToTop", "Pin to top")
         );
-        const buttonAdd = this.escapeHtml(I18n.t("snippetsPanel.button.add", "Add"));
-        const buttonSave = this.escapeHtml(I18n.t("snippetsPanel.button.save", "Save"));
-        const buttonCancel = this.escapeHtml(I18n.t("button.cancel", "Cancel"));
         const lang = I18n.getLocale().toLowerCase().startsWith("zh") ? "zh-CN" : "en";
 
         return `<!DOCTYPE html>
@@ -275,93 +312,6 @@ class CodeSnippetsViewProvider implements vscode.WebviewViewProvider {
             font-size: 14px;
             padding: 1px 8px;
         }
-        .dialog-overlay {
-            pointer-events: auto;
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.45);
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-        }
-        .dialog-overlay.visible {
-            display: flex;
-        }
-        .dialog {
-            background: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-            border-radius: 4px;
-            padding: 12px;
-            width: calc(100% - 24px);
-            max-width: 320px;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-        }
-        .dialog-title {
-            font-weight: 600;
-            margin-bottom: 10px;
-            font-size: 13px;
-        }
-        .form-row {
-            margin-bottom: 8px;
-        }
-        .form-row label {
-            display: block;
-            margin-bottom: 4px;
-            font-size: 11px;
-        }
-        .form-row input,
-        .form-row textarea {
-            width: 100%;
-            padding: 4px 6px;
-            border: 1px solid var(--vscode-input-border);
-            background: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            font-family: var(--vscode-font-family);
-            font-size: 12px;
-            border-radius: 2px;
-        }
-        .form-row textarea {
-            min-height: 72px;
-            resize: vertical;
-        }
-        .form-error {
-            color: var(--vscode-errorForeground);
-            font-size: 11px;
-            margin-bottom: 6px;
-            display: none;
-        }
-        .form-error.visible {
-            display: block;
-        }
-        .dialog-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: 6px;
-            margin-top: 10px;
-        }
-        .dialog-actions button {
-            padding: 4px 12px;
-            border: 1px solid var(--vscode-button-border);
-            border-radius: 2px;
-            cursor: pointer;
-            font-family: var(--vscode-font-family);
-            font-size: 12px;
-        }
-        .dialog-actions .btn-primary {
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-        }
-        .dialog-actions .btn-primary:hover {
-            background: var(--vscode-button-hoverBackground);
-        }
-        .dialog-actions .btn-secondary {
-            background: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-        .dialog-actions .btn-secondary:hover {
-            background: var(--vscode-button-secondaryHoverBackground);
-        }
         .context-menu {
             pointer-events: auto;
             display: none;
@@ -398,25 +348,6 @@ class CodeSnippetsViewProvider implements vscode.WebviewViewProvider {
 <body>
     <div class="quick-actions" id="snippet-buttons"></div>
 
-    <div class="dialog-overlay" id="dialog-overlay">
-        <div class="dialog" id="snippet-dialog">
-            <div class="dialog-title" id="dialog-title">${dialogAddTitle}</div>
-            <div class="form-error" id="form-error"></div>
-            <div class="form-row">
-                <label for="display-name">${labelDisplayName}</label>
-                <input type="text" id="display-name" />
-            </div>
-            <div class="form-row">
-                <label for="code-snippet">${labelCodeSnippet}</label>
-                <textarea id="code-snippet"></textarea>
-            </div>
-            <div class="dialog-actions">
-                <button type="button" class="btn-secondary" id="dialog-cancel">${buttonCancel}</button>
-                <button type="button" class="btn-primary" id="dialog-confirm">${buttonAdd}</button>
-            </div>
-        </div>
-    </div>
-
     <div class="context-menu" id="context-menu">
         <button type="button" class="context-menu-item" data-action="edit">${menuEdit}</button>
         <button type="button" class="context-menu-item" data-action="delete">${menuDelete}</button>
@@ -425,20 +356,14 @@ class CodeSnippetsViewProvider implements vscode.WebviewViewProvider {
 
     <script>
         const vscode = acquireVsCodeApi();
-        const i18n = ${i18nJson};
+        const addDialogTitle = ${JSON.stringify(
+            I18n.t("snippetsPanel.dialog.addTitle", "Add code snippet")
+        )};
 
         let snippets = ${snippetsJson};
-        let dialogMode = 'add';
-        let editingId = null;
         let contextSnippetId = null;
 
         const snippetButtonsEl = document.getElementById('snippet-buttons');
-        const dialogOverlay = document.getElementById('dialog-overlay');
-        const dialogTitle = document.getElementById('dialog-title');
-        const dialogConfirm = document.getElementById('dialog-confirm');
-        const displayNameInput = document.getElementById('display-name');
-        const codeSnippetInput = document.getElementById('code-snippet');
-        const formError = document.getElementById('form-error');
         const contextMenu = document.getElementById('context-menu');
 
         function renderButtons() {
@@ -467,78 +392,17 @@ class CodeSnippetsViewProvider implements vscode.WebviewViewProvider {
             addBtn.className = 'quick-btn add-btn';
             addBtn.type = 'button';
             addBtn.textContent = '+';
-            addBtn.title = i18n.dialogAddTitle;
-            addBtn.addEventListener('click', () => openDialog('add'));
+            addBtn.title = addDialogTitle;
+            addBtn.addEventListener('click', () => {
+                vscode.postMessage({ command: 'openAddDialog' });
+            });
             snippetButtonsEl.appendChild(addBtn);
-        }
-
-        function openDialog(mode, snippet) {
-            dialogMode = mode;
-            editingId = snippet ? snippet.id : null;
-            dialogTitle.textContent = mode === 'add' ? i18n.dialogAddTitle : i18n.dialogEditTitle;
-            dialogConfirm.textContent = mode === 'add' ? i18n.buttonAdd : i18n.buttonSave;
-            displayNameInput.value = snippet ? snippet.label : '';
-            codeSnippetInput.value = snippet ? snippet.text : '';
-            formError.classList.remove('visible');
-            formError.textContent = '';
-            dialogOverlay.classList.add('visible');
-            displayNameInput.focus();
-        }
-
-        function closeDialog() {
-            dialogOverlay.classList.remove('visible');
-            editingId = null;
         }
 
         function hideContextMenu() {
             contextMenu.classList.remove('visible');
             contextSnippetId = null;
         }
-
-        function validateForm() {
-            const label = displayNameInput.value.trim();
-            const text = codeSnippetInput.value;
-            if (!label) {
-                formError.textContent = i18n.errorEmptyDisplayName;
-                formError.classList.add('visible');
-                return null;
-            }
-            if (!text) {
-                formError.textContent = i18n.errorEmptyCodeSnippet;
-                formError.classList.add('visible');
-                return null;
-            }
-            return { label, text };
-        }
-
-        document.getElementById('dialog-cancel').addEventListener('click', closeDialog);
-        dialogOverlay.addEventListener('click', (e) => {
-            if (e.target === dialogOverlay) {
-                closeDialog();
-            }
-        });
-
-        dialogConfirm.addEventListener('click', () => {
-            const data = validateForm();
-            if (!data) {
-                return;
-            }
-            if (dialogMode === 'add') {
-                vscode.postMessage({
-                    command: 'addSnippet',
-                    label: data.label,
-                    text: data.text,
-                });
-            } else {
-                vscode.postMessage({
-                    command: 'updateSnippet',
-                    id: editingId,
-                    label: data.label,
-                    text: data.text,
-                });
-            }
-            closeDialog();
-        });
 
         contextMenu.querySelectorAll('.context-menu-item').forEach(item => {
             item.addEventListener('click', () => {
@@ -549,7 +413,7 @@ class CodeSnippetsViewProvider implements vscode.WebviewViewProvider {
                     return;
                 }
                 if (action === 'edit') {
-                    openDialog('edit', snippet);
+                    vscode.postMessage({ command: 'openEditDialog', id: snippet.id });
                 } else if (action === 'delete') {
                     vscode.postMessage({ command: 'deleteSnippet', id: snippet.id });
                 } else if (action === 'pin') {
@@ -561,11 +425,7 @@ class CodeSnippetsViewProvider implements vscode.WebviewViewProvider {
         document.addEventListener('click', () => hideContextMenu());
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-                if (dialogOverlay.classList.contains('visible')) {
-                    closeDialog();
-                } else {
-                    hideContextMenu();
-                }
+                hideContextMenu();
             }
         });
 
