@@ -136,100 +136,104 @@ class FilterViewProvider implements vscode.WebviewViewProvider {
             padding: 0;
         }
         html {
-            height: auto;
+            background: transparent;
+            overflow-x: hidden;
         }
         body {
-            padding: 0;
+            background: transparent;
+            pointer-events: none;
+            overflow-x: hidden;
             font-family: var(--vscode-font-family);
             font-size: 12px;
             color: var(--vscode-foreground);
-            background-color: var(--vscode-sideBar-background);
             line-height: 1;
         }
         .filter-container {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            width: 100%;
-        }
-        .input-container {
-            display: flex;
-            gap: 2px;
+            pointer-events: auto;
+            display: grid;
+            grid-template-columns: max-content 1fr;
+            gap: 6px 8px;
             align-items: center;
-            width: 100%;
-            padding: 3px 4px;
+            padding: 4px 16px 6px 8px;
+            overflow-x: hidden;
+            max-width: 100%;
         }
         .filter-label {
             font-size: 10px;
             color: var(--vscode-descriptionForeground);
-            flex-shrink: 0;
-            min-width: 45px;
+            white-space: nowrap;
         }
-        .search-icon {
-            font-size: 11px;
-            flex-shrink: 0;
+        .input-cell {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            min-width: 0;
         }
         input {
             flex: 1;
-            padding: 1px 4px;
+            min-width: 0;
+            padding: 2px 4px;
             border: 1px solid var(--vscode-input-border);
             background-color: var(--vscode-input-background);
             color: var(--vscode-input-foreground);
             font-family: inherit;
             font-size: inherit;
             border-radius: 2px;
-            min-width: 0;
             line-height: 1.4;
         }
         input:focus {
-            outline: 1px solid var(--vscode-focusBorder);
-            outline-offset: -1px;
+            outline: none;
+            border-color: var(--vscode-focusBorder);
         }
         input::placeholder {
             color: var(--vscode-input-placeholderForeground);
         }
         .clear-btn {
-            padding: 1px 4px;
+            padding: 0;
             border: none;
-            background-color: transparent;
+            background: transparent;
             color: var(--vscode-descriptionForeground);
             cursor: pointer;
             border-radius: 2px;
             font-family: inherit;
             font-size: 10px;
+            line-height: 1;
+            width: 14px;
+            height: 14px;
             flex-shrink: 0;
             display: none;
-            line-height: 1.4;
         }
         .clear-btn:hover {
             background-color: var(--vscode-toolbar-hoverBackground);
         }
         .clear-btn.visible {
-            display: block;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
     </style>
 </head>
 <body>
     <div class="filter-container">
-        <div class="input-container">
-            <span class="filter-label">${labelConnection}</span>
-            <input type="text" id="connectionFilterInput" placeholder="${placeholderConnection}" autocomplete="off">
-            <button id="connectionClearBtn" class="clear-btn">✕</button>
+        <span class="filter-label">${labelConnection}</span>
+        <div class="input-cell">
+            <input type="text" id="connectionFilterInput" placeholder="${placeholderConnection}" autocomplete="off" spellcheck="false">
+            <button id="connectionClearBtn" class="clear-btn" type="button">✕</button>
         </div>
-        <div class="input-container">
-            <span class="filter-label">${labelDatabase}</span>
-            <input type="text" id="databaseFilterInput" placeholder="${placeholderDatabase}" autocomplete="off">
-            <button id="databaseClearBtn" class="clear-btn">✕</button>
+        <span class="filter-label">${labelDatabase}</span>
+        <div class="input-cell">
+            <input type="text" id="databaseFilterInput" placeholder="${placeholderDatabase}" autocomplete="off" spellcheck="false">
+            <button id="databaseClearBtn" class="clear-btn" type="button">✕</button>
         </div>
-        <div class="input-container">
-            <span class="filter-label">${labelTable}</span>
-            <input type="text" id="tableFilterInput" placeholder="${placeholderTable}" autocomplete="off">
-            <button id="tableClearBtn" class="clear-btn">✕</button>
+        <span class="filter-label">${labelTable}</span>
+        <div class="input-cell">
+            <input type="text" id="tableFilterInput" placeholder="${placeholderTable}" autocomplete="off" spellcheck="false">
+            <button id="tableClearBtn" class="clear-btn" type="button">✕</button>
         </div>
-        <div class="input-container">
-            <span class="filter-label">${labelColumn}</span>
-            <input type="text" id="columnFilterInput" placeholder="${placeholderColumn}" autocomplete="off">
-            <button id="columnClearBtn" class="clear-btn">✕</button>
+        <span class="filter-label">${labelColumn}</span>
+        <div class="input-cell">
+            <input type="text" id="columnFilterInput" placeholder="${placeholderColumn}" autocomplete="off" spellcheck="false">
+            <button id="columnClearBtn" class="clear-btn" type="button">✕</button>
         </div>
     </div>
 
