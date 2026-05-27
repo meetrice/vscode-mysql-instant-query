@@ -3,9 +3,11 @@ import * as vscode from "vscode";
 import { I18n } from "../common/i18n";
 import { INode } from "./INode";
 import { AddConnectionNode } from "./addConnectionNode";
+import { NewQueryNode } from "./newQueryNode";
 
 export class RootNode implements INode {
     private readonly addConnectionNode = new AddConnectionNode();
+    private readonly newQueryNode = new NewQueryNode();
 
     constructor(private readonly getConnectionNodes: () => Promise<INode[]>) {}
 
@@ -22,6 +24,6 @@ export class RootNode implements INode {
 
     public async getChildren(): Promise<INode[]> {
         const connections = await this.getConnectionNodes();
-        return [this.addConnectionNode, ...connections];
+        return [this.newQueryNode, this.addConnectionNode, ...connections];
     }
 }

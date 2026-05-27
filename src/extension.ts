@@ -180,6 +180,10 @@ export function activate(context: vscode.ExtensionContext) {
         mysqlTreeDataProvider.addConnection();
     }));
 
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.newQueryFromTree", () => {
+        Utility.createSQLTextDocument("");
+    }));
+
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.editConnection", (connectionNode: ConnectionNode) => {
         mysqlTreeDataProvider.editConnection(connectionNode);
     }));

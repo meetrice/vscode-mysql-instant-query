@@ -11,6 +11,7 @@
     "commands.mysqlInstantQuery.editConnection.title": "编辑连接",
     "commands.mysqlInstantQuery.runQuery.title": "运行 MySQL 查询",
     "commands.mysqlInstantQuery.newQuery.title": "新建查询",
+    "commands.mysqlInstantQuery.newQueryFromTree.title": "新建查询",
     "commands.mysqlInstantQuery.selectDatabase.title": "选择数据库",
     "commands.mysqlInstantQuery.selectTop1000.title": "选择前 100 条",
     "commands.mysqlInstantQuery.copyTableName.title": "复制名称",

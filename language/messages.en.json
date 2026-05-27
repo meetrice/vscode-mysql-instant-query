@@ -51,6 +51,7 @@
     "selectFilter.placeholder": "filter value",
     "tree.rootDatabases": "Database",
     "tree.addConnection": "Add Connection",
+    "tree.newQuery": "New Query",
     "connection.panel.addTitle": "Add Database Connection",
     "connection.panel.editTitle": "Edit Database Connection",
     "connection.driver": "Database Type",
