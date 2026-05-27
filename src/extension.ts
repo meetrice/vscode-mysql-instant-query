@@ -16,6 +16,7 @@ import { SqlResultWebView } from "./sqlResultWebView";
 import { RunNowCodeLensProvider } from "./runButtonProvider";
 import { SqlStatementConnectionManager } from "./sqlStatementConnectionManager";
 import { TableCompletionProvider } from "./tableCompletionProvider";
+import { ColumnCompletionProvider, registerColumnCompletionFeatures } from "./columnCompletionProvider";
 import { ErdWebView } from "./erdWebView";
 import { Constants } from "./common/constants";
 import { DbDriver } from "./common/dbDriver";
@@ -104,6 +105,39 @@ export function activate(context: vscode.ExtensionContext) {
             tableCompletionProvider,
         )
     );
+
+    // Register completion provider for SQL editor (column suggestions after SELECT ... FROM table)
+    const columnCompletionProvider = new ColumnCompletionProvider();
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+            { language: 'sql', scheme: 'file' },
+            columnCompletionProvider,
+            ' ',
+            ',',
+        )
+    );
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+            { language: 'sql', scheme: 'untitled' },
+            columnCompletionProvider,
+            ' ',
+            ',',
+        )
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "mysqlInstantQuery.selectColumnsMultiPick",
+            async (documentUri: string, rangeData: number[], tableName: string, database: string) => {
+                await ColumnCompletionProvider.showColumnMultiSelectQuickPickForRange(
+                    vscode.Uri.parse(documentUri),
+                    rangeData,
+                    tableName,
+                    database,
+                );
+            },
+        ),
+    );
+    registerColumnCompletionFeatures(context);
 
     // Track last clicked node and time for double-click detection
     let lastClickedNode: { node: INode, timestamp: number } | undefined = undefined;
