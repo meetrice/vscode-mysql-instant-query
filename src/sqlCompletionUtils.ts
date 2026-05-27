@@ -55,6 +55,10 @@ export function formatSqlIdentifier(name: string): string {
     return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name) ? name : `\`${name}\``;
 }
 
+export function formatSelectListColumnText(columnNames: string[]): string {
+    return ` ${columnNames.map(formatSqlIdentifier).join(", ")} `;
+}
+
 export function parseTableFromFromClause(fromClause: string): string | undefined {
     const match = fromClause.match(/\bFROM\b\s+((?:`[^`]+`|\w+)(?:\.(?:`[^`]+`|\w+))?)/i);
     if (!match) {

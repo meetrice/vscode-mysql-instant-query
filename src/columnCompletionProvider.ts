@@ -3,6 +3,7 @@ import { DbDriver } from "./common/dbDriver";
 import { IConnection } from "./model/connection";
 import {
     formatSqlIdentifier,
+    formatSelectListColumnText,
     getConnectionCacheKey,
     getConnectionForPosition,
     parseSelectFromContext,
@@ -12,7 +13,45 @@ import {
 const CACHE_TTL = 60000;
 const MULTI_SELECT_LABEL = "$(list-selection) 多选字段…";
 
+interface ColumnQuickPickItem extends vscode.QuickPickItem {
+    columnName: string;
+    searchText: string;
+}
+
 const columnListCache = new Map<string, { columns: any[]; timestamp: number }>();
+
+let activeColumnQuickPick: vscode.QuickPick<ColumnQuickPickItem> | undefined;
+let suppressColumnCompletionUntil = 0;
+
+function suppressColumnCompletion(durationMs = 1000): void {
+    suppressColumnCompletionUntil = Date.now() + durationMs;
+}
+
+function isColumnCompletionSuppressed(): boolean {
+    return Date.now() < suppressColumnCompletionUntil;
+}
+
+function buildColumnQuickPickItems(columns: any[]): ColumnQuickPickItem[] {
+    return columns.map((column) => {
+        const columnName = column.COLUMN_NAME as string;
+        const comment = (column.COLUMN_COMMENT || "").trim();
+        const columnType = (column.COLUMN_TYPE || "").trim();
+        return {
+            label: columnName,
+            description: comment || undefined,
+            columnName,
+            searchText: [columnName, comment, columnType].filter(Boolean).join(" "),
+        };
+    });
+}
+
+function getFilteredQuickPickItems(items: ColumnQuickPickItem[], filterValue: string): ColumnQuickPickItem[] {
+    const keyword = filterValue.trim().toLowerCase();
+    if (!keyword) {
+        return items;
+    }
+    return items.filter((item) => item.searchText.toLowerCase().includes(keyword));
+}
 
 async function getColumnList(connection: IConnection, tableName: string): Promise<any[]> {
     const key = `${getConnectionCacheKey(connection)}|${tableName}`;
@@ -52,8 +91,8 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
             return [];
         }
 
-        if (context.triggerKind === vscode.CompletionTriggerKind.Invoke) {
-            void this.showColumnMultiSelectQuickPick(document, selectContext, columns);
+        if (context.triggerKind === vscode.CompletionTriggerKind.Invoke && !isColumnCompletionSuppressed()) {
+            this.showColumnMultiSelectQuickPick(document, selectContext, columns, selectContext.partialColumn);
             return [];
         }
 
@@ -126,43 +165,77 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
             hasExistingColumns: false,
             columnInsertPrefix: "",
         };
-        await provider.showColumnMultiSelectQuickPick(document, selectContext, columns, partialFilter);
+        provider.showColumnMultiSelectQuickPick(document, selectContext, columns, partialFilter);
     }
 
-    private async showColumnMultiSelectQuickPick(
+    private showColumnMultiSelectQuickPick(
         document: vscode.TextDocument,
         selectContext: SelectFromContext,
         columns: any[],
         initialFilter = selectContext.partialColumn,
-    ): Promise<void> {
-        const quickPick = vscode.window.createQuickPick<vscode.QuickPickItem>();
+    ): void {
+        if (activeColumnQuickPick) {
+            return;
+        }
+
+        const allItems = buildColumnQuickPickItems(columns);
+        const quickPick = vscode.window.createQuickPick<ColumnQuickPickItem>();
+        activeColumnQuickPick = quickPick;
+
         quickPick.canSelectMany = true;
         quickPick.matchOnDescription = true;
-        quickPick.matchOnDetail = true;
-        quickPick.placeholder = "选择字段（可多选，Enter 确认）";
-        quickPick.items = columns.map((column) => ({
-            label: column.COLUMN_NAME,
-            description: column.COLUMN_TYPE || undefined,
-            detail: column.COLUMN_COMMENT || undefined,
-        }));
+        quickPick.placeholder = `选择字段 · ${selectContext.tableName}（可多选，Enter 确认）`;
+        quickPick.items = allItems;
+        quickPick.buttons = [
+            { iconPath: new vscode.ThemeIcon("checklist"), tooltip: "全选" },
+            { iconPath: new vscode.ThemeIcon("clear-all"), tooltip: "取消全选" },
+        ];
 
         if (initialFilter) {
             quickPick.value = initialFilter;
         }
 
-        quickPick.onDidAccept(async () => {
-            const selectedNames = quickPick.selectedItems.map((item) => item.label);
-            quickPick.hide();
-            if (selectedNames.length === 0) {
+        quickPick.onDidTriggerButton((button) => {
+            const filteredItems = getFilteredQuickPickItems(allItems, quickPick.value);
+            if (button.tooltip === "全选") {
+                const selected = new Map(quickPick.selectedItems.map((item) => [item.columnName, item]));
+                filteredItems.forEach((item) => selected.set(item.columnName, item));
+                quickPick.selectedItems = Array.from(selected.values());
                 return;
             }
+            if (button.tooltip === "取消全选") {
+                if (quickPick.value.trim()) {
+                    const filteredNames = new Set(filteredItems.map((item) => item.columnName));
+                    quickPick.selectedItems = quickPick.selectedItems.filter((item) => !filteredNames.has(item.columnName));
+                    return;
+                }
+                quickPick.selectedItems = [];
+            }
+        });
+
+        quickPick.onDidHide(() => {
+            if (activeColumnQuickPick === quickPick) {
+                activeColumnQuickPick = undefined;
+            }
+            quickPick.dispose();
+        });
+
+        quickPick.onDidAccept(async () => {
+            const selectedNames = quickPick.selectedItems.map((item) => item.columnName);
+            if (selectedNames.length === 0) {
+                quickPick.hide();
+                return;
+            }
+
+            suppressColumnCompletion();
+            quickPick.hide();
 
             const editor = vscode.window.activeTextEditor;
             if (!editor || editor.document.uri.toString() !== document.uri.toString()) {
                 return;
             }
 
-            const columnText = selectedNames.map((name) => formatSqlIdentifier(name)).join(", ");
+            const columnText = formatSelectListColumnText(selectedNames);
             await editor.edit((editBuilder) => {
                 editBuilder.replace(selectContext.selectListRange, columnText);
             });
@@ -189,7 +262,7 @@ export function registerColumnCompletionFeatures(context: vscode.ExtensionContex
             }
 
             const change = event.contentChanges.find((item) => item.text.length > 0);
-            if (!change) {
+            if (!change || isColumnCompletionSuppressed()) {
                 return;
             }
 
