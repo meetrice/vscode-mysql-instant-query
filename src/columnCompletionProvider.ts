@@ -16,6 +16,7 @@ import {
 const CACHE_TTL = 60000;
 const MULTI_SELECT_LABEL = "$(list-selection) 多选字段…";
 const FILTER_VALUE_BUTTON = "设置筛选值";
+const DOUBLE_CLICK_MS = 450;
 
 interface ColumnQuickPickItem extends vscode.QuickPickItem {
     columnName: string;
@@ -205,6 +206,19 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
         let suppressItemEvents = false;
         let promptingFilter = false;
         let suppressAcceptUntil = 0;
+        let lastActiveTap: { columnName: string; time: number } | undefined;
+        let lastPointerSelectionAt = 0;
+
+        const ensureItemSelected = (item: ColumnQuickPickItem) => {
+            if (quickPick.selectedItems.some((selected) => selected.columnName === item.columnName)) {
+                return;
+            }
+            suppressItemEvents = true;
+            const selected = new Map(quickPick.selectedItems.map((entry) => [entry.columnName, entry]));
+            selected.set(item.columnName, item);
+            quickPick.selectedItems = quickPick.items.filter((entry) => selected.has(entry.columnName));
+            suppressItemEvents = false;
+        };
 
         const refreshItems = () => {
             suppressItemEvents = true;
@@ -275,7 +289,7 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
         quickPick.canSelectMany = true;
         quickPick.matchOnDescription = true;
         quickPick.ignoreFocusOut = true;
-        quickPick.placeholder = `搜索字段 · ${selectContext.tableName}（勾选字段；高亮行后点「${FILTER_VALUE_BUTTON}」输入筛选值，Enter 确认）`;
+        quickPick.placeholder = `搜索字段 · ${selectContext.tableName}（单击勾选；双击输入筛选值；Enter 确认）`;
         quickPick.items = allItems;
         quickPick.buttons = [
             { iconPath: new vscode.ThemeIcon("checklist"), tooltip: "全选" },
@@ -286,6 +300,39 @@ export class ColumnCompletionProvider implements vscode.CompletionItemProvider {
         if (initialFilter) {
             quickPick.value = initialFilter;
         }
+
+        quickPick.onDidChangeSelection(() => {
+            if (suppressItemEvents || promptingFilter) {
+                return;
+            }
+            lastPointerSelectionAt = Date.now();
+        });
+
+        quickPick.onDidChangeActive(async (items) => {
+            if (suppressItemEvents || promptingFilter) {
+                return;
+            }
+
+            const active = items[0];
+            if (!active) {
+                return;
+            }
+
+            const now = Date.now();
+            const isDoubleClick = lastActiveTap?.columnName === active.columnName
+                && now - lastActiveTap.time <= DOUBLE_CLICK_MS
+                && now - lastPointerSelectionAt <= DOUBLE_CLICK_MS;
+
+            if (isDoubleClick) {
+                lastActiveTap = undefined;
+                const latestItem = quickPick.items.find((item) => item.columnName === active.columnName) || active;
+                ensureItemSelected(latestItem);
+                await promptFilterValue(latestItem);
+                return;
+            }
+
+            lastActiveTap = { columnName: active.columnName, time: now };
+        });
 
         quickPick.onDidTriggerButton(async (button) => {
             if (button.tooltip === FILTER_VALUE_BUTTON) {
