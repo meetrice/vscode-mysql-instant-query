@@ -58,6 +58,19 @@ interface TextLabelData {
     fontStyle?: string;
 }
 
+interface VectorShapeData {
+    id: string;
+    type: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    x2?: number;
+    y2?: number;
+    stroke?: string;
+    strokeWidth?: number;
+}
+
 interface MerdFileData {
     version: string;
     canvas: {
@@ -71,6 +84,7 @@ interface MerdFileData {
     relationships: Relationship[];
     comments?: CommentData[];
     textLabels?: TextLabelData[];
+    vectorShapes?: VectorShapeData[];
 }
 
 function escapeSqlString(value: string): string {
@@ -107,6 +121,7 @@ export class ErdWebView {
     public static relationships: Relationship[] = [];
     public static comments: CommentData[] = [];
     public static textLabels: TextLabelData[] = [];
+    public static vectorShapes: VectorShapeData[] = [];
     private static currentPanel: vscode.WebviewPanel | null = null;
 
     // Helper methods for external access
@@ -115,6 +130,7 @@ export class ErdWebView {
         ErdWebView.relationships = [];
         ErdWebView.comments = [];
         ErdWebView.textLabels = [];
+        ErdWebView.vectorShapes = [];
     }
 
     public static loadTable(table: TableData) {
@@ -230,6 +246,9 @@ export class ErdWebView {
                 if (message.textLabels) {
                     ErdWebView.textLabels = message.textLabels;
                 }
+                if (message.vectorShapes) {
+                    ErdWebView.vectorShapes = message.vectorShapes;
+                }
                 await ErdWebView.saveToFile();
                 break;
             case 'open':
@@ -292,6 +311,7 @@ export class ErdWebView {
         ErdWebView.relationships = [];
         ErdWebView.comments = [];
         ErdWebView.textLabels = [];
+        ErdWebView.vectorShapes = [];
 
         // Get or create panel
         let panel = Array.from(ErdWebView.panels.values())[0];
@@ -682,7 +702,8 @@ export class ErdWebView {
     }
 
     public static async saveToFile() {
-        if (ErdWebView.tableData.size === 0 && ErdWebView.comments.length === 0 && ErdWebView.textLabels.length === 0) {
+        if (ErdWebView.tableData.size === 0 && ErdWebView.comments.length === 0 &&
+            ErdWebView.textLabels.length === 0 && ErdWebView.vectorShapes.length === 0) {
             vscode.window.showWarningMessage("No ERD data to save");
             return;
         }
@@ -724,6 +745,11 @@ export class ErdWebView {
                 maxY = Math.max(maxY, label.y + 40);
             });
 
+            ErdWebView.vectorShapes.forEach(shape => {
+                maxX = Math.max(maxX, shape.x + (shape.width || 80));
+                maxY = Math.max(maxY, shape.y + (shape.height || 80));
+            });
+
             const merdData: MerdFileData = {
                 version: "1.0",
                 canvas: {
@@ -736,7 +762,8 @@ export class ErdWebView {
                 tables: tables,
                 relationships: ErdWebView.relationships,
                 comments: ErdWebView.comments,
-                textLabels: ErdWebView.textLabels
+                textLabels: ErdWebView.textLabels,
+                vectorShapes: ErdWebView.vectorShapes
             };
 
             const json = JSON.stringify(merdData, null, 2);
@@ -876,6 +903,7 @@ export class ErdWebView {
             // Load comments
             ErdWebView.comments = merdData.comments || [];
             ErdWebView.textLabels = merdData.textLabels || [];
+            ErdWebView.vectorShapes = merdData.vectorShapes || [];
 
             // Create or reuse panel
             let panel = Array.from(ErdWebView.panels.values())[0];
@@ -975,11 +1003,10 @@ export class ErdWebView {
             user-select: text;
         }
         .table-node:hover {
-            box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.3);
+            box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.28);
         }
         .table-node.selected {
-            box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.5);
-            border-color: #007acc;
+            border-color: var(--vscode-focusBorder, #007acc);
         }
         .table-node.main-table {
             border-color: #007acc;
@@ -1535,6 +1562,99 @@ export class ErdWebView {
         .toolbar-dropdown-item:hover {
             background-color: var(--vscode-toolbar-hoverBackground);
         }
+        .vector-shape-menu {
+            min-width: 220px;
+            padding: 6px;
+        }
+        .vector-shape-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2px;
+        }
+        .vector-shape-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            padding: 8px 10px;
+            border: none;
+            border-radius: 4px;
+            background: transparent;
+            color: var(--vscode-editor-foreground);
+            font-size: 12px;
+            text-align: left;
+            cursor: pointer;
+        }
+        .vector-shape-menu-item:hover {
+            background-color: var(--vscode-toolbar-hoverBackground);
+        }
+        .vector-shape-menu-item.active {
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+        .vector-shape-menu-icon {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .vector-shape-menu-divider {
+            grid-column: 1 / -1;
+            height: 1px;
+            margin: 4px 2px;
+            background-color: var(--vscode-panel-border);
+        }
+        /* Vector shapes on canvas */
+        .vector-shape-node {
+            position: absolute;
+            cursor: move;
+            z-index: 40;
+            color: var(--vscode-editor-foreground);
+            pointer-events: auto;
+            border-radius: 3px;
+            box-sizing: border-box;
+            border: 1px solid transparent;
+        }
+        .vector-shape-node:hover {
+            box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.28);
+        }
+        .vector-shape-node svg {
+            display: block;
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+        }
+        body.add-vector-mode {
+            cursor: crosshair;
+        }
+        body.add-vector-mode #canvas-container {
+            cursor: crosshair;
+        }
+        body.selection-mode {
+            cursor: default;
+        }
+        body.selection-mode #canvas-container {
+            cursor: default;
+        }
+        .vector-shape-preview {
+            position: absolute;
+            pointer-events: none;
+            z-index: 39;
+            color: var(--vscode-editor-foreground);
+            opacity: 0.7;
+        }
+        .marquee-selection {
+            position: absolute;
+            border: 1px dashed var(--vscode-focusBorder, #007acc);
+            background-color: rgba(0, 122, 204, 0.12);
+            pointer-events: none;
+            z-index: 45;
+            box-sizing: border-box;
+        }
         
         /* Comment sticky notes */
         .comment-node {
@@ -1573,11 +1693,10 @@ export class ErdWebView {
             background-color: #ffb300;
         }
         .comment-node:hover {
-            box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.3);
+            box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.28);
         }
         .comment-node.selected {
-            box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.5);
-            border-color: #ffb300;
+            border-color: var(--vscode-focusBorder, #007acc);
         }
         .comment-textarea {
             width: 100%;
@@ -1655,12 +1774,12 @@ export class ErdWebView {
             word-break: break-word;
             outline: none;
             background: transparent;
-            border: 1px dashed transparent;
-            border-radius: 2px;
+            border: 1px solid transparent;
+            border-radius: 3px;
+            box-sizing: border-box;
         }
-        .text-label-node:hover,
-        .text-label-node.selected {
-            border-color: var(--vscode-focusBorder, #007acc);
+        .text-label-node:hover {
+            box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.28);
         }
         .text-label-node:focus {
             border-color: var(--vscode-focusBorder, #007acc);
@@ -1670,6 +1789,20 @@ export class ErdWebView {
             content: '输入文本...';
             color: var(--vscode-descriptionForeground);
             pointer-events: none;
+        }
+        /* Unified selection highlight for all canvas objects */
+        .table-node.selected,
+        .comment-node.selected,
+        .text-label-node.selected,
+        .vector-shape-node.selected {
+            box-shadow: 0 0 0 2px var(--vscode-focusBorder, #007acc),
+                        0 0 0 5px rgba(0, 122, 204, 0.22),
+                        0 0 14px rgba(0, 122, 204, 0.45);
+        }
+        .text-label-node.selected,
+        .vector-shape-node.selected {
+            border-color: var(--vscode-focusBorder, #007acc);
+            background-color: rgba(0, 122, 204, 0.1);
         }
         /* Text label context menu */
         .text-label-context-menu {
@@ -1932,6 +2065,11 @@ export class ErdWebView {
             <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m16 6-4-4-4 4"/><path d="M12 2v8"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h.01"/><path d="M10 18h.01"/></svg>
             <span>打开</span>
         </button>
+        <div class="toolbar-divider"></div>
+        <button class="toolbar-btn active" id="selectToolBtn" title="选择/框选">
+            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="m13 13 6 6"/></svg>
+            <span>选择</span>
+        </button>
         <button class="toolbar-btn" id="addCommentBtn" title="添加注释">
             <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M7 11h10"/><path d="M7 15h6"/><path d="M7 7h8"/></svg>
             <span>注释</span>
@@ -1940,6 +2078,15 @@ export class ErdWebView {
             <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 16.5a.5.5 0 0 0 .5.5h.5a2 2 0 0 1 0 4H9a2 2 0 0 1 0-4h.5a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5V8a2 2 0 0 1-4 0V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v3a2 2 0 0 1-4 0v-.5a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5Z"/></svg>
             <span>文本</span>
         </button>
+        <div class="toolbar-menu-wrapper">
+            <button class="toolbar-btn" id="vectorShapeBtn" title="添加矢量图形">
+                <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 7a24 24 0 0 1 0 10"/><path d="M4.5 7a24 24 0 0 0 0 10"/><path d="M7 19.5a24 24 0 0 0 10 0"/><path d="M7 4.5a24 24 0 0 1 10 0"/><rect width="5" height="5" x="17" y="17" rx="1"/><rect width="5" height="5" x="17" y="2" rx="1"/><rect width="5" height="5" x="2" y="17" rx="1"/><rect width="5" height="5" x="2" y="2" rx="1"/></svg>
+                <span>矢量</span>
+            </button>
+            <div class="toolbar-dropdown vector-shape-menu" id="vectorShapeMenu">
+                <div class="vector-shape-grid" id="vectorShapeGrid"></div>
+            </div>
+        </div>
         <div class="toolbar-divider"></div>
         <div class="toolbar-menu-wrapper">
             <button class="toolbar-btn" id="exportBtn" title="导出">
@@ -2009,6 +2156,7 @@ export class ErdWebView {
         const relationships = ${JSON.stringify(relationships)};
         let comments = ${JSON.stringify(ErdWebView.comments)};
         let textLabels = ${JSON.stringify(ErdWebView.textLabels)};
+        let vectorShapes = ${JSON.stringify(ErdWebView.vectorShapes)};
 
         let zoom = 1;
         let selectedTable = null;
@@ -2020,6 +2168,158 @@ export class ErdWebView {
         let isPanning = false;
         let panStartX = 0;
         let panStartY = 0;
+        let isMarqueeSelecting = false;
+        let marqueeStart = null;
+        let marqueeEl = null;
+        let marqueeJustFinished = false;
+        let selectionModeActive = true;
+
+        function deactivateSelectionMode() {
+            selectionModeActive = false;
+            const selectBtn = document.getElementById('selectToolBtn');
+            if (selectBtn) {
+                selectBtn.classList.remove('active');
+            }
+            document.body.classList.remove('selection-mode');
+        }
+
+        function activateSelectionMode() {
+            selectionModeActive = true;
+            const selectBtn = document.getElementById('selectToolBtn');
+            if (selectBtn) {
+                selectBtn.classList.add('active');
+            }
+            document.body.classList.add('selection-mode');
+            addTextLabelMode = false;
+            if (addTextLabelBtn) {
+                addTextLabelBtn.classList.remove('active');
+            }
+            document.body.classList.remove('add-text-mode');
+            if (addVectorShapeType !== null) {
+                addVectorShapeType = null;
+                pendingVectorLineStart = null;
+                isDrawingVectorRect = false;
+                pendingVectorRectStart = null;
+                if (typeof clearVectorShapePreview === 'function') {
+                    clearVectorShapePreview();
+                }
+                if (vectorShapeBtn) {
+                    vectorShapeBtn.classList.remove('active');
+                }
+                document.body.classList.remove('add-vector-mode');
+                if (vectorShapeGrid) {
+                    vectorShapeGrid.querySelectorAll('.vector-shape-menu-item').forEach(function(item) {
+                        item.classList.remove('active');
+                    });
+                }
+            }
+            const vectorMenu = document.getElementById('vectorShapeMenu');
+            if (vectorMenu) {
+                vectorMenu.classList.remove('show');
+            }
+        }
+
+        function canvasCoordsFromEvent(e) {
+            const container = document.getElementById('canvas-container');
+            const rect = container.getBoundingClientRect();
+            return {
+                x: (e.clientX - rect.left - panX) / zoom,
+                y: (e.clientY - rect.top - panY) / zoom
+            };
+        }
+
+        function getBoxBounds(x1, y1, x2, y2) {
+            const x = Math.min(x1, x2);
+            const y = Math.min(y1, y2);
+            return {
+                x: x,
+                y: y,
+                width: Math.max(Math.abs(x2 - x1), 1),
+                height: Math.max(Math.abs(y2 - y1), 1)
+            };
+        }
+
+        function isCanvasBackground(target) {
+            if (!target) {
+                return false;
+            }
+            return target.id === 'canvas-container' ||
+                target.id === 'canvas' ||
+                target.id === 'relationships';
+        }
+
+        function clearMarqueeOverlay() {
+            if (marqueeEl) {
+                marqueeEl.remove();
+                marqueeEl = null;
+            }
+        }
+
+        function clearAllObjectSelections() {
+            document.querySelectorAll('.table-node.selected, .comment-node.selected, .text-label-node.selected, .vector-shape-node.selected').forEach(function(el) {
+                el.classList.remove('selected');
+            });
+            if (selectedTable) {
+                selectedTable.classList.remove('selected');
+                selectedTable = null;
+            }
+            document.querySelectorAll('.relationship-line').forEach(function(line) {
+                line.classList.remove('selected');
+            });
+            document.querySelectorAll('.relationship-hit-area').forEach(function(hitArea) {
+                hitArea.classList.remove('selected');
+            });
+            document.querySelectorAll('.relationship-arrow').forEach(function(arrow) {
+                arrow.classList.remove('selected');
+            });
+            document.querySelectorAll('.relationship-start-marker').forEach(function(marker) {
+                marker.classList.remove('selected');
+            });
+            document.querySelectorAll('.relationship-selection-box').forEach(function(box) {
+                box.remove();
+            });
+        }
+
+        function rectsIntersect(a, b) {
+            return a.x < b.x + b.width &&
+                a.x + a.width > b.x &&
+                a.y < b.y + b.height &&
+                a.y + a.height > b.y;
+        }
+
+        function applyMarqueeSelection(box) {
+            clearAllObjectSelections();
+            let lastTable = null;
+            document.querySelectorAll('.table-node, .comment-node, .text-label-node, .vector-shape-node').forEach(function(el) {
+                const itemRect = {
+                    x: parseFloat(el.style.left) || 0,
+                    y: parseFloat(el.style.top) || 0,
+                    width: el.offsetWidth,
+                    height: el.offsetHeight
+                };
+                if (rectsIntersect(box, itemRect)) {
+                    el.classList.add('selected');
+                    if (el.classList.contains('table-node')) {
+                        lastTable = el;
+                    }
+                }
+            });
+            selectedTable = lastTable;
+        }
+
+        function updateMarqueePreview(startX, startY, endX, endY) {
+            const box = getBoxBounds(startX, startY, endX, endY);
+            if (!marqueeEl) {
+                marqueeEl = document.createElement('div');
+                marqueeEl.className = 'marquee-selection';
+                document.getElementById('canvas').appendChild(marqueeEl);
+            }
+            marqueeEl.style.left = box.x + 'px';
+            marqueeEl.style.top = box.y + 'px';
+            marqueeEl.style.width = box.width + 'px';
+            marqueeEl.style.height = box.height + 'px';
+            return box;
+        }
 
         function updateZoom() {
             updateCanvasTransform();
@@ -2040,7 +2340,7 @@ export class ErdWebView {
             let maxX = -Infinity;
             let maxY = -Infinity;
 
-            document.querySelectorAll('.table-node, .comment-node, .text-label-node').forEach(function(el) {
+            document.querySelectorAll('.table-node, .comment-node, .text-label-node, .vector-shape-node').forEach(function(el) {
                 const x = parseFloat(el.style.left) || 0;
                 const y = parseFloat(el.style.top) || 0;
                 const w = el.offsetWidth;
@@ -2094,24 +2394,40 @@ export class ErdWebView {
             updateZoom();
         }
 
-        // Initialize canvas panning
+        // Initialize canvas panning and marquee selection
         function initCanvasPanning() {
             const container = document.getElementById('canvas-container');
 
             container.addEventListener('mousedown', function(e) {
-                if (addTextLabelMode) {
+                if (addTextLabelMode || addVectorShapeType || !selectionModeActive) {
                     return;
                 }
-                // Only pan if clicking on background, not on tables or controls
-                if (e.target === container || e.target === document.getElementById('canvas')) {
+                const onBackground = isCanvasBackground(e.target);
+                if (!onBackground) {
+                    return;
+                }
+                if (e.button === 1) {
                     isPanning = true;
                     panStartX = e.clientX - panX;
                     panStartY = e.clientY - panY;
                     document.body.classList.add('panning');
+                    e.preventDefault();
+                    return;
                 }
+                if (e.button !== 0) {
+                    return;
+                }
+                isMarqueeSelecting = true;
+                marqueeStart = canvasCoordsFromEvent(e);
+                e.preventDefault();
             });
 
             document.addEventListener('mousemove', function(e) {
+                if (isMarqueeSelecting && marqueeStart) {
+                    const coords = canvasCoordsFromEvent(e);
+                    updateMarqueePreview(marqueeStart.x, marqueeStart.y, coords.x, coords.y);
+                    return;
+                }
                 if (isPanning) {
                     panX = e.clientX - panStartX;
                     panY = e.clientY - panStartY;
@@ -2122,7 +2438,24 @@ export class ErdWebView {
                 }
             });
 
-            document.addEventListener('mouseup', function() {
+            document.addEventListener('mouseup', function(e) {
+                if (isMarqueeSelecting && marqueeStart) {
+                    const coords = canvasCoordsFromEvent(e);
+                    const box = getBoxBounds(marqueeStart.x, marqueeStart.y, coords.x, coords.y);
+                    if (box.width >= 4 && box.height >= 4) {
+                        applyMarqueeSelection(box);
+                    } else {
+                        clearAllObjectSelections();
+                    }
+                    clearMarqueeOverlay();
+                    isMarqueeSelecting = false;
+                    marqueeStart = null;
+                    marqueeJustFinished = true;
+                    setTimeout(function() {
+                        marqueeJustFinished = false;
+                    }, 0);
+                    return;
+                }
                 if (isPanning) {
                     isPanning = false;
                     document.body.classList.remove('panning');
@@ -2254,14 +2587,15 @@ export class ErdWebView {
                 });
             });
 
-            console.log('[Save Button] Sending data to extension:', tablesData, commentsData, textLabelsData);
+            const vectorShapesData = collectVectorShapesData();
 
             vscode.postMessage({
                 command: 'save',
                 relationships: relationships,
                 tables: tablesData,
                 comments: commentsData,
-                textLabels: textLabelsData
+                textLabels: textLabelsData,
+                vectorShapes: vectorShapesData
             });
         });
 
@@ -2340,20 +2674,17 @@ export class ErdWebView {
             addTextLabelMode = enabled;
             addTextLabelBtn.classList.toggle('active', enabled);
             document.body.classList.toggle('add-text-mode', enabled);
+            if (enabled) {
+                deactivateSelectionMode();
+                if (addVectorShapeType !== null) {
+                    setAddVectorShapeType(null, true);
+                }
+            }
         }
 
         addTextLabelBtn.addEventListener('click', function() {
             setAddTextLabelMode(!addTextLabelMode);
         });
-
-        function canvasCoordsFromEvent(e) {
-            const container = document.getElementById('canvas-container');
-            const rect = container.getBoundingClientRect();
-            return {
-                x: (e.clientX - rect.left - panX) / zoom,
-                y: (e.clientY - rect.top - panY) / zoom
-            };
-        }
 
         function createTextLabel(x, y, options) {
             options = options || {};
@@ -2704,6 +3035,601 @@ export class ErdWebView {
         }
 
         document.querySelectorAll('.text-label-node').forEach(initTextLabelEvents);
+        let addVectorShapeType = null;
+        let pendingVectorLineStart = null;
+        let isDrawingVectorRect = false;
+        let pendingVectorRectStart = null;
+        let vectorShapePreviewEl = null;
+        const vectorShapeBtn = document.getElementById('vectorShapeBtn');
+        const vectorShapeMenu = document.getElementById('vectorShapeMenu');
+        const vectorShapeGrid = document.getElementById('vectorShapeGrid');
+
+        const VECTOR_SHAPE_DEFS = [
+            { type: 'line', label: '直线', icon: '<line x1="3" y1="21" x2="21" y2="3"/>' },
+            { type: 'arrow-line', label: '箭头线', icon: '<line x1="3" y1="12" x2="19" y2="12"/><polyline points="14 7 19 12 14 17"/>' },
+            { type: 'curve', label: '曲线', icon: '<path d="M4 18 Q12 4 20 18"/>' },
+            { type: 'rounded-rect', label: '圆角矩形', icon: '<rect x="3" y="5" width="18" height="14" rx="3"/>' },
+            { type: 'circle', label: '圆形', icon: '<circle cx="12" cy="12" r="9"/>' },
+            { type: '_divider', label: '' },
+            { type: 'user', label: '头像', icon: '<circle cx="12" cy="8" r="4"/><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/>' },
+            { type: 'cloud', label: '云', icon: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>' },
+            { type: 'database', label: '数据库', icon: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>' },
+            { type: 'monitor', label: '电脑', icon: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>' },
+            { type: 'smartphone', label: '手机', icon: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>' },
+            { type: 'bot', label: 'AI', icon: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>' }
+        ];
+
+        function isVectorLineType(type) {
+            return type === 'line' || type === 'arrow-line' || type === 'curve';
+        }
+
+        function isVectorRectDrawType(type) {
+            return type === 'rounded-rect';
+        }
+
+        function isVectorIconType(type) {
+            return type === 'user' || type === 'cloud' || type === 'database' ||
+                type === 'monitor' || type === 'smartphone' || type === 'bot';
+        }
+
+        function getVectorLineBounds(x1, y1, x2, y2) {
+            const pad = 6;
+            const minX = Math.min(x1, x2) - pad;
+            const minY = Math.min(y1, y2) - pad;
+            const maxX = Math.max(x1, x2) + pad;
+            const maxY = Math.max(y1, y2) + pad;
+            return {
+                x: minX,
+                y: minY,
+                width: Math.max(maxX - minX, 1),
+                height: Math.max(maxY - minY, 1),
+                lx1: x1 - minX,
+                ly1: y1 - minY,
+                lx2: x2 - minX,
+                ly2: y2 - minY
+            };
+        }
+
+        function buildVectorShapeSvgMarkup(type, shapeId, width, height, lx1, ly1, lx2, ly2) {
+            const sw = 2;
+            const stroke = 'currentColor';
+            if (type === 'line') {
+                return '<line x1="' + lx1 + '" y1="' + ly1 + '" x2="' + lx2 + '" y2="' + ly2 + '" stroke="' + stroke + '" stroke-width="' + sw + '" stroke-linecap="round"/>';
+            }
+            if (type === 'arrow-line') {
+                const markerId = 'arrow-' + shapeId;
+                return '<defs><marker id="' + markerId + '" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="' + stroke + '"/></marker></defs>' +
+                    '<line x1="' + lx1 + '" y1="' + ly1 + '" x2="' + lx2 + '" y2="' + ly2 + '" stroke="' + stroke + '" stroke-width="' + sw + '" stroke-linecap="round" marker-end="url(#' + markerId + ')"/>';
+            }
+            if (type === 'curve') {
+                const cpx = (lx1 + lx2) / 2;
+                const cpy = Math.min(ly1, ly2) - Math.max(20, Math.abs(lx2 - lx1) * 0.35);
+                return '<path d="M ' + lx1 + ' ' + ly1 + ' Q ' + cpx + ' ' + cpy + ' ' + lx2 + ' ' + ly2 + '" fill="none" stroke="' + stroke + '" stroke-width="' + sw + '" stroke-linecap="round"/>';
+            }
+            if (type === 'rounded-rect') {
+                return '<rect x="2" y="2" width="' + Math.max(width - 4, 1) + '" height="' + Math.max(height - 4, 1) + '" rx="8" fill="none" stroke="' + stroke + '" stroke-width="' + sw + '"/>';
+            }
+            if (type === 'circle') {
+                const r = Math.max(Math.min(width, height) / 2 - 2, 1);
+                return '<circle cx="' + (width / 2) + '" cy="' + (height / 2) + '" r="' + r + '" fill="none" stroke="' + stroke + '" stroke-width="' + sw + '"/>';
+            }
+            const iconPaths = {
+                user: '<circle cx="12" cy="8" r="4"/><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/>',
+                cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+                database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>',
+                monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
+                smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
+                bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>'
+            };
+            if (iconPaths[type]) {
+                return iconPaths[type];
+            }
+            return '';
+        }
+
+        function createVectorShapeElement(shape) {
+            const shapeEl = document.createElement('div');
+            shapeEl.className = 'vector-shape-node';
+            shapeEl.dataset.shapeId = shape.id;
+            shapeEl.dataset.shapeType = shape.type;
+            shapeEl.style.left = shape.x + 'px';
+            shapeEl.style.top = shape.y + 'px';
+            shapeEl.style.width = shape.width + 'px';
+            shapeEl.style.height = shape.height + 'px';
+
+            let lx1 = 0;
+            let ly1 = 0;
+            let lx2 = shape.width;
+            let ly2 = shape.height;
+            let vbW = shape.width;
+            let vbH = shape.height;
+            if (isVectorLineType(shape.type) && shape.x2 !== undefined && shape.y2 !== undefined) {
+                const bounds = getVectorLineBounds(shape.x, shape.y, shape.x2, shape.y2);
+                shapeEl.style.left = bounds.x + 'px';
+                shapeEl.style.top = bounds.y + 'px';
+                shapeEl.style.width = bounds.width + 'px';
+                shapeEl.style.height = bounds.height + 'px';
+                lx1 = bounds.lx1;
+                ly1 = bounds.ly1;
+                lx2 = bounds.lx2;
+                ly2 = bounds.ly2;
+                vbW = bounds.width;
+                vbH = bounds.height;
+            }
+
+            const viewBox = isVectorIconType(shape.type) ? '0 0 24 24' : ('0 0 ' + vbW + ' ' + vbH);
+            const preserve = isVectorIconType(shape.type) ? 'xMidYMid meet' : 'none';
+            const inner = buildVectorShapeSvgMarkup(shape.type, shape.id, vbW, vbH, lx1, ly1, lx2, ly2);
+            shapeEl.innerHTML = '<svg viewBox="' + viewBox + '" preserveAspectRatio="' + preserve + '" aria-hidden="true">' + inner + '</svg>';
+            document.getElementById('canvas').appendChild(shapeEl);
+            initVectorShapeEvents(shapeEl);
+            return shapeEl;
+        }
+
+        function addVectorShapeToCanvas(shape) {
+            vectorShapes.push(shape);
+            return createVectorShapeElement(shape);
+        }
+
+        function collectVectorShapesData() {
+            const data = [];
+            document.querySelectorAll('.vector-shape-node').forEach(function(el) {
+                const shapeId = el.dataset.shapeId;
+                const type = el.dataset.shapeType;
+                const left = parseFloat(el.style.left) || 0;
+                const top = parseFloat(el.style.top) || 0;
+                const width = el.offsetWidth;
+                const height = el.offsetHeight;
+                const stored = vectorShapes.find(function(s) { return s.id === shapeId; });
+                if (isVectorLineType(type) && stored && stored.x2 !== undefined && stored.y2 !== undefined) {
+                    const oldBounds = getVectorLineBounds(stored.x, stored.y, stored.x2, stored.y2);
+                    const dx = left - oldBounds.x;
+                    const dy = top - oldBounds.y;
+                    data.push({
+                        id: shapeId,
+                        type: type,
+                        x: stored.x + dx,
+                        y: stored.y + dy,
+                        x2: stored.x2 + dx,
+                        y2: stored.y2 + dy,
+                        width: width,
+                        height: height
+                    });
+                    return;
+                }
+                data.push({
+                    id: shapeId,
+                    type: type,
+                    x: left,
+                    y: top,
+                    width: width,
+                    height: height
+                });
+            });
+            return data;
+        }
+
+        function syncVectorShapePosition(shapeEl) {
+            const shapeId = shapeEl.dataset.shapeId;
+            const shape = vectorShapes.find(function(s) { return s.id === shapeId; });
+            if (!shape) {
+                return;
+            }
+            const left = parseFloat(shapeEl.style.left) || 0;
+            const top = parseFloat(shapeEl.style.top) || 0;
+            const width = shapeEl.offsetWidth;
+            const height = shapeEl.offsetHeight;
+            if (isVectorLineType(shape.type) && shape.x2 !== undefined && shape.y2 !== undefined) {
+                const oldBounds = getVectorLineBounds(shape.x, shape.y, shape.x2, shape.y2);
+                const dx = left - oldBounds.x;
+                const dy = top - oldBounds.y;
+                shape.x += dx;
+                shape.y += dy;
+                shape.x2 += dx;
+                shape.y2 += dy;
+            } else {
+                shape.x = left;
+                shape.y = top;
+            }
+            shape.width = width;
+            shape.height = height;
+        }
+
+        function deleteVectorShape(shapeEl) {
+            if (!shapeEl || !shapeEl.isConnected) {
+                return;
+            }
+            const shapeId = shapeEl.dataset.shapeId;
+            const idx = vectorShapes.findIndex(function(s) { return s.id === shapeId; });
+            if (idx !== -1) {
+                vectorShapes.splice(idx, 1);
+            }
+            shapeEl.remove();
+        }
+
+        function clearVectorShapePreview() {
+            if (vectorShapePreviewEl) {
+                vectorShapePreviewEl.remove();
+                vectorShapePreviewEl = null;
+            }
+        }
+
+        function updateVectorShapePreview(endX, endY) {
+            if (!addVectorShapeType) {
+                return;
+            }
+            let bounds;
+            let lx1 = 0;
+            let ly1 = 0;
+            let lx2 = 0;
+            let ly2 = 0;
+            if (isDrawingVectorRect && pendingVectorRectStart) {
+                bounds = getBoxBounds(pendingVectorRectStart.x, pendingVectorRectStart.y, endX, endY);
+                lx2 = bounds.width;
+                ly2 = bounds.height;
+            } else if (pendingVectorLineStart && isVectorLineType(addVectorShapeType)) {
+                bounds = getVectorLineBounds(
+                    pendingVectorLineStart.x,
+                    pendingVectorLineStart.y,
+                    endX,
+                    endY
+                );
+                lx1 = bounds.lx1;
+                ly1 = bounds.ly1;
+                lx2 = bounds.lx2;
+                ly2 = bounds.ly2;
+            } else {
+                return;
+            }
+            if (!vectorShapePreviewEl) {
+                vectorShapePreviewEl = document.createElement('div');
+                vectorShapePreviewEl.className = 'vector-shape-preview';
+                document.getElementById('canvas').appendChild(vectorShapePreviewEl);
+            }
+            vectorShapePreviewEl.style.left = bounds.x + 'px';
+            vectorShapePreviewEl.style.top = bounds.y + 'px';
+            vectorShapePreviewEl.style.width = bounds.width + 'px';
+            vectorShapePreviewEl.style.height = bounds.height + 'px';
+            const inner = buildVectorShapeSvgMarkup(
+                addVectorShapeType,
+                'preview',
+                bounds.width,
+                bounds.height,
+                lx1,
+                ly1,
+                lx2,
+                ly2
+            );
+            vectorShapePreviewEl.innerHTML = '<svg viewBox="0 0 ' + bounds.width + ' ' + bounds.height + '" preserveAspectRatio="none" aria-hidden="true">' + inner + '</svg>';
+        }
+
+        function placeVectorBoxAt(type, x1, y1, x2, y2) {
+            const bounds = getBoxBounds(x1, y1, x2, y2);
+            if (bounds.width < 8 || bounds.height < 8) {
+                return;
+            }
+            const shape = {
+                id: 'vshape_' + Date.now(),
+                type: type,
+                x: bounds.x,
+                y: bounds.y,
+                width: bounds.width,
+                height: bounds.height
+            };
+            addVectorShapeToCanvas(shape);
+        }
+
+        function placeVectorShapeAt(type, x, y, x2, y2) {
+            const defaultSize = 72;
+            let shape;
+            if (isVectorLineType(type)) {
+                const bounds = getVectorLineBounds(x, y, x2, y2);
+                shape = {
+                    id: 'vshape_' + Date.now(),
+                    type: type,
+                    x: x,
+                    y: y,
+                    x2: x2,
+                    y2: y2,
+                    width: bounds.width,
+                    height: bounds.height
+                };
+            } else {
+                shape = {
+                    id: 'vshape_' + Date.now(),
+                    type: type,
+                    x: x - defaultSize / 2,
+                    y: y - defaultSize / 2,
+                    width: defaultSize,
+                    height: defaultSize
+                };
+            }
+            addVectorShapeToCanvas(shape);
+        }
+
+        function setAddVectorShapeType(type, skipSelectionRestore) {
+            addVectorShapeType = type;
+            pendingVectorLineStart = null;
+            isDrawingVectorRect = false;
+            pendingVectorRectStart = null;
+            clearVectorShapePreview();
+            vectorShapeBtn.classList.toggle('active', !!type);
+            document.body.classList.toggle('add-vector-mode', !!type);
+            vectorShapeGrid.querySelectorAll('.vector-shape-menu-item').forEach(function(item) {
+                item.classList.toggle('active', item.dataset.shapeType === type);
+            });
+            if (type) {
+                deactivateSelectionMode();
+                addTextLabelMode = false;
+                addTextLabelBtn.classList.remove('active');
+                document.body.classList.remove('add-text-mode');
+            } else if (!skipSelectionRestore) {
+                activateSelectionMode();
+            }
+        }
+
+        document.getElementById('selectToolBtn').addEventListener('click', function(e) {
+            e.stopPropagation();
+            activateSelectionMode();
+            vectorShapeMenu.classList.remove('show');
+        });
+
+        vectorShapeBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            vectorShapeMenu.classList.toggle('show');
+            exportMenu.classList.remove('show');
+        });
+
+        VECTOR_SHAPE_DEFS.forEach(function(def) {
+            if (def.type === '_divider') {
+                const divider = document.createElement('div');
+                divider.className = 'vector-shape-menu-divider';
+                vectorShapeGrid.appendChild(divider);
+                return;
+            }
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'vector-shape-menu-item';
+            btn.dataset.shapeType = def.type;
+            btn.innerHTML = '<svg class="vector-shape-menu-icon" viewBox="0 0 24 24" aria-hidden="true">' + def.icon + '</svg><span>' + def.label + '</span>';
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                vectorShapeMenu.classList.remove('show');
+                if (addVectorShapeType === def.type) {
+                    setAddVectorShapeType(null);
+                } else {
+                    setAddVectorShapeType(def.type);
+                }
+            });
+            vectorShapeGrid.appendChild(btn);
+        });
+
+        document.getElementById('canvas-container').addEventListener('mousemove', function(e) {
+            if (isDrawingVectorRect && pendingVectorRectStart) {
+                const coords = canvasCoordsFromEvent(e);
+                updateVectorShapePreview(coords.x, coords.y);
+                return;
+            }
+            if (!pendingVectorLineStart || !addVectorShapeType || !isVectorLineType(addVectorShapeType)) {
+                return;
+            }
+            const coords = canvasCoordsFromEvent(e);
+            updateVectorShapePreview(coords.x, coords.y);
+        });
+
+        document.getElementById('canvas-container').addEventListener('mousedown', function(e) {
+            if (e.button !== 0 || addVectorShapeType !== 'rounded-rect') {
+                return;
+            }
+            if (e.target.closest('.table-node') || e.target.closest('.comment-node') ||
+                e.target.closest('.text-label-node') || e.target.closest('.vector-shape-node') ||
+                e.target.closest('.erd-toolbar') || e.target.closest('.zoom-controls')) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            isDrawingVectorRect = true;
+            pendingVectorRectStart = canvasCoordsFromEvent(e);
+        }, true);
+
+        document.addEventListener('mouseup', function(e) {
+            if (!isDrawingVectorRect || !pendingVectorRectStart || addVectorShapeType !== 'rounded-rect') {
+                return;
+            }
+            const coords = canvasCoordsFromEvent(e);
+            placeVectorBoxAt('rounded-rect', pendingVectorRectStart.x, pendingVectorRectStart.y, coords.x, coords.y);
+            isDrawingVectorRect = false;
+            pendingVectorRectStart = null;
+            clearVectorShapePreview();
+        });
+
+        document.getElementById('canvas-container').addEventListener('click', function(e) {
+            if (!addVectorShapeType || isVectorRectDrawType(addVectorShapeType)) {
+                return;
+            }
+            if (e.target.closest('.table-node') || e.target.closest('.comment-node') ||
+                e.target.closest('.text-label-node') || e.target.closest('.vector-shape-node') ||
+                e.target.closest('.erd-toolbar') || e.target.closest('.zoom-controls')) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            const coords = canvasCoordsFromEvent(e);
+            if (isVectorLineType(addVectorShapeType)) {
+                if (!pendingVectorLineStart) {
+                    pendingVectorLineStart = coords;
+                    return;
+                }
+                placeVectorShapeAt(addVectorShapeType, pendingVectorLineStart.x, pendingVectorLineStart.y, coords.x, coords.y);
+                pendingVectorLineStart = null;
+                clearVectorShapePreview();
+                return;
+            }
+            placeVectorShapeAt(addVectorShapeType, coords.x, coords.y);
+        }, true);
+
+        function initVectorShapeEvents(shapeEl) {
+            let isShapeDragging = false;
+            let shapeDragPending = false;
+            let shapeDragStartX = 0;
+            let shapeDragStartY = 0;
+            let shapeDragStartLeft = 0;
+            let shapeDragStartTop = 0;
+
+            shapeEl.addEventListener('mousedown', function(e) {
+                if (e.button !== 0 || addVectorShapeType) {
+                    return;
+                }
+                e.stopPropagation();
+                shapeDragPending = true;
+                shapeDragStartX = e.clientX;
+                shapeDragStartY = e.clientY;
+                shapeDragStartLeft = parseFloat(shapeEl.style.left) || 0;
+                shapeDragStartTop = parseFloat(shapeEl.style.top) || 0;
+            });
+
+            document.addEventListener('mousemove', function vectorShapeDragMove(e) {
+                if (shapeDragPending && !isShapeDragging) {
+                    const dx = Math.abs(e.clientX - shapeDragStartX);
+                    const dy = Math.abs(e.clientY - shapeDragStartY);
+                    if (dx > 4 || dy > 4) {
+                        isShapeDragging = true;
+                        shapeDragPending = false;
+                        shapeEl.style.zIndex = '1000';
+                        document.body.classList.add('panning');
+                    }
+                }
+                if (!isShapeDragging) {
+                    return;
+                }
+                const deltaX = e.clientX - shapeDragStartX;
+                const deltaY = e.clientY - shapeDragStartY;
+                shapeEl.style.left = ((deltaX / zoom) + shapeDragStartLeft) + 'px';
+                shapeEl.style.top = ((deltaY / zoom) + shapeDragStartTop) + 'px';
+                syncVectorShapePosition(shapeEl);
+            });
+
+            document.addEventListener('mouseup', function vectorShapeDragUp() {
+                shapeDragPending = false;
+                if (isShapeDragging) {
+                    isShapeDragging = false;
+                    shapeEl.style.zIndex = '';
+                    document.body.classList.remove('panning');
+                }
+            });
+
+            shapeEl.addEventListener('click', function(e) {
+                e.stopPropagation();
+                document.querySelectorAll('.vector-shape-node').forEach(function(node) {
+                    node.classList.remove('selected');
+                });
+                shapeEl.classList.add('selected');
+            });
+        }
+
+        function deleteTableElement(tableEl) {
+            const tableName = tableEl.dataset.table;
+            if (!tableName) {
+                return;
+            }
+            for (let i = relationships.length - 1; i >= 0; i--) {
+                if (relationships[i].fromTable === tableName || relationships[i].toTable === tableName) {
+                    relationships.splice(i, 1);
+                }
+            }
+            const tableIndex = tables.findIndex(function(t) { return t.tableName === tableName; });
+            if (tableIndex !== -1) {
+                tables.splice(tableIndex, 1);
+            }
+            tableEl.remove();
+        }
+
+        function deleteCommentElement(commentEl) {
+            const commentId = commentEl.dataset.commentId;
+            const commentIndex = comments.findIndex(function(c) { return c.id === commentId; });
+            if (commentIndex !== -1) {
+                comments.splice(commentIndex, 1);
+            }
+            commentEl.remove();
+        }
+
+        function isEditingCanvasObject() {
+            const active = document.activeElement;
+            if (!active) {
+                return false;
+            }
+            if (active.classList && active.classList.contains('text-label-node')) {
+                return true;
+            }
+            if (active.classList && active.classList.contains('comment-textarea')) {
+                return true;
+            }
+            const tag = active.tagName;
+            return tag === 'TEXTAREA' || tag === 'INPUT';
+        }
+
+        function deleteAllSelectedObjects() {
+            const selectedTables = Array.from(document.querySelectorAll('.table-node.selected'));
+            const selectedComments = Array.from(document.querySelectorAll('.comment-node.selected'));
+            const selectedLabels = Array.from(document.querySelectorAll('.text-label-node.selected'));
+            const selectedShapes = Array.from(document.querySelectorAll('.vector-shape-node.selected'));
+
+            if (selectedTables.length === 0 && selectedComments.length === 0 &&
+                selectedLabels.length === 0 && selectedShapes.length === 0) {
+                return false;
+            }
+
+            selectedTables.forEach(function(tableEl) {
+                deleteTableElement(tableEl);
+            });
+            selectedComments.forEach(function(commentEl) {
+                deleteCommentElement(commentEl);
+            });
+            selectedLabels.forEach(function(labelEl) {
+                deleteTextLabel(labelEl);
+            });
+            selectedShapes.forEach(function(shapeEl) {
+                deleteVectorShape(shapeEl);
+            });
+
+            selectedTable = null;
+            hideTextLabelContextMenu();
+            drawRelationships();
+            return true;
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                const active = document.activeElement;
+                if (active && active.classList && active.classList.contains('text-label-node') &&
+                    isTextLabelEmpty(active)) {
+                    e.preventDefault();
+                    deleteTextLabel(active);
+                    return;
+                }
+                if (isEditingCanvasObject()) {
+                    return;
+                }
+                if (deleteAllSelectedObjects()) {
+                    e.preventDefault();
+                }
+            }
+            if (e.key === 'Escape') {
+                if (addVectorShapeType) {
+                    setAddVectorShapeType(null);
+                    pendingVectorLineStart = null;
+                    clearVectorShapePreview();
+                } else if (addTextLabelMode) {
+                    setAddTextLabelMode(false);
+                } else {
+                    activateSelectionMode();
+                }
+            }
+        });
+
+        vectorShapes.forEach(function(shape) {
+            createVectorShapeElement(shape);
+        });
 
         // Export menu
         const exportMenu = document.getElementById('exportMenu');
@@ -2727,7 +3653,7 @@ export class ErdWebView {
             let maxX = -Infinity;
             let maxY = -Infinity;
 
-            document.querySelectorAll('.table-node, .comment-node, .text-label-node').forEach(function(el) {
+            document.querySelectorAll('.table-node, .comment-node, .text-label-node, .vector-shape-node').forEach(function(el) {
                 const x = parseFloat(el.style.left) || 0;
                 const y = parseFloat(el.style.top) || 0;
                 const w = el.offsetWidth;
@@ -2930,6 +3856,25 @@ export class ErdWebView {
             return svg;
         }
 
+        function buildVectorShapeSvgFromDom(el, offsetX, offsetY) {
+            const w = el.offsetWidth;
+            const h = el.offsetHeight;
+            const type = el.dataset.shapeType;
+            const color = getComputedStyle(el).color || '#cccccc';
+            const innerSvg = el.querySelector('svg');
+            if (!innerSvg) {
+                return '';
+            }
+            let content = innerSvg.innerHTML.replace(/currentColor/g, color);
+            if (isVectorIconType(type)) {
+                return '<g transform="translate(' + offsetX + ',' + offsetY + ') scale(' + (w / 24) + ')">' +
+                    '<g fill="none" stroke="' + escapeXml(color) + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+                    content + '</g></g>';
+            }
+            return '<svg x="' + offsetX + '" y="' + offsetY + '" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" overflow="visible">' +
+                content.replace(/currentColor/g, color) + '</svg>';
+        }
+
         function buildExportSvg(bounds, exportScale) {
             const bgColor = getComputedStyle(document.body).backgroundColor || '#1e1e1e';
             const pixelWidth = Math.round(bounds.width * exportScale);
@@ -2954,6 +3899,12 @@ export class ErdWebView {
                 const x = (parseFloat(el.style.left) || 0) - bounds.minX;
                 const y = (parseFloat(el.style.top) || 0) - bounds.minY;
                 svg += buildTextLabelSvgFromDom(el, x, y);
+            });
+
+            document.querySelectorAll('.vector-shape-node').forEach(function(el) {
+                const x = (parseFloat(el.style.left) || 0) - bounds.minX;
+                const y = (parseFloat(el.style.top) || 0) - bounds.minY;
+                svg += buildVectorShapeSvgFromDom(el, x, y);
             });
 
             svg += '</svg>';
@@ -4289,6 +5240,9 @@ function initCommentEvents(commentEl) {
 
             // Click outside to deselect and hide context menu
             document.addEventListener('click', function(e) {
+                if (marqueeJustFinished) {
+                    return;
+                }
                 // Hide context menu
                 if (!e.target.closest('.context-menu')) {
                     document.getElementById('contextMenu').style.display = 'none';
@@ -4296,6 +5250,7 @@ function initCommentEvents(commentEl) {
                 // Hide export menu
                 if (!e.target.closest('.toolbar-menu-wrapper')) {
                     exportMenu.classList.remove('show');
+                    vectorShapeMenu.classList.remove('show');
                 }
                 // Hide table menus
                 if (!e.target.closest('.table-menu-wrapper') && !e.target.closest('.table-dropdown')) {
@@ -4310,11 +5265,10 @@ function initCommentEvents(commentEl) {
                     hideTextLabelContextMenu();
                 }
 
-                if (!e.target.closest('.table-node') && !e.target.closest('.zoom-controls')) {
-                    if (selectedTable) {
-                        selectedTable.classList.remove('selected');
-                        selectedTable = null;
-                    }
+                if (!e.target.closest('.table-node') && !e.target.closest('.zoom-controls') &&
+                    !e.target.closest('.comment-node') && !e.target.closest('.text-label-node') &&
+                    !e.target.closest('.vector-shape-node')) {
+                    clearAllObjectSelections();
                 }
 
                 // Deselect relationship if clicking outside relationship elements
@@ -4440,38 +5394,6 @@ function initCommentEvents(commentEl) {
                 document.getElementById('relationshipContextMenu').style.display = 'none';
             });
 
-            // Delete key handler - remove selected table
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Delete' || e.key === 'Backspace') {
-                    if (selectedTable) {
-                        const tableName = selectedTable.dataset.table;
-
-                        // Remove relationships involving this table
-                        const initialRelCount = relationships.length;
-                        // Remove elements from const array using splice
-                        for (let i = relationships.length - 1; i >= 0; i--) {
-                            if (relationships[i].fromTable === tableName || relationships[i].toTable === tableName) {
-                                relationships.splice(i, 1);
-                            }
-                        }
-
-                        // Remove from tables array
-                        const tableIndex = tables.findIndex(function(t) { return t.tableName === tableName; });
-                        if (tableIndex !== -1) {
-                            tables.splice(tableIndex, 1);
-                        }
-
-                        // Remove from DOM
-                        selectedTable.remove();
-                        selectedTable = null;
-
-                        // Redraw relationships
-                        drawRelationships();
-
-                        console.log('[Delete] Removed table:', tableName, 'and', initialRelCount - relationships.length, 'relationships');
-                    }
-                }
-            });
         }
 
         // Thumbnail functionality
@@ -4663,6 +5585,7 @@ function initCommentEvents(commentEl) {
         // Initialize
         window.addEventListener('load', function() {
             console.log('[ERD Init] Page loaded');
+            document.body.classList.add('selection-mode');
             console.log('[ERD Init] Number of tables:', document.querySelectorAll('.table-node').length);
             document.querySelectorAll('.table-node').forEach(function(table) {
                 initTableMenu(table);
