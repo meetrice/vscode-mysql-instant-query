@@ -14,6 +14,7 @@ interface TableData {
     height: number;
     database?: string;
     comment?: string;
+    color?: string;
 }
 
 interface ColumnData {
@@ -181,6 +182,9 @@ export class ErdWebView {
                                    foundTable.height = webviewTable.height;
                                    foundTable.x = webviewTable.x;
                                    foundTable.y = webviewTable.y;
+                                   if (webviewTable.color !== undefined) {
+                                       foundTable.color = webviewTable.color;
+                                   }
                                }
                            });
                        }
@@ -262,6 +266,9 @@ export class ErdWebView {
                                     foundTable.height = webviewTable.height;
                                     foundTable.x = webviewTable.x;
                                     foundTable.y = webviewTable.y;
+                                    if (webviewTable.color !== undefined) {
+                                        foundTable.color = webviewTable.color;
+                                    }
                                 } else {
                                     console.log('[Save Handler] Table not found:', webviewTable.tableName);
                                 }
@@ -442,6 +449,9 @@ export class ErdWebView {
                                         foundTable.height = webviewTable.height;
                                         foundTable.x = webviewTable.x;
                                         foundTable.y = webviewTable.y;
+                                        if (webviewTable.color !== undefined) {
+                                            foundTable.color = webviewTable.color;
+                                        }
                                     } else {
                                         console.log('[Save Handler] Table not found:', webviewTable.tableName);
                                     }
@@ -953,6 +963,9 @@ export class ErdWebView {
                                        foundTable.height = webviewTable.height;
                                        foundTable.x = webviewTable.x;
                                        foundTable.y = webviewTable.y;
+                                       if (webviewTable.color !== undefined) {
+                                           foundTable.color = webviewTable.color;
+                                       }
                                    } else {
                                        console.log('[Save from open file] Table not found:', webviewTable.tableName);
                                    }
@@ -1090,17 +1103,101 @@ export class ErdWebView {
             font-weight: normal;
             margin-left: 8px;
         }
-        .toggle-comments-btn {
+        .table-menu-wrapper {
+            position: relative;
+            flex-shrink: 0;
+        }
+        .table-menu-btn {
             background: transparent;
             border: none;
             border-radius: 4px;
-            padding: 2px 8px;
-            font-size: 12px;
+            padding: 2px 6px;
+            font-size: 18px;
+            line-height: 1;
+            color: white;
             cursor: pointer;
             transition: background 0.2s;
+            letter-spacing: -2px;
         }
-        .toggle-comments-btn:hover {
-            background: rgba(255, 255, 255, 0.1);
+        .table-menu-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+        .table-dropdown {
+            position: absolute;
+            top: calc(100% + 4px);
+            right: 0;
+            display: none;
+            min-width: 148px;
+            padding: 4px 0;
+            background-color: var(--vscode-menu-background, var(--vscode-editor-background));
+            border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+            z-index: 1100;
+        }
+        .table-dropdown.show {
+            display: block;
+        }
+        .table-dropdown-item {
+            display: block;
+            width: 100%;
+            padding: 8px 14px;
+            border: none;
+            background: transparent;
+            color: var(--vscode-menu-foreground, var(--vscode-editor-foreground));
+            font-size: 12px;
+            text-align: left;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .table-dropdown-item:hover {
+            background-color: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground));
+        }
+        .table-color-panel {
+            display: none;
+            padding: 8px 10px 10px;
+            border-top: 1px solid var(--vscode-menu-separatorBackground, var(--vscode-panel-border));
+        }
+        .table-color-panel.show {
+            display: block;
+        }
+        .table-color-swatches {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+        .color-swatch {
+            width: 22px;
+            height: 22px;
+            border-radius: 4px;
+            border: 2px solid transparent;
+            cursor: pointer;
+            padding: 0;
+        }
+        .color-swatch:hover {
+            border-color: var(--vscode-focusBorder, #fff);
+            transform: scale(1.08);
+        }
+        .color-picker-label {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 22px;
+            height: 22px;
+            border-radius: 4px;
+            border: 1px solid var(--vscode-panel-border);
+            cursor: pointer;
+            overflow: hidden;
+            background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);
+        }
+        .table-color-input {
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            border: none;
+            cursor: pointer;
+            opacity: 0;
         }
         .table-body { padding: 8px; }
         .column-row {
@@ -1990,12 +2087,14 @@ export class ErdWebView {
    
                        console.log('[Save Button] Table:', tableName, 'offsetWidth:', actualWidth, 'offsetHeight:', actualHeight, 'style.width:', styleWidth, 'style.height:', styleHeight, 'position:', x, ',', y);
    
+                       const tableColor = tableEl.dataset.color || undefined;
                        tablesData.push({
                            tableName: tableName,
                            x: x,
                            y: y,
                            width: actualWidth,
-                           height: actualHeight
+                           height: actualHeight,
+                           color: tableColor
                        });
                 }
             });
@@ -2218,11 +2317,13 @@ export class ErdWebView {
             const headerEl = el.querySelector('.table-header');
             const headerHeight = headerEl ? headerEl.offsetHeight : 40;
             const isMainTable = el.classList.contains('main-table');
-            const headerColor = isMainTable ? '#007acc' : '#4caf50';
+            const customColor = el.dataset.color;
             const tableBg = getComputedStyle(document.body).backgroundColor || '#1e1e1e';
             const textColor = getComputedStyle(document.body).color || '#cccccc';
             const mutedColor = '#999999';
             const borderColor = '#555555';
+            const headerColor = customColor || (isMainTable ? '#007acc' : '#4caf50');
+            const strokeColor = customColor || borderColor;
             const fontFamily = '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif';
             const tableName = el.getAttribute('data-table') || '';
 
@@ -2236,7 +2337,7 @@ export class ErdWebView {
             }
 
             let svg = '<g>';
-            svg += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="8" fill="' + escapeXml(tableBg) + '" stroke="' + borderColor + '" stroke-width="2"/>';
+            svg += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="8" fill="' + escapeXml(tableBg) + '" stroke="' + escapeXml(strokeColor) + '" stroke-width="2"/>';
             svg += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + headerHeight + '" rx="8" fill="' + headerColor + '"/>';
             svg += '<rect x="' + x + '" y="' + (y + headerHeight - 8) + '" width="' + w + '" height="8" fill="' + headerColor + '"/>';
             const headerMidY = y + headerHeight / 2 + 5;
@@ -2604,45 +2705,150 @@ function initCommentEvents(commentEl) {
         // Initialize all comment events
         document.querySelectorAll('.comment-node').forEach(initCommentEvents);
 
-        function toggleComments(tableNode) {
-            console.log('[toggleComments] Function called');
-            console.log('[toggleComments] tableNode:', tableNode);
+        const PRESET_TABLE_COLORS = ['#007acc', '#4caf50', '#e91e63', '#ff9800', '#9c27b0', '#f44336', '#00bcd4', '#607d8b'];
 
+        function darkenHex(hex, amount) {
+            const h = (hex || '').replace('#', '');
+            if (h.length !== 6) {
+                return hex;
+            }
+            const r = Math.max(0, parseInt(h.slice(0, 2), 16) - amount);
+            const g = Math.max(0, parseInt(h.slice(2, 4), 16) - amount);
+            const b = Math.max(0, parseInt(h.slice(4, 6), 16) - amount);
+            return '#' + [r, g, b].map(function(v) {
+                return v.toString(16).padStart(2, '0');
+            }).join('');
+        }
+
+        function applyTableColor(tableNode, color) {
+            if (!color || !tableNode) {
+                return;
+            }
+            const headerEl = tableNode.querySelector('.table-header');
+            const tableName = tableNode.dataset.table;
+            tableNode.dataset.color = color;
+            tableNode.style.borderColor = color;
+            if (headerEl) {
+                headerEl.style.background = 'linear-gradient(135deg, ' + color + ' 0%, ' + darkenHex(color, 30) + ' 100%)';
+            }
+            const tableData = tables.find(function(t) { return t.tableName === tableName; });
+            if (tableData) {
+                tableData.color = color;
+            }
+        }
+
+        function getCommentsHidden(tableNode) {
             const tableBody = tableNode.querySelector('.table-body');
-            console.log('[toggleComments] tableBody:', tableBody);
+            return tableBody && tableBody.classList.contains('hide-comments');
+        }
 
+        function updateToggleCommentsLabel(tableNode) {
+            const btn = tableNode.querySelector('.table-menu-toggle-comments');
+            if (btn) {
+                btn.textContent = getCommentsHidden(tableNode) ? '显示注释' : '隐藏注释';
+            }
+        }
+
+        function closeTableMenus() {
+            document.querySelectorAll('.table-dropdown').forEach(function(menu) {
+                menu.classList.remove('show');
+            });
+            document.querySelectorAll('.table-color-panel').forEach(function(panel) {
+                panel.classList.remove('show');
+            });
+        }
+
+        function toggleComments(tableNode) {
+            const tableBody = tableNode.querySelector('.table-body');
             const columnRows = tableBody.querySelectorAll('.column-row');
-            console.log('[toggleComments] columnRows found:', columnRows.length);
-
             const isHidden = tableBody.classList.toggle('hide-comments');
-            console.log('[toggleComments] isHidden:', isHidden);
-            console.log('[toggleComments] tableBody.classList after toggle:', tableBody.classList.toString());
-
-            const btn = tableNode.querySelector('.toggle-comments-btn');
-            console.log('[toggleComments] btn:', btn);
 
             if (isHidden) {
-                console.log('[toggleComments] Hiding comments - setting button to 📋');
-                btn.textContent = '📋';
-                // Add hide-comments class to each column-row
                 columnRows.forEach(function(row) {
                     row.classList.add('hide-comments');
                 });
             } else {
-                console.log('[toggleComments] Showing comments - setting button to 📝');
-                btn.textContent = '📝';
-                // Remove hide-comments class from each column-row
                 columnRows.forEach(function(row) {
                     row.classList.remove('hide-comments');
                 });
             }
 
-            console.log('[toggleComments] Final columnRows classes:');
-            columnRows.forEach(function(row, index) {
-                console.log('[toggleComments]   Row', index, 'classes:', row.classList.toString());
+            updateToggleCommentsLabel(tableNode);
+            drawRelationships();
+        }
+
+        function initTableMenu(table) {
+            const wrapper = table.querySelector('.table-menu-wrapper');
+            if (!wrapper || wrapper.dataset.initialized === 'true') {
+                return;
+            }
+            wrapper.dataset.initialized = 'true';
+
+            const menuBtn = wrapper.querySelector('.table-menu-btn');
+            const dropdown = wrapper.querySelector('.table-dropdown');
+            const toggleItem = wrapper.querySelector('.table-menu-toggle-comments');
+            const setColorItem = wrapper.querySelector('.table-menu-set-color');
+            const colorPanel = wrapper.querySelector('.table-color-panel');
+
+            if (colorPanel && !colorPanel.innerHTML) {
+                let swatchHtml = '<div class="table-color-swatches">';
+                PRESET_TABLE_COLORS.forEach(function(c) {
+                    swatchHtml += '<button type="button" class="color-swatch" data-color="' + c + '" style="background-color:' + c + '" title="' + c + '"></button>';
+                });
+                swatchHtml += '<label class="color-picker-label" title="调色盘"><input type="color" class="table-color-input" value="#007acc"/></label>';
+                swatchHtml += '</div>';
+                colorPanel.innerHTML = swatchHtml;
+
+                colorPanel.querySelectorAll('.color-swatch').forEach(function(swatch) {
+                    swatch.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        applyTableColor(table, swatch.dataset.color);
+                        closeTableMenus();
+                        drawRelationships();
+                    });
+                });
+
+                const colorInput = colorPanel.querySelector('.table-color-input');
+                if (colorInput) {
+                    colorInput.addEventListener('input', function(e) {
+                        e.stopPropagation();
+                        applyTableColor(table, colorInput.value);
+                    });
+                    colorInput.addEventListener('change', function(e) {
+                        e.stopPropagation();
+                        closeTableMenus();
+                        drawRelationships();
+                    });
+                }
+            }
+
+            const tableName = table.dataset.table;
+            const tableData = tables.find(function(t) { return t.tableName === tableName; });
+            if (tableData && tableData.color) {
+                applyTableColor(table, tableData.color);
+            }
+            updateToggleCommentsLabel(table);
+
+            menuBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const isOpen = dropdown.classList.contains('show');
+                closeTableMenus();
+                if (!isOpen) {
+                    dropdown.classList.add('show');
+                    colorPanel.classList.remove('show');
+                }
             });
 
-            drawRelationships();
+            toggleItem.addEventListener('click', function(e) {
+                e.stopPropagation();
+                toggleComments(table);
+                closeTableMenus();
+            });
+
+            setColorItem.addEventListener('click', function(e) {
+                e.stopPropagation();
+                colorPanel.classList.toggle('show');
+            });
         }
 
         function selectTable(tableNode) {
@@ -3144,7 +3350,7 @@ function initCommentEvents(commentEl) {
                 });
 
                 table.addEventListener('mousedown', function(e) {
-                    if (e.target.classList.contains('toggle-comments-btn')) return;
+                    if (e.target.closest('.table-menu-wrapper')) return;
                     if (e.target.classList.contains('resize-handle')) return;
                     if (e.target.classList.contains('resize-handle-vertical')) return;
                     if (e.target.classList.contains('resize-handle-corner')) return;
@@ -3162,24 +3368,7 @@ function initCommentEvents(commentEl) {
                     selectTable(table);
                 });
 
-                 // Toggle comments button
-                 const toggleBtn = table.querySelector('.toggle-comments-btn');
-                 console.log('[initDraggable] Found toggle button for table', table.dataset.table, ':', toggleBtn);
-                 if (toggleBtn) {
-                     toggleBtn.addEventListener('click', function(e) {
-                         console.log('[toggleBtn click] Button clicked!');
-                         console.log('[toggleBtn click] Event:', e);
-                         console.log('[toggleBtn click] Target:', e.target);
-                         console.log('[toggleBtn click] Current target:', e.currentTarget);
-                         e.stopPropagation();
-                         console.log('[toggleBtn click] About to call toggleComments');
-                         toggleComments(table);
-                         console.log('[toggleBtn click] toggleComments returned');
-                     });
-                     console.log('[initDraggable] Button click listener attached for table', table.dataset.table);
-                 } else {
-                     console.log('[initDraggable] ERROR: No toggle button found for table', table.dataset.table);
-                 }
+                 initTableMenu(table);
 
                  // Column name click to copy
                  table.querySelectorAll('.column-name').forEach(function(columnNameEl) {
@@ -3434,6 +3623,10 @@ function initCommentEvents(commentEl) {
                 // Hide export menu
                 if (!e.target.closest('.toolbar-menu-wrapper')) {
                     exportMenu.classList.remove('show');
+                }
+                // Hide table menus
+                if (!e.target.closest('.table-menu-wrapper')) {
+                    closeTableMenus();
                 }
                 // Hide relationship context menu
                 if (!e.target.closest('.relationship-context-menu') && !e.target.closest('.relationship-line') && !e.target.closest('.relationship-hit-area')) {
@@ -3794,14 +3987,8 @@ function initCommentEvents(commentEl) {
         window.addEventListener('load', function() {
             console.log('[ERD Init] Page loaded');
             console.log('[ERD Init] Number of tables:', document.querySelectorAll('.table-node').length);
-            console.log('[ERD Init] Number of toggle buttons:', document.querySelectorAll('.toggle-comments-btn').length);
-
-            // Log each table and its button
-            document.querySelectorAll('.table-node').forEach(function(table, index) {
-                console.log('[ERD Init] Table', index, ':', table.dataset.table);
-                const btn = table.querySelector('.toggle-comments-btn');
-                console.log('[ERD Init]   Has button:', !!btn);
-                console.log('[ERD Init]   Button text:', btn ? btn.textContent : 'N/A');
+            document.querySelectorAll('.table-node').forEach(function(table) {
+                initTableMenu(table);
             });
 
             drawRelationships();
@@ -3851,18 +4038,31 @@ function initCommentEvents(commentEl) {
         const padding = 16; // 8px top + 8px bottom padding
         const maxBodyHeight = table.height - headerHeight - padding;
 
+        const tableColorAttr = table.color ? ` data-color="${this.escapeHtml(table.color)}"` : '';
+        const tableBorderStyle = table.color ? ` border-color: ${table.color};` : '';
+        const headerStyle = table.color
+            ? ` style="background: linear-gradient(135deg, ${table.color} 0%, ${ErdWebView.darkenHex(table.color)} 100%);"`
+            : '';
+
         return `
             <div class="table-node ${isMainTable ? 'main-table' : ''}"
                  data-table="${this.escapeHtml(table.tableName)}"
-                 data-database="${this.escapeHtml(table.database || '')}"
-                 style="left: ${table.x}px; top: ${table.y}px; width: ${table.width}px; height: ${table.height}px;">
-                <div class="table-header">
+                 data-database="${this.escapeHtml(table.database || '')}"${tableColorAttr}
+                 style="left: ${table.x}px; top: ${table.y}px; width: ${table.width}px; height: ${table.height}px;${tableBorderStyle}">
+                <div class="table-header"${headerStyle}>
                     <div class="table-header-left">
                         <span>${this.escapeHtml(table.tableName)}</span>
                         ${table.comment ? `<span class="table-comment">${this.escapeHtml(table.comment)}</span>` : ''}
                         ${isMainTable ? '<span>⭐</span>' : ''}
                     </div>
-                    <button class="toggle-comments-btn" title="Toggle comments">📝</button>
+                    <div class="table-menu-wrapper">
+                        <button type="button" class="table-menu-btn" title="更多选项" aria-label="更多选项">&#8942;</button>
+                        <div class="table-dropdown">
+                            <button type="button" class="table-dropdown-item table-menu-toggle-comments">隐藏注释</button>
+                            <button type="button" class="table-dropdown-item table-menu-set-color">设置颜色</button>
+                            <div class="table-color-panel"></div>
+                        </div>
+                    </div>
                 </div>
                 <div class="table-body" style="max-height: ${maxBodyHeight}px; overflow-y: auto;">
                     ${columns}
@@ -3876,6 +4076,22 @@ function initCommentEvents(commentEl) {
                 <div class="resize-handle-vertical"></div>
             </div>
         `;
+    }
+
+    private static hexByte(n: number): string {
+        const s = n.toString(16);
+        return s.length < 2 ? '0' + s : s;
+    }
+
+    private static darkenHex(hex: string, amount: number = 30): string {
+        const h = hex.replace('#', '');
+        if (h.length !== 6) {
+            return hex;
+        }
+        const r = Math.max(0, parseInt(h.slice(0, 2), 16) - amount);
+        const g = Math.max(0, parseInt(h.slice(2, 4), 16) - amount);
+        const b = Math.max(0, parseInt(h.slice(4, 6), 16) - amount);
+        return '#' + ErdWebView.hexByte(r) + ErdWebView.hexByte(g) + ErdWebView.hexByte(b);
     }
 
     private static escapeHtml(text: string): string {
