@@ -46,6 +46,16 @@ interface CommentData {
     height?: number;
 }
 
+interface TextLabelData {
+    id: string;
+    x: number;
+    y: number;
+    text: string;
+    fontSize?: number;
+    fontFamily?: string;
+    color?: string;
+}
+
 interface MerdFileData {
     version: string;
     canvas: {
@@ -58,6 +68,7 @@ interface MerdFileData {
     tables: TableData[];
     relationships: Relationship[];
     comments?: CommentData[];
+    textLabels?: TextLabelData[];
 }
 
 function escapeSqlString(value: string): string {
@@ -93,6 +104,7 @@ export class ErdWebView {
     private static tableData: Map<string, TableData> = new Map();
     public static relationships: Relationship[] = [];
     public static comments: CommentData[] = [];
+    public static textLabels: TextLabelData[] = [];
     private static currentPanel: vscode.WebviewPanel | null = null;
 
     // Helper methods for external access
@@ -100,6 +112,7 @@ export class ErdWebView {
         ErdWebView.tableData.clear();
         ErdWebView.relationships = [];
         ErdWebView.comments = [];
+        ErdWebView.textLabels = [];
     }
 
     public static loadTable(table: TableData) {
@@ -212,6 +225,9 @@ export class ErdWebView {
                 if (message.comments) {
                     ErdWebView.comments = message.comments;
                 }
+                if (message.textLabels) {
+                    ErdWebView.textLabels = message.textLabels;
+                }
                 await ErdWebView.saveToFile();
                 break;
             case 'open':
@@ -273,6 +289,7 @@ export class ErdWebView {
         ErdWebView.tableData.clear();
         ErdWebView.relationships = [];
         ErdWebView.comments = [];
+        ErdWebView.textLabels = [];
 
         // Get or create panel
         let panel = Array.from(ErdWebView.panels.values())[0];
@@ -663,7 +680,7 @@ export class ErdWebView {
     }
 
     public static async saveToFile() {
-        if (ErdWebView.tableData.size === 0 && ErdWebView.comments.length === 0) {
+        if (ErdWebView.tableData.size === 0 && ErdWebView.comments.length === 0 && ErdWebView.textLabels.length === 0) {
             vscode.window.showWarningMessage("No ERD data to save");
             return;
         }
@@ -700,6 +717,11 @@ export class ErdWebView {
                 maxY = Math.max(maxY, comment.y + (comment.height || 100));
             });
 
+            ErdWebView.textLabels.forEach(label => {
+                maxX = Math.max(maxX, label.x + 200);
+                maxY = Math.max(maxY, label.y + 40);
+            });
+
             const merdData: MerdFileData = {
                 version: "1.0",
                 canvas: {
@@ -711,7 +733,8 @@ export class ErdWebView {
                 },
                 tables: tables,
                 relationships: ErdWebView.relationships,
-                comments: ErdWebView.comments
+                comments: ErdWebView.comments,
+                textLabels: ErdWebView.textLabels
             };
 
             const json = JSON.stringify(merdData, null, 2);
@@ -850,6 +873,7 @@ export class ErdWebView {
             
             // Load comments
             ErdWebView.comments = merdData.comments || [];
+            ErdWebView.textLabels = merdData.textLabels || [];
 
             // Create or reuse panel
             let panel = Array.from(ErdWebView.panels.values())[0];
@@ -1443,6 +1467,16 @@ export class ErdWebView {
         .toolbar-btn:hover {
             background-color: var(--vscode-toolbar-hoverBackground);
         }
+        .toolbar-btn.active {
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+        body.add-text-mode {
+            cursor: crosshair;
+        }
+        body.add-text-mode #canvas-container {
+            cursor: crosshair;
+        }
         .toolbar-icon {
             display: block;
             width: 16px;
@@ -1607,6 +1641,95 @@ export class ErdWebView {
         .comment-node.selected .connection-point {
             opacity: 0.6;
         }
+        /* Text labels */
+        .text-label-node {
+            position: absolute;
+            min-width: 20px;
+            min-height: 20px;
+            padding: 2px 4px;
+            cursor: move;
+            z-index: 50;
+            white-space: pre-wrap;
+            word-break: break-word;
+            outline: none;
+            background: transparent;
+            border: 1px dashed transparent;
+            border-radius: 2px;
+        }
+        .text-label-node:hover,
+        .text-label-node.selected {
+            border-color: var(--vscode-focusBorder, #007acc);
+        }
+        .text-label-node:focus {
+            border-color: var(--vscode-focusBorder, #007acc);
+            background-color: rgba(0, 122, 204, 0.06);
+        }
+        .text-label-node:empty::before {
+            content: '输入文本...';
+            color: var(--vscode-descriptionForeground);
+            pointer-events: none;
+        }
+        /* Text label context menu */
+        .text-label-context-menu {
+            position: fixed;
+            display: none;
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 10001;
+            min-width: 140px;
+        }
+        .context-menu-item.has-submenu {
+            position: relative;
+            justify-content: space-between;
+        }
+        .context-menu-item.has-submenu::after {
+            content: '▸';
+            font-size: 11px;
+            opacity: 0.7;
+        }
+        .context-submenu {
+            position: absolute;
+            left: 100%;
+            top: 0;
+            display: none;
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 10002;
+            min-width: 160px;
+            max-height: 280px;
+            overflow-y: auto;
+        }
+        .context-menu-item.has-submenu:hover > .context-submenu {
+            display: block;
+        }
+        .context-submenu-item {
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--vscode-editor-foreground);
+            white-space: nowrap;
+        }
+        .context-submenu-item:hover {
+            background-color: var(--vscode-toolbar-hoverBackground);
+        }
+        .context-submenu-item.active {
+            background-color: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground));
+        }
+        .text-label-color-swatches {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 8px 12px;
+            align-items: center;
+        }
+        .text-label-color-swatches .color-swatch {
+            width: 22px;
+            height: 22px;
+        }
         /* Context menu */
         .context-menu {
             position: fixed;
@@ -1733,6 +1856,26 @@ export class ErdWebView {
             html += commentHtml;
         });
 
+        // Add text label nodes
+        ErdWebView.textLabels.forEach(label => {
+            const fontSize = label.fontSize || 16;
+            const fontFamily = (label.fontFamily || '').replace(/"/g, "'");
+            const color = label.color || 'var(--vscode-editor-foreground)';
+            const styleParts = [
+                'left: ' + label.x + 'px',
+                'top: ' + label.y + 'px',
+                'font-size: ' + fontSize + 'px',
+                'color: ' + color
+            ];
+            if (fontFamily) {
+                styleParts.push('font-family: ' + fontFamily);
+            }
+            const labelHtml = '                <div class="text-label-node" contenteditable="true" data-label-id="' +
+                label.id + '" style="' + styleParts.join('; ') + ';">' +
+                ErdWebView.escapeHtml(label.text) + '</div>';
+            html += labelHtml;
+        });
+
         html += `        </div>
     </div>
 
@@ -1764,6 +1907,10 @@ export class ErdWebView {
             <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M7 11h10"/><path d="M7 15h6"/><path d="M7 7h8"/></svg>
             <span>注释</span>
         </button>
+        <button class="toolbar-btn" id="addTextLabelBtn" title="添加文本标签">
+            <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 16.5a.5.5 0 0 0 .5.5h.5a2 2 0 0 1 0 4H9a2 2 0 0 1 0-4h.5a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5V8a2 2 0 0 1-4 0V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v3a2 2 0 0 1-4 0v-.5a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5Z"/></svg>
+            <span>文本</span>
+        </button>
         <div class="toolbar-divider"></div>
         <div class="toolbar-menu-wrapper">
             <button class="toolbar-btn" id="exportBtn" title="导出">
@@ -1793,6 +1940,22 @@ export class ErdWebView {
         <div class="relationship-context-menu-item danger" id="relDelete">🗑️ 删除关系</div>
     </div>
 
+    <!-- Text label context menu -->
+    <div class="text-label-context-menu" id="textLabelContextMenu">
+        <div class="context-menu-item has-submenu" id="textLabelSizeMenu">
+            大小
+            <div class="context-submenu" id="textLabelSizeSubmenu"></div>
+        </div>
+        <div class="context-menu-item has-submenu" id="textLabelFontMenu">
+            字体
+            <div class="context-submenu" id="textLabelFontSubmenu"></div>
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="text-label-color-swatches" id="textLabelColorSwatches"></div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item danger" id="textLabelDeleteMenu">删除</div>
+    </div>
+
     <!-- Thumbnail toggle button -->
     <button class="thumbnail-toggle" id="thumbnailToggle" title="缩略图">
         <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/></svg>
@@ -1810,6 +1973,7 @@ export class ErdWebView {
         const tables = ${JSON.stringify(tables)};
         const relationships = ${JSON.stringify(relationships)};
         let comments = ${JSON.stringify(ErdWebView.comments)};
+        let textLabels = ${JSON.stringify(ErdWebView.textLabels)};
 
         let zoom = 1;
         let selectedTable = null;
@@ -1841,7 +2005,7 @@ export class ErdWebView {
             let maxX = -Infinity;
             let maxY = -Infinity;
 
-            document.querySelectorAll('.table-node, .comment-node').forEach(function(el) {
+            document.querySelectorAll('.table-node, .comment-node, .text-label-node').forEach(function(el) {
                 const x = parseFloat(el.style.left) || 0;
                 const y = parseFloat(el.style.top) || 0;
                 const w = el.offsetWidth;
@@ -1900,6 +2064,9 @@ export class ErdWebView {
             const container = document.getElementById('canvas-container');
 
             container.addEventListener('mousedown', function(e) {
+                if (addTextLabelMode) {
+                    return;
+                }
                 // Only pan if clicking on background, not on tables or controls
                 if (e.target === container || e.target === document.getElementById('canvas')) {
                     isPanning = true;
@@ -2027,13 +2194,35 @@ export class ErdWebView {
                 });
             });
 
-            console.log('[Save Button] Sending data to extension:', tablesData, commentsData);
+            const textLabelsData = [];
+            document.querySelectorAll('.text-label-node').forEach(function(labelEl) {
+                const labelId = labelEl.dataset.labelId;
+                const x = parseFloat(labelEl.style.left) || 0;
+                const y = parseFloat(labelEl.style.top) || 0;
+                const text = labelEl.textContent || '';
+                const fontSize = parseInt(labelEl.style.fontSize, 10) || 16;
+                const fontFamily = labelEl.style.fontFamily || '';
+                const color = labelEl.style.color || '';
+
+                textLabelsData.push({
+                    id: labelId,
+                    x: x,
+                    y: y,
+                    text: text,
+                    fontSize: fontSize,
+                    fontFamily: fontFamily,
+                    color: color
+                });
+            });
+
+            console.log('[Save Button] Sending data to extension:', tablesData, commentsData, textLabelsData);
 
             vscode.postMessage({
                 command: 'save',
                 relationships: relationships,
                 tables: tablesData,
-                comments: commentsData
+                comments: commentsData,
+                textLabels: textLabelsData
             });
         });
 
@@ -2088,6 +2277,331 @@ export class ErdWebView {
             }
         });
 
+        // Text label mode and creation
+        let addTextLabelMode = false;
+        const addTextLabelBtn = document.getElementById('addTextLabelBtn');
+        const TEXT_LABEL_FONT_SIZES = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48];
+        const TEXT_LABEL_FONTS = [
+            { label: '默认', value: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' },
+            { label: 'Arial', value: 'Arial, sans-serif' },
+            { label: 'Helvetica', value: 'Helvetica, sans-serif' },
+            { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
+            { label: 'Georgia', value: 'Georgia, serif' },
+            { label: 'Courier New', value: '"Courier New", Courier, monospace' },
+            { label: 'Consolas', value: 'Consolas, monospace' },
+            { label: '微软雅黑', value: '"Microsoft YaHei", "微软雅黑", sans-serif' },
+            { label: '宋体', value: 'SimSun, "宋体", serif' },
+            { label: '黑体', value: 'SimHei, "黑体", sans-serif' },
+            { label: 'PingFang SC', value: '"PingFang SC", "Hiragino Sans GB", sans-serif' }
+        ];
+        const TEXT_LABEL_COLORS = ['#cccccc', '#ffffff', '#007acc', '#4caf50', '#e91e63', '#ff9800', '#9c27b0', '#f44336', '#00bcd4', '#ffd700'];
+
+        function setAddTextLabelMode(enabled) {
+            addTextLabelMode = enabled;
+            addTextLabelBtn.classList.toggle('active', enabled);
+            document.body.classList.toggle('add-text-mode', enabled);
+        }
+
+        addTextLabelBtn.addEventListener('click', function() {
+            setAddTextLabelMode(!addTextLabelMode);
+        });
+
+        function canvasCoordsFromEvent(e) {
+            const container = document.getElementById('canvas-container');
+            const rect = container.getBoundingClientRect();
+            return {
+                x: (e.clientX - rect.left - panX) / zoom,
+                y: (e.clientY - rect.top - panY) / zoom
+            };
+        }
+
+        function createTextLabel(x, y, options) {
+            options = options || {};
+            const newLabel = {
+                id: 'label_' + Date.now(),
+                x: x,
+                y: y,
+                text: options.text || '',
+                fontSize: options.fontSize || 16,
+                fontFamily: options.fontFamily || '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                color: options.color || ''
+            };
+
+            textLabels.push(newLabel);
+
+            const labelEl = document.createElement('div');
+            labelEl.className = 'text-label-node';
+            labelEl.contentEditable = 'true';
+            labelEl.dataset.labelId = newLabel.id;
+            labelEl.style.left = newLabel.x + 'px';
+            labelEl.style.top = newLabel.y + 'px';
+            labelEl.style.fontSize = newLabel.fontSize + 'px';
+            labelEl.style.fontFamily = newLabel.fontFamily;
+            if (newLabel.color) {
+                labelEl.style.color = newLabel.color;
+            }
+            if (newLabel.text) {
+                labelEl.textContent = newLabel.text;
+            }
+
+            document.getElementById('canvas').appendChild(labelEl);
+            initTextLabelEvents(labelEl);
+
+            labelEl.focus();
+            return labelEl;
+        }
+
+        document.getElementById('canvas-container').addEventListener('click', function(e) {
+            if (!addTextLabelMode) {
+                return;
+            }
+            if (e.target.closest('.table-node') || e.target.closest('.comment-node') ||
+                e.target.closest('.text-label-node') || e.target.closest('.erd-toolbar') ||
+                e.target.closest('.zoom-controls')) {
+                return;
+            }
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const coords = canvasCoordsFromEvent(e);
+            createTextLabel(coords.x, coords.y);
+        }, true);
+
+        let textLabelContextTarget = null;
+        const textLabelContextMenu = document.getElementById('textLabelContextMenu');
+        const textLabelSizeSubmenu = document.getElementById('textLabelSizeSubmenu');
+        const textLabelFontSubmenu = document.getElementById('textLabelFontSubmenu');
+        const textLabelColorSwatches = document.getElementById('textLabelColorSwatches');
+
+        TEXT_LABEL_FONT_SIZES.forEach(function(size) {
+            const item = document.createElement('div');
+            item.className = 'context-submenu-item';
+            item.textContent = size + 'px';
+            item.dataset.size = String(size);
+            item.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (textLabelContextTarget) {
+                    textLabelContextTarget.style.fontSize = size + 'px';
+                    syncTextLabelData(textLabelContextTarget);
+                }
+                hideTextLabelContextMenu();
+            });
+            textLabelSizeSubmenu.appendChild(item);
+        });
+
+        TEXT_LABEL_FONTS.forEach(function(font) {
+            const item = document.createElement('div');
+            item.className = 'context-submenu-item';
+            item.textContent = font.label;
+            item.dataset.font = font.value;
+            item.style.fontFamily = font.value;
+            item.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (textLabelContextTarget) {
+                    textLabelContextTarget.style.fontFamily = font.value;
+                    syncTextLabelData(textLabelContextTarget);
+                }
+                hideTextLabelContextMenu();
+            });
+            textLabelFontSubmenu.appendChild(item);
+        });
+
+        TEXT_LABEL_COLORS.forEach(function(color) {
+            const swatch = document.createElement('button');
+            swatch.type = 'button';
+            swatch.className = 'color-swatch';
+            swatch.style.backgroundColor = color;
+            swatch.title = color;
+            swatch.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (textLabelContextTarget) {
+                    textLabelContextTarget.style.color = color;
+                    syncTextLabelData(textLabelContextTarget);
+                }
+                hideTextLabelContextMenu();
+            });
+            textLabelColorSwatches.appendChild(swatch);
+        });
+
+        function syncTextLabelData(labelEl) {
+            const labelId = labelEl.dataset.labelId;
+            const label = textLabels.find(function(l) { return l.id === labelId; });
+            if (!label) {
+                return;
+            }
+            label.x = parseFloat(labelEl.style.left) || 0;
+            label.y = parseFloat(labelEl.style.top) || 0;
+            label.text = labelEl.textContent || '';
+            label.fontSize = parseInt(labelEl.style.fontSize, 10) || 16;
+            label.fontFamily = labelEl.style.fontFamily || '';
+            label.color = labelEl.style.color || '';
+        }
+
+        function hideTextLabelContextMenu() {
+            textLabelContextMenu.style.display = 'none';
+            textLabelContextTarget = null;
+        }
+
+        document.addEventListener('mousedown', function(e) {
+            if (e.button !== 0) {
+                return;
+            }
+            if (!e.target.closest('.text-label-context-menu')) {
+                hideTextLabelContextMenu();
+            }
+        }, true);
+
+        document.getElementById('textLabelSizeMenu').addEventListener('mouseenter', function() {
+            const currentSize = textLabelContextTarget ?
+                (parseInt(textLabelContextTarget.style.fontSize, 10) || 16) : 0;
+            textLabelSizeSubmenu.querySelectorAll('.context-submenu-item').forEach(function(item) {
+                item.classList.toggle('active', parseInt(item.dataset.size, 10) === currentSize);
+            });
+        });
+        document.getElementById('textLabelFontMenu').addEventListener('mouseenter', function() {
+            const currentFont = textLabelContextTarget ? (textLabelContextTarget.style.fontFamily || '') : '';
+            textLabelFontSubmenu.querySelectorAll('.context-submenu-item').forEach(function(item) {
+                item.classList.toggle('active', item.dataset.font === currentFont);
+            });
+        });
+
+        function isTextLabelEmpty(labelEl) {
+            return !(labelEl.textContent || '').trim();
+        }
+
+        function deleteTextLabel(labelEl) {
+            if (!labelEl || !labelEl.isConnected) {
+                return;
+            }
+            const labelId = labelEl.dataset.labelId;
+            const idx = textLabels.findIndex(function(l) { return l.id === labelId; });
+            if (idx !== -1) {
+                textLabels.splice(idx, 1);
+            }
+            labelEl.remove();
+            hideTextLabelContextMenu();
+        }
+
+        document.getElementById('textLabelDeleteMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            deleteTextLabel(textLabelContextTarget);
+        });
+
+        function initTextLabelEvents(labelEl) {
+            labelEl.addEventListener('input', function() {
+                syncTextLabelData(labelEl);
+            });
+
+            labelEl.addEventListener('blur', function() {
+                if (isTextLabelEmpty(labelEl)) {
+                    deleteTextLabel(labelEl);
+                }
+            });
+
+            labelEl.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                textLabelContextTarget = labelEl;
+                document.querySelectorAll('.text-label-node').forEach(function(node) {
+                    node.classList.remove('selected');
+                });
+                labelEl.classList.add('selected');
+
+                textLabelContextMenu.style.left = e.clientX + 'px';
+                textLabelContextMenu.style.top = e.clientY + 'px';
+                textLabelContextMenu.style.display = 'block';
+            });
+
+            labelEl.addEventListener('dblclick', function(e) {
+                e.stopPropagation();
+                labelDragPending = false;
+                isLabelDragging = false;
+                labelEl.style.zIndex = '';
+                document.body.classList.remove('panning');
+                labelEl.focus();
+            });
+
+            labelEl.addEventListener('mousedown', function(e) {
+                if (e.button !== 0) {
+                    return;
+                }
+                if (addTextLabelMode) {
+                    e.stopPropagation();
+                }
+            });
+
+            let isLabelDragging = false;
+            let labelDragPending = false;
+            let labelDragStartX = 0;
+            let labelDragStartY = 0;
+            let labelDragStartLeft = 0;
+            let labelDragStartTop = 0;
+
+            labelEl.addEventListener('mousedown', function(e) {
+                if (e.button !== 0 || document.activeElement === labelEl) {
+                    return;
+                }
+                labelDragPending = true;
+                labelDragStartX = e.clientX;
+                labelDragStartY = e.clientY;
+                labelDragStartLeft = parseFloat(labelEl.style.left) || 0;
+                labelDragStartTop = parseFloat(labelEl.style.top) || 0;
+            });
+
+            document.addEventListener('mousemove', function labelDragMove(e) {
+                if (labelDragPending && !isLabelDragging) {
+                    const dx = Math.abs(e.clientX - labelDragStartX);
+                    const dy = Math.abs(e.clientY - labelDragStartY);
+                    if (dx > 4 || dy > 4) {
+                        isLabelDragging = true;
+                        labelDragPending = false;
+                        labelEl.style.zIndex = '1000';
+                        labelEl.classList.add('selected');
+                        document.body.classList.add('panning');
+                    }
+                }
+                if (!isLabelDragging) {
+                    return;
+                }
+                const deltaX = e.clientX - labelDragStartX;
+                const deltaY = e.clientY - labelDragStartY;
+                const x = (deltaX / zoom) + labelDragStartLeft;
+                const y = (deltaY / zoom) + labelDragStartTop;
+                labelEl.style.left = x + 'px';
+                labelEl.style.top = y + 'px';
+                syncTextLabelData(labelEl);
+            });
+
+            document.addEventListener('mouseup', function labelDragUp() {
+                labelDragPending = false;
+                if (isLabelDragging) {
+                    isLabelDragging = false;
+                    labelEl.style.zIndex = '';
+                    document.body.classList.remove('panning');
+                }
+            });
+
+            labelEl.addEventListener('click', function(e) {
+                e.stopPropagation();
+                document.querySelectorAll('.text-label-node').forEach(function(node) {
+                    node.classList.remove('selected');
+                });
+                labelEl.classList.add('selected');
+            });
+
+            labelEl.addEventListener('keydown', function(e) {
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                    if (isTextLabelEmpty(labelEl) && document.activeElement === labelEl) {
+                        e.preventDefault();
+                        deleteTextLabel(labelEl);
+                    }
+                }
+            });
+        }
+
+        document.querySelectorAll('.text-label-node').forEach(initTextLabelEvents);
+
         // Export menu
         const exportMenu = document.getElementById('exportMenu');
         document.getElementById('exportBtn').addEventListener('click', function(e) {
@@ -2110,7 +2624,7 @@ export class ErdWebView {
             let maxX = -Infinity;
             let maxY = -Infinity;
 
-            document.querySelectorAll('.table-node, .comment-node').forEach(function(el) {
+            document.querySelectorAll('.table-node, .comment-node, .text-label-node').forEach(function(el) {
                 const x = parseFloat(el.style.left) || 0;
                 const y = parseFloat(el.style.top) || 0;
                 const w = el.offsetWidth;
@@ -2295,6 +2809,22 @@ export class ErdWebView {
             return svg;
         }
 
+        function buildTextLabelSvgFromDom(el, offsetX, offsetY) {
+            const x = offsetX;
+            const y = offsetY;
+            const text = el.textContent || '';
+            const fontSize = parseInt(el.style.fontSize, 10) || 16;
+            const fontFamily = el.style.fontFamily || '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif';
+            const color = el.style.color || getComputedStyle(document.body).color || '#cccccc';
+
+            let svg = '<g>';
+            text.split('\\n').forEach(function(line, index) {
+                svg += '<text x="' + x + '" y="' + (y + fontSize + index * (fontSize * 1.2)) + '" fill="' + escapeXml(color) + '" font-size="' + fontSize + '" font-family="' + escapeXml(fontFamily) + '">' + escapeXml(line) + '</text>';
+            });
+            svg += '</g>';
+            return svg;
+        }
+
         function buildExportSvg(bounds, exportScale) {
             const bgColor = getComputedStyle(document.body).backgroundColor || '#1e1e1e';
             const pixelWidth = Math.round(bounds.width * exportScale);
@@ -2313,6 +2843,12 @@ export class ErdWebView {
                 const x = (parseFloat(el.style.left) || 0) - bounds.minX;
                 const y = (parseFloat(el.style.top) || 0) - bounds.minY;
                 svg += buildCommentSvgFromDom(el, x, y);
+            });
+
+            document.querySelectorAll('.text-label-node').forEach(function(el) {
+                const x = (parseFloat(el.style.left) || 0) - bounds.minX;
+                const y = (parseFloat(el.style.top) || 0) - bounds.minY;
+                svg += buildTextLabelSvgFromDom(el, x, y);
             });
 
             svg += '</svg>';
@@ -3663,6 +4199,10 @@ function initCommentEvents(commentEl) {
                 // Hide relationship context menu
                 if (!e.target.closest('.relationship-context-menu') && !e.target.closest('.relationship-line') && !e.target.closest('.relationship-hit-area')) {
                     document.getElementById('relationshipContextMenu').style.display = 'none';
+                }
+                // Hide text label context menu
+                if (!e.target.closest('.text-label-context-menu') && !e.target.closest('.context-submenu')) {
+                    hideTextLabelContextMenu();
                 }
 
                 if (!e.target.closest('.table-node') && !e.target.closest('.zoom-controls')) {
