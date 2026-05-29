@@ -13,6 +13,7 @@
     "commands.mysqlInstantQuery.runQuery.title": "Run MySQL Query",
     "commands.mysqlInstantQuery.newQuery.title": "New Query",
     "commands.mysqlInstantQuery.newQueryFromTree.title": "New Query",
+    "commands.mysqlInstantQuery.newErdFromTree.title": "New ERD",
     "commands.mysqlInstantQuery.selectDatabase.title": "Select Database",
     "commands.mysqlInstantQuery.selectTop1000.title": "Select Top 100",
     "commands.mysqlInstantQuery.copyTableName.title": "Copy Name",

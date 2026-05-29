@@ -78,6 +78,11 @@
                 "category": "%commands.mysqlInstantQuery.category%"
             },
             {
+                "command": "mysqlInstantQuery.newErdFromTree",
+                "title": "%commands.mysqlInstantQuery.newErdFromTree.title%",
+                "category": "%commands.mysqlInstantQuery.category%"
+            },
+            {
                 "command": "mysqlInstantQuery.addConnection",
                 "title": "%commands.mysqlInstantQuery.addConnection.title%",
                 "icon": {

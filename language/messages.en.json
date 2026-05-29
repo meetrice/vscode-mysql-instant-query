@@ -63,6 +63,7 @@
     "tree.addConnection": "Add Connection",
     "tree.settings": "Settings",
     "tree.newQuery": "New Query",
+    "tree.newErd": "New ERD",
     "connection.panel.addTitle": "Add Database Connection",
     "connection.panel.editTitle": "Edit Database Connection",
     "connection.driver": "Database Type",

@@ -69,6 +69,9 @@ interface VectorShapeData {
     y2?: number;
     stroke?: string;
     strokeWidth?: number;
+    strokeDasharray?: string;
+    fill?: string;
+    zIndex?: number;
 }
 
 interface MerdFileData {
@@ -1627,6 +1630,48 @@ export class ErdWebView {
             width: 100%;
             height: 100%;
             overflow: visible;
+            pointer-events: none;
+        }
+        .vector-shape-node:not(.selected) .vector-shape-resize-handle {
+            display: none;
+        }
+        .vector-shape-resize-handle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: var(--vscode-focusBorder, #007acc);
+            border: 1px solid var(--vscode-editor-background, #fff);
+            border-radius: 1px;
+            pointer-events: auto;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+        .vector-shape-resize-handle.nw { top: -5px; left: -5px; cursor: nwse-resize; }
+        .vector-shape-resize-handle.n  { top: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+        .vector-shape-resize-handle.ne { top: -5px; right: -5px; cursor: nesw-resize; }
+        .vector-shape-resize-handle.e  { top: 50%; right: -5px; transform: translateY(-50%); cursor: ew-resize; }
+        .vector-shape-resize-handle.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+        .vector-shape-resize-handle.s  { bottom: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+        .vector-shape-resize-handle.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+        .vector-shape-resize-handle.w  { top: 50%; left: -5px; transform: translateY(-50%); cursor: ew-resize; }
+        .vector-shape-resize-handle.start,
+        .vector-shape-resize-handle.end {
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            width: 10px;
+            height: 10px;
+        }
+        .vector-shape-resize-handle.dragging {
+            background: #005a9e;
+            transform: translate(-50%, -50%) scale(1.2);
+        }
+        .vector-shape-resize-handle.n.dragging,
+        .vector-shape-resize-handle.s.dragging {
+            transform: translateX(-50%) scale(1.2);
+        }
+        .vector-shape-resize-handle.e.dragging,
+        .vector-shape-resize-handle.w.dragging {
+            transform: translateY(-50%) scale(1.2);
         }
         body.add-vector-mode {
             cursor: crosshair;
@@ -2138,6 +2183,42 @@ export class ErdWebView {
         <div class="context-menu-item danger" id="textLabelDeleteMenu">删除</div>
     </div>
 
+    <!-- Vector shape context menu -->
+    <div class="text-label-context-menu" id="vectorShapeContextMenu">
+        <div class="context-menu-item has-submenu" id="vectorStrokeWidthMenu">
+            边框粗细
+            <div class="context-submenu" id="vectorStrokeWidthSubmenu"></div>
+        </div>
+        <div class="context-menu-item has-submenu" id="vectorStrokeStyleMenu">
+            边框样式
+            <div class="context-submenu" id="vectorStrokeStyleSubmenu">
+                <div class="context-submenu-item" data-style="solid">实线</div>
+                <div class="context-submenu-item" data-style="dashed">虚线</div>
+                <div class="context-submenu-item" data-style="dotted">点线</div>
+            </div>
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="text-label-color-swatches" id="vectorStrokeColorSwatches"></div>
+        <div class="context-menu-item has-submenu" id="vectorStrokeMoreColorMenu">
+            边框更多颜色
+            <div class="context-submenu text-label-color-submenu" id="vectorStrokeMoreColorSubmenu"></div>
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" id="vectorFillNoneMenu">无背景</div>
+        <div class="text-label-color-swatches" id="vectorFillColorSwatches"></div>
+        <div class="context-menu-item has-submenu" id="vectorFillMoreColorMenu">
+            背景更多颜色
+            <div class="context-submenu text-label-color-submenu" id="vectorFillMoreColorSubmenu"></div>
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" id="vectorBringToFront">置于顶层</div>
+        <div class="context-menu-item" id="vectorBringForward">上移一层</div>
+        <div class="context-menu-item" id="vectorSendBackward">下移一层</div>
+        <div class="context-menu-item" id="vectorSendToBack">置于底层</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item danger" id="vectorShapeDeleteMenu">删除</div>
+    </div>
+
     <!-- Thumbnail toggle button -->
     <button class="thumbnail-toggle" id="thumbnailToggle" title="缩略图">
         <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/></svg>
@@ -2301,6 +2382,10 @@ export class ErdWebView {
                     el.classList.add('selected');
                     if (el.classList.contains('table-node')) {
                         lastTable = el;
+                    }
+                    if (el.classList.contains('vector-shape-node')) {
+                        initVectorShapeResizeHandles(el);
+                        updateVectorShapeLineHandles(el);
                     }
                 }
             });
@@ -3090,28 +3175,65 @@ export class ErdWebView {
             };
         }
 
-        function buildVectorShapeSvgMarkup(type, shapeId, width, height, lx1, ly1, lx2, ly2) {
-            const sw = 2;
-            const stroke = 'currentColor';
+        function getVectorShapeStyle(shape) {
+            return {
+                stroke: shape.stroke || '',
+                strokeWidth: shape.strokeWidth || 2,
+                fill: shape.fill !== undefined ? shape.fill : 'none',
+                strokeDasharray: shape.strokeDasharray || ''
+            };
+        }
+
+        function getVectorStrokeDasharray(styleName) {
+            if (styleName === 'dashed') {
+                return '8,4';
+            }
+            if (styleName === 'dotted') {
+                return '2,3';
+            }
+            return '';
+        }
+
+        function getVectorStrokeStyleName(dasharray) {
+            if (dasharray === '8,4') {
+                return 'dashed';
+            }
+            if (dasharray === '2,3') {
+                return 'dotted';
+            }
+            return 'solid';
+        }
+
+        function buildVectorShapeSvgMarkup(type, shapeId, width, height, lx1, ly1, lx2, ly2, style) {
+            style = style || {};
+            const sw = style.strokeWidth || 2;
+            const stroke = style.stroke || 'currentColor';
+            const fill = style.fill !== undefined ? style.fill : 'none';
+            const dash = style.strokeDasharray || '';
+            const dashAttr = dash ? ' stroke-dasharray="' + dash + '"' : '';
+            let bgRect = '';
+            if (fill && fill !== 'none' && isVectorIconType(type)) {
+                bgRect = '<rect x="0" y="0" width="' + width + '" height="' + height + '" fill="' + fill + '" rx="4"/>';
+            }
             if (type === 'line') {
-                return '<line x1="' + lx1 + '" y1="' + ly1 + '" x2="' + lx2 + '" y2="' + ly2 + '" stroke="' + stroke + '" stroke-width="' + sw + '" stroke-linecap="round"/>';
+                return bgRect + '<line x1="' + lx1 + '" y1="' + ly1 + '" x2="' + lx2 + '" y2="' + ly2 + '" stroke="' + stroke + '" stroke-width="' + sw + '" stroke-linecap="round"' + dashAttr + '/>';
             }
             if (type === 'arrow-line') {
                 const markerId = 'arrow-' + shapeId;
-                return '<defs><marker id="' + markerId + '" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="' + stroke + '"/></marker></defs>' +
-                    '<line x1="' + lx1 + '" y1="' + ly1 + '" x2="' + lx2 + '" y2="' + ly2 + '" stroke="' + stroke + '" stroke-width="' + sw + '" stroke-linecap="round" marker-end="url(#' + markerId + ')"/>';
+                return bgRect + '<defs><marker id="' + markerId + '" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="' + stroke + '"/></marker></defs>' +
+                    '<line x1="' + lx1 + '" y1="' + ly1 + '" x2="' + lx2 + '" y2="' + ly2 + '" stroke="' + stroke + '" stroke-width="' + sw + '" stroke-linecap="round"' + dashAttr + ' marker-end="url(#' + markerId + ')"/>';
             }
             if (type === 'curve') {
                 const cpx = (lx1 + lx2) / 2;
                 const cpy = Math.min(ly1, ly2) - Math.max(20, Math.abs(lx2 - lx1) * 0.35);
-                return '<path d="M ' + lx1 + ' ' + ly1 + ' Q ' + cpx + ' ' + cpy + ' ' + lx2 + ' ' + ly2 + '" fill="none" stroke="' + stroke + '" stroke-width="' + sw + '" stroke-linecap="round"/>';
+                return bgRect + '<path d="M ' + lx1 + ' ' + ly1 + ' Q ' + cpx + ' ' + cpy + ' ' + lx2 + ' ' + ly2 + '" fill="none" stroke="' + stroke + '" stroke-width="' + sw + '" stroke-linecap="round"' + dashAttr + '/>';
             }
             if (type === 'rounded-rect') {
-                return '<rect x="2" y="2" width="' + Math.max(width - 4, 1) + '" height="' + Math.max(height - 4, 1) + '" rx="8" fill="none" stroke="' + stroke + '" stroke-width="' + sw + '"/>';
+                return bgRect + '<rect x="2" y="2" width="' + Math.max(width - 4, 1) + '" height="' + Math.max(height - 4, 1) + '" rx="8" fill="' + fill + '" stroke="' + stroke + '" stroke-width="' + sw + '"' + dashAttr + '/>';
             }
             if (type === 'circle') {
                 const r = Math.max(Math.min(width, height) / 2 - 2, 1);
-                return '<circle cx="' + (width / 2) + '" cy="' + (height / 2) + '" r="' + r + '" fill="none" stroke="' + stroke + '" stroke-width="' + sw + '"/>';
+                return bgRect + '<circle cx="' + (width / 2) + '" cy="' + (height / 2) + '" r="' + r + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="' + sw + '"' + dashAttr + '/>';
             }
             const iconPaths = {
                 user: '<circle cx="12" cy="8" r="4"/><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/>',
@@ -3122,9 +3244,270 @@ export class ErdWebView {
                 bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>'
             };
             if (iconPaths[type]) {
-                return iconPaths[type];
+                return bgRect + iconPaths[type];
             }
             return '';
+        }
+
+        function getVectorShapeByEl(shapeEl) {
+            return vectorShapes.find(function(s) { return s.id === shapeEl.dataset.shapeId; });
+        }
+
+        function applyVectorShapeVisualStyles(shapeEl, shape) {
+            if (shape.stroke) {
+                shapeEl.style.color = shape.stroke;
+            } else {
+                shapeEl.style.removeProperty('color');
+            }
+            if (shape.zIndex !== undefined && shape.zIndex !== null) {
+                shapeEl.style.zIndex = String(shape.zIndex);
+            }
+        }
+
+        function refreshVectorShapeElementContent(shapeEl, shape, lineBounds) {
+            shape = shape || getVectorShapeByEl(shapeEl);
+            if (!shape) {
+                return;
+            }
+            const type = shape.type;
+            const style = getVectorShapeStyle(shape);
+            let lx1 = 0;
+            let ly1 = 0;
+            let lx2 = shapeEl.offsetWidth;
+            let ly2 = shapeEl.offsetHeight;
+            let vbW = shapeEl.offsetWidth;
+            let vbH = shapeEl.offsetHeight;
+            if (lineBounds) {
+                lx1 = lineBounds.lx1;
+                ly1 = lineBounds.ly1;
+                lx2 = lineBounds.lx2;
+                ly2 = lineBounds.ly2;
+                vbW = lineBounds.width;
+                vbH = lineBounds.height;
+            } else if (isVectorLineType(type) && shape.x2 !== undefined && shape.y2 !== undefined) {
+                const bounds = getVectorLineBounds(shape.x, shape.y, shape.x2, shape.y2);
+                lx1 = bounds.lx1;
+                ly1 = bounds.ly1;
+                lx2 = bounds.lx2;
+                ly2 = bounds.ly2;
+                vbW = bounds.width;
+                vbH = bounds.height;
+            }
+            const viewBox = isVectorIconType(type) ? '0 0 24 24' : ('0 0 ' + vbW + ' ' + vbH);
+            const preserve = isVectorIconType(type) ? 'xMidYMid meet' : 'none';
+            const inner = buildVectorShapeSvgMarkup(type, shape.id, vbW, vbH, lx1, ly1, lx2, ly2, style);
+            const svgEl = shapeEl.querySelector('svg');
+            if (svgEl) {
+                svgEl.setAttribute('viewBox', viewBox);
+                svgEl.setAttribute('preserveAspectRatio', preserve);
+                if (isVectorIconType(type)) {
+                    svgEl.innerHTML = '<g fill="none" stroke="' + (style.stroke || 'currentColor') + '" stroke-width="' + style.strokeWidth + '" stroke-linecap="round" stroke-linejoin="round"' +
+                        (style.strokeDasharray ? ' stroke-dasharray="' + style.strokeDasharray + '"' : '') + '>' + inner + '</g>';
+                } else {
+                    svgEl.innerHTML = inner;
+                }
+            }
+            applyVectorShapeVisualStyles(shapeEl, shape);
+            updateVectorShapeLineHandles(shapeEl, lineBounds);
+        }
+
+        function repositionVectorLineElement(shapeEl, shape) {
+            const bounds = getVectorLineBounds(shape.x, shape.y, shape.x2, shape.y2);
+            shapeEl.style.left = bounds.x + 'px';
+            shapeEl.style.top = bounds.y + 'px';
+            shapeEl.style.width = bounds.width + 'px';
+            shapeEl.style.height = bounds.height + 'px';
+            shape.width = bounds.width;
+            shape.height = bounds.height;
+            refreshVectorShapeElementContent(shapeEl, shape, bounds);
+        }
+
+        function updateVectorShapeLineHandles(shapeEl, lineBounds) {
+            const type = shapeEl.dataset.shapeType;
+            if (!isVectorLineType(type)) {
+                return;
+            }
+            const startHandle = shapeEl.querySelector('.vector-shape-resize-handle.start');
+            const endHandle = shapeEl.querySelector('.vector-shape-resize-handle.end');
+            if (!startHandle || !endHandle) {
+                return;
+            }
+            const shape = getVectorShapeByEl(shapeEl);
+            if (!shape || shape.x2 === undefined || shape.y2 === undefined) {
+                return;
+            }
+            const bounds = lineBounds || getVectorLineBounds(shape.x, shape.y, shape.x2, shape.y2);
+            startHandle.style.left = bounds.lx1 + 'px';
+            startHandle.style.top = bounds.ly1 + 'px';
+            endHandle.style.left = bounds.lx2 + 'px';
+            endHandle.style.top = bounds.ly2 + 'px';
+        }
+
+        let vectorShapeResizing = null;
+
+        function finishVectorShapeResize() {
+            if (!vectorShapeResizing) {
+                return;
+            }
+            if (vectorShapeResizing.handle) {
+                vectorShapeResizing.handle.classList.remove('dragging');
+            }
+            const shape = getVectorShapeByEl(vectorShapeResizing.shapeEl);
+            vectorShapeResizing.shapeEl.style.zIndex = shape && shape.zIndex !== undefined ?
+                String(shape.zIndex) : '';
+            document.body.classList.remove('panning');
+            vectorShapeResizing = null;
+        }
+
+        function applyVectorBoxResize(resizeState, clientX, clientY) {
+            const shapeEl = resizeState.shapeEl;
+            const direction = resizeState.direction;
+            const minSize = 16;
+            const dx = (clientX - resizeState.startX) / zoom;
+            const dy = (clientY - resizeState.startY) / zoom;
+            let newLeft = resizeState.startLeft;
+            let newTop = resizeState.startTop;
+            let newWidth = resizeState.startWidth;
+            let newHeight = resizeState.startHeight;
+            if (direction.indexOf('e') >= 0) {
+                newWidth = Math.max(minSize, resizeState.startWidth + dx);
+            }
+            if (direction.indexOf('w') >= 0) {
+                newWidth = Math.max(minSize, resizeState.startWidth - dx);
+                newLeft = resizeState.startLeft + (resizeState.startWidth - newWidth);
+            }
+            if (direction.indexOf('s') >= 0) {
+                newHeight = Math.max(minSize, resizeState.startHeight + dy);
+            }
+            if (direction.indexOf('n') >= 0) {
+                newHeight = Math.max(minSize, resizeState.startHeight - dy);
+                newTop = resizeState.startTop + (resizeState.startHeight - newHeight);
+            }
+            shapeEl.style.left = newLeft + 'px';
+            shapeEl.style.top = newTop + 'px';
+            shapeEl.style.width = newWidth + 'px';
+            shapeEl.style.height = newHeight + 'px';
+            refreshVectorShapeElementContent(shapeEl);
+            syncVectorShapeData(shapeEl);
+        }
+
+        function applyVectorLineEndpointResize(resizeState, e) {
+            const shapeEl = resizeState.shapeEl;
+            const shape = resizeState.shape;
+            const coords = canvasCoordsFromEvent(e);
+            if (resizeState.role === 'start') {
+                shape.x = coords.x;
+                shape.y = coords.y;
+            } else {
+                shape.x2 = coords.x;
+                shape.y2 = coords.y;
+            }
+            repositionVectorLineElement(shapeEl, shape);
+            syncVectorShapeData(shapeEl);
+        }
+
+        document.addEventListener('mousemove', function vectorShapeResizeMove(e) {
+            if (!vectorShapeResizing) {
+                return;
+            }
+            if (vectorShapeResizing.kind === 'box') {
+                applyVectorBoxResize(vectorShapeResizing, e.clientX, e.clientY);
+            } else if (vectorShapeResizing.kind === 'line') {
+                applyVectorLineEndpointResize(vectorShapeResizing, e);
+            }
+        });
+
+        document.addEventListener('mouseup', function vectorShapeResizeUp() {
+            finishVectorShapeResize();
+        });
+
+        function startVectorBoxResize(handle, shapeEl, direction, e) {
+            if (e.button !== 0 || addVectorShapeType) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            finishVectorShapeResize();
+            vectorShapeResizing = {
+                kind: 'box',
+                shapeEl: shapeEl,
+                direction: direction,
+                handle: handle,
+                startX: e.clientX,
+                startY: e.clientY,
+                startLeft: parseFloat(shapeEl.style.left) || 0,
+                startTop: parseFloat(shapeEl.style.top) || 0,
+                startWidth: shapeEl.offsetWidth,
+                startHeight: shapeEl.offsetHeight
+            };
+            handle.classList.add('dragging');
+            shapeEl.style.zIndex = '1000';
+            document.body.classList.add('panning');
+        }
+
+        function startVectorLineEndpointResize(handle, shapeEl, role, e) {
+            if (e.button !== 0 || addVectorShapeType) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            const shape = getVectorShapeByEl(shapeEl);
+            if (!shape || shape.x2 === undefined || shape.y2 === undefined) {
+                return;
+            }
+            finishVectorShapeResize();
+            vectorShapeResizing = {
+                kind: 'line',
+                shapeEl: shapeEl,
+                role: role,
+                shape: shape,
+                handle: handle
+            };
+            handle.classList.add('dragging');
+            shapeEl.style.zIndex = '1000';
+            document.body.classList.add('panning');
+        }
+
+        function initVectorShapeResizeHandles(shapeEl) {
+            const type = shapeEl.dataset.shapeType;
+            if (isVectorLineType(type)) {
+                if (shapeEl.querySelector('.vector-shape-resize-handle.start')) {
+                    updateVectorShapeLineHandles(shapeEl);
+                    return;
+                }
+                ['start', 'end'].forEach(function(role) {
+                    const handle = document.createElement('div');
+                    handle.className = 'vector-shape-resize-handle ' + role;
+                    handle.dataset.handle = role;
+                    handle.addEventListener('mousedown', function(e) {
+                        startVectorLineEndpointResize(handle, shapeEl, role, e);
+                    });
+                    shapeEl.appendChild(handle);
+                });
+            } else {
+                if (shapeEl.querySelector('.vector-shape-resize-handle')) {
+                    return;
+                }
+                ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(function(dir) {
+                    const handle = document.createElement('div');
+                    handle.className = 'vector-shape-resize-handle ' + dir;
+                    handle.dataset.handle = dir;
+                    handle.addEventListener('mousedown', function(e) {
+                        startVectorBoxResize(handle, shapeEl, dir, e);
+                    });
+                    shapeEl.appendChild(handle);
+                });
+            }
+            updateVectorShapeLineHandles(shapeEl);
+        }
+
+        function selectVectorShape(shapeEl) {
+            document.querySelectorAll('.vector-shape-node').forEach(function(node) {
+                node.classList.remove('selected');
+            });
+            shapeEl.classList.add('selected');
+            initVectorShapeResizeHandles(shapeEl);
+            updateVectorShapeLineHandles(shapeEl);
         }
 
         function createVectorShapeElement(shape) {
@@ -3159,16 +3542,43 @@ export class ErdWebView {
 
             const viewBox = isVectorIconType(shape.type) ? '0 0 24 24' : ('0 0 ' + vbW + ' ' + vbH);
             const preserve = isVectorIconType(shape.type) ? 'xMidYMid meet' : 'none';
-            const inner = buildVectorShapeSvgMarkup(shape.type, shape.id, vbW, vbH, lx1, ly1, lx2, ly2);
-            shapeEl.innerHTML = '<svg viewBox="' + viewBox + '" preserveAspectRatio="' + preserve + '" aria-hidden="true">' + inner + '</svg>';
+            shapeEl.innerHTML = '<svg viewBox="' + viewBox + '" preserveAspectRatio="' + preserve + '" aria-hidden="true"></svg>';
             document.getElementById('canvas').appendChild(shapeEl);
+            applyVectorShapeVisualStyles(shapeEl, shape);
+            const lineBounds = isVectorLineType(shape.type) && shape.x2 !== undefined && shape.y2 !== undefined
+                ? getVectorLineBounds(shape.x, shape.y, shape.x2, shape.y2)
+                : null;
+            refreshVectorShapeElementContent(shapeEl, shape, lineBounds);
             initVectorShapeEvents(shapeEl);
+            initVectorShapeResizeHandles(shapeEl);
             return shapeEl;
         }
 
         function addVectorShapeToCanvas(shape) {
             vectorShapes.push(shape);
             return createVectorShapeElement(shape);
+        }
+
+        function appendVectorShapeStyleFields(entry, stored) {
+            if (!stored) {
+                return entry;
+            }
+            if (stored.stroke) {
+                entry.stroke = stored.stroke;
+            }
+            if (stored.strokeWidth !== undefined) {
+                entry.strokeWidth = stored.strokeWidth;
+            }
+            if (stored.strokeDasharray) {
+                entry.strokeDasharray = stored.strokeDasharray;
+            }
+            if (stored.fill !== undefined) {
+                entry.fill = stored.fill;
+            }
+            if (stored.zIndex !== undefined) {
+                entry.zIndex = stored.zIndex;
+            }
+            return entry;
         }
 
         function collectVectorShapesData() {
@@ -3185,7 +3595,7 @@ export class ErdWebView {
                     const oldBounds = getVectorLineBounds(stored.x, stored.y, stored.x2, stored.y2);
                     const dx = left - oldBounds.x;
                     const dy = top - oldBounds.y;
-                    data.push({
+                    data.push(appendVectorShapeStyleFields({
                         id: shapeId,
                         type: type,
                         x: stored.x + dx,
@@ -3194,24 +3604,23 @@ export class ErdWebView {
                         y2: stored.y2 + dy,
                         width: width,
                         height: height
-                    });
+                    }, stored));
                     return;
                 }
-                data.push({
+                data.push(appendVectorShapeStyleFields({
                     id: shapeId,
                     type: type,
                     x: left,
                     y: top,
                     width: width,
                     height: height
-                });
+                }, stored));
             });
             return data;
         }
 
-        function syncVectorShapePosition(shapeEl) {
-            const shapeId = shapeEl.dataset.shapeId;
-            const shape = vectorShapes.find(function(s) { return s.id === shapeId; });
+        function syncVectorShapeData(shapeEl) {
+            const shape = getVectorShapeByEl(shapeEl);
             if (!shape) {
                 return;
             }
@@ -3233,6 +3642,10 @@ export class ErdWebView {
             }
             shape.width = width;
             shape.height = height;
+            const zIndexParsed = parseInt(shapeEl.style.zIndex, 10);
+            if (!isNaN(zIndexParsed)) {
+                shape.zIndex = zIndexParsed;
+            }
         }
 
         function deleteVectorShape(shapeEl) {
@@ -3477,7 +3890,10 @@ export class ErdWebView {
             let shapeDragStartTop = 0;
 
             shapeEl.addEventListener('mousedown', function(e) {
-                if (e.button !== 0 || addVectorShapeType) {
+                if (e.button !== 0 || addVectorShapeType || vectorShapeResizing) {
+                    return;
+                }
+                if (e.target.classList && e.target.classList.contains('vector-shape-resize-handle')) {
                     return;
                 }
                 e.stopPropagation();
@@ -3489,12 +3905,16 @@ export class ErdWebView {
             });
 
             document.addEventListener('mousemove', function vectorShapeDragMove(e) {
+                if (vectorShapeResizing) {
+                    return;
+                }
                 if (shapeDragPending && !isShapeDragging) {
                     const dx = Math.abs(e.clientX - shapeDragStartX);
                     const dy = Math.abs(e.clientY - shapeDragStartY);
                     if (dx > 4 || dy > 4) {
                         isShapeDragging = true;
                         shapeDragPending = false;
+                        selectVectorShape(shapeEl);
                         shapeEl.style.zIndex = '1000';
                         document.body.classList.add('panning');
                     }
@@ -3506,25 +3926,232 @@ export class ErdWebView {
                 const deltaY = e.clientY - shapeDragStartY;
                 shapeEl.style.left = ((deltaX / zoom) + shapeDragStartLeft) + 'px';
                 shapeEl.style.top = ((deltaY / zoom) + shapeDragStartTop) + 'px';
-                syncVectorShapePosition(shapeEl);
+                syncVectorShapeData(shapeEl);
             });
 
             document.addEventListener('mouseup', function vectorShapeDragUp() {
                 shapeDragPending = false;
                 if (isShapeDragging) {
                     isShapeDragging = false;
-                    shapeEl.style.zIndex = '';
+                    const shape = getVectorShapeByEl(shapeEl);
+                    shapeEl.style.zIndex = shape && shape.zIndex !== undefined ? String(shape.zIndex) : '';
                     document.body.classList.remove('panning');
                 }
             });
 
             shapeEl.addEventListener('click', function(e) {
                 e.stopPropagation();
-                document.querySelectorAll('.vector-shape-node').forEach(function(node) {
-                    node.classList.remove('selected');
-                });
-                shapeEl.classList.add('selected');
+                selectVectorShape(shapeEl);
             });
+
+            shapeEl.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                selectVectorShape(shapeEl);
+                showVectorShapeContextMenu(shapeEl, e.clientX, e.clientY);
+            });
+        }
+
+        let vectorShapeContextTarget = null;
+        const vectorShapeContextMenu = document.getElementById('vectorShapeContextMenu');
+        const vectorStrokeWidthSubmenu = document.getElementById('vectorStrokeWidthSubmenu');
+        const vectorStrokeColorSwatches = document.getElementById('vectorStrokeColorSwatches');
+        const vectorStrokeMoreColorSubmenu = document.getElementById('vectorStrokeMoreColorSubmenu');
+        const vectorFillColorSwatches = document.getElementById('vectorFillColorSwatches');
+        const vectorFillMoreColorSubmenu = document.getElementById('vectorFillMoreColorSubmenu');
+
+        function hideVectorShapeContextMenu() {
+            vectorShapeContextMenu.style.display = 'none';
+            vectorShapeContextTarget = null;
+        }
+
+        function getCanvasLayerElements() {
+            return Array.from(document.querySelectorAll('.table-node, .comment-node, .text-label-node, .vector-shape-node'));
+        }
+
+        function getEffectiveZIndex(el) {
+            const parsed = parseInt(el.style.zIndex, 10);
+            if (!isNaN(parsed)) {
+                return parsed;
+            }
+            if (el.classList.contains('comment-node')) {
+                return 500;
+            }
+            if (el.classList.contains('text-label-node')) {
+                return 50;
+            }
+            if (el.classList.contains('vector-shape-node')) {
+                return 40;
+            }
+            return 1;
+        }
+
+        function setVectorShapeZIndex(shapeEl, zIndex) {
+            shapeEl.style.zIndex = String(zIndex);
+            const shape = getVectorShapeByEl(shapeEl);
+            if (shape) {
+                shape.zIndex = zIndex;
+            }
+        }
+
+        function bringVectorShapeToFront(shapeEl) {
+            const all = getCanvasLayerElements();
+            let maxZ = 0;
+            all.forEach(function(el) {
+                maxZ = Math.max(maxZ, getEffectiveZIndex(el));
+            });
+            setVectorShapeZIndex(shapeEl, maxZ + 1);
+        }
+
+        function sendVectorShapeToBack(shapeEl) {
+            const all = getCanvasLayerElements();
+            let minZ = Infinity;
+            all.forEach(function(el) {
+                minZ = Math.min(minZ, getEffectiveZIndex(el));
+            });
+            setVectorShapeZIndex(shapeEl, Math.max(1, minZ - 1));
+        }
+
+        function bringVectorShapeForward(shapeEl) {
+            setVectorShapeZIndex(shapeEl, getEffectiveZIndex(shapeEl) + 1);
+        }
+
+        function sendVectorShapeBackward(shapeEl) {
+            setVectorShapeZIndex(shapeEl, Math.max(1, getEffectiveZIndex(shapeEl) - 1));
+        }
+
+        function applyVectorShapeStrokeColor(color) {
+            if (!vectorShapeContextTarget) {
+                return;
+            }
+            const shape = getVectorShapeByEl(vectorShapeContextTarget);
+            if (shape) {
+                shape.stroke = color;
+                refreshVectorShapeElementContent(vectorShapeContextTarget, shape);
+            }
+            hideVectorShapeContextMenu();
+        }
+
+        function applyVectorShapeFillColor(color) {
+            if (!vectorShapeContextTarget) {
+                return;
+            }
+            const shape = getVectorShapeByEl(vectorShapeContextTarget);
+            if (shape) {
+                shape.fill = color;
+                refreshVectorShapeElementContent(vectorShapeContextTarget, shape);
+            }
+            hideVectorShapeContextMenu();
+        }
+
+        function appendVectorColorSwatch(container, color, handler) {
+            const swatch = document.createElement('button');
+            swatch.type = 'button';
+            swatch.className = 'color-swatch';
+            swatch.style.backgroundColor = color;
+            swatch.title = color;
+            swatch.addEventListener('click', function(e) {
+                e.stopPropagation();
+                handler(color);
+            });
+            container.appendChild(swatch);
+        }
+
+        [1, 2, 3, 4, 6].forEach(function(width) {
+            const item = document.createElement('div');
+            item.className = 'context-submenu-item';
+            item.textContent = width + 'px';
+            item.dataset.width = String(width);
+            item.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (vectorShapeContextTarget) {
+                    const shape = getVectorShapeByEl(vectorShapeContextTarget);
+                    if (shape) {
+                        shape.strokeWidth = width;
+                        refreshVectorShapeElementContent(vectorShapeContextTarget, shape);
+                    }
+                }
+                hideVectorShapeContextMenu();
+            });
+            vectorStrokeWidthSubmenu.appendChild(item);
+        });
+
+        TEXT_LABEL_QUICK_COLORS.forEach(function(color) {
+            appendVectorColorSwatch(vectorStrokeColorSwatches, color, applyVectorShapeStrokeColor);
+            appendVectorColorSwatch(vectorFillColorSwatches, color, applyVectorShapeFillColor);
+        });
+        TEXT_LABEL_MORE_COLORS.forEach(function(color) {
+            appendVectorColorSwatch(vectorStrokeMoreColorSubmenu, color, applyVectorShapeStrokeColor);
+            appendVectorColorSwatch(vectorFillMoreColorSubmenu, color, applyVectorShapeFillColor);
+        });
+
+        document.getElementById('vectorStrokeStyleSubmenu').querySelectorAll('.context-submenu-item').forEach(function(item) {
+            item.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (vectorShapeContextTarget) {
+                    const shape = getVectorShapeByEl(vectorShapeContextTarget);
+                    if (shape) {
+                        shape.strokeDasharray = getVectorStrokeDasharray(item.dataset.style);
+                        refreshVectorShapeElementContent(vectorShapeContextTarget, shape);
+                    }
+                }
+                hideVectorShapeContextMenu();
+            });
+        });
+
+        document.getElementById('vectorFillNoneMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            applyVectorShapeFillColor('none');
+        });
+
+        document.getElementById('vectorBringToFront').addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (vectorShapeContextTarget) {
+                bringVectorShapeToFront(vectorShapeContextTarget);
+            }
+            hideVectorShapeContextMenu();
+        });
+        document.getElementById('vectorBringForward').addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (vectorShapeContextTarget) {
+                bringVectorShapeForward(vectorShapeContextTarget);
+            }
+            hideVectorShapeContextMenu();
+        });
+        document.getElementById('vectorSendBackward').addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (vectorShapeContextTarget) {
+                sendVectorShapeBackward(vectorShapeContextTarget);
+            }
+            hideVectorShapeContextMenu();
+        });
+        document.getElementById('vectorSendToBack').addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (vectorShapeContextTarget) {
+                sendVectorShapeToBack(vectorShapeContextTarget);
+            }
+            hideVectorShapeContextMenu();
+        });
+        document.getElementById('vectorShapeDeleteMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            deleteVectorShape(vectorShapeContextTarget);
+            hideVectorShapeContextMenu();
+        });
+
+        function showVectorShapeContextMenu(shapeEl, clientX, clientY) {
+            vectorShapeContextTarget = shapeEl;
+            const shape = getVectorShapeByEl(shapeEl);
+            const currentWidth = shape && shape.strokeWidth ? shape.strokeWidth : 2;
+            vectorStrokeWidthSubmenu.querySelectorAll('.context-submenu-item').forEach(function(item) {
+                item.classList.toggle('active', parseInt(item.dataset.width, 10) === currentWidth);
+            });
+            const styleName = shape ? getVectorStrokeStyleName(shape.strokeDasharray || '') : 'solid';
+            document.getElementById('vectorStrokeStyleSubmenu').querySelectorAll('.context-submenu-item').forEach(function(item) {
+                item.classList.toggle('active', item.dataset.style === styleName);
+            });
+            vectorShapeContextMenu.style.left = clientX + 'px';
+            vectorShapeContextMenu.style.top = clientY + 'px';
+            vectorShapeContextMenu.style.display = 'block';
         }
 
         function deleteTableElement(tableEl) {
@@ -5261,9 +5888,10 @@ function initCommentEvents(commentEl) {
                     document.getElementById('relationshipContextMenu').style.display = 'none';
                 }
                 // Hide text label context menu
-                if (!e.target.closest('.text-label-context-menu') && !e.target.closest('.context-submenu')) {
-                    hideTextLabelContextMenu();
-                }
+            if (!e.target.closest('.text-label-context-menu') && !e.target.closest('#vectorShapeContextMenu') && !e.target.closest('.context-submenu')) {
+                hideTextLabelContextMenu();
+                hideVectorShapeContextMenu();
+            }
 
                 if (!e.target.closest('.table-node') && !e.target.closest('.zoom-controls') &&
                     !e.target.closest('.comment-node') && !e.target.closest('.text-label-node') &&

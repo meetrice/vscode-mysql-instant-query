@@ -273,6 +273,10 @@ export function activate(context: vscode.ExtensionContext) {
         Utility.createSQLTextDocument("", false);
     }));
 
+    context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.newErdFromTree", () => {
+        ErdWebView.clearCanvas();
+    }));
+
     context.subscriptions.push(vscode.commands.registerCommand("mysqlInstantQuery.editConnection", (connectionNode: ConnectionNode) => {
         mysqlTreeDataProvider.editConnection(connectionNode);
     }));
