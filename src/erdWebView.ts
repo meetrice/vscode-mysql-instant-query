@@ -72,6 +72,7 @@ interface VectorShapeData {
     strokeDasharray?: string;
     fill?: string;
     zIndex?: number;
+    opacity?: number;
 }
 
 interface MerdFileData {
@@ -126,6 +127,14 @@ export class ErdWebView {
     public static textLabels: TextLabelData[] = [];
     public static vectorShapes: VectorShapeData[] = [];
     private static currentPanel: vscode.WebviewPanel | null = null;
+    private static undoStack: Array<{
+        tables: TableData[];
+        relationships: Relationship[];
+        comments: CommentData[];
+        textLabels: TextLabelData[];
+        vectorShapes: VectorShapeData[];
+    }> = [];
+    private static readonly UNDO_MAX = 50;
 
     // Helper methods for external access
     public static clearInternalData() {
@@ -134,6 +143,71 @@ export class ErdWebView {
         ErdWebView.comments = [];
         ErdWebView.textLabels = [];
         ErdWebView.vectorShapes = [];
+    }
+
+    private static clearUndoStack() {
+        ErdWebView.undoStack = [];
+    }
+
+    /** Safe JSON for embedding in webview inline scripts. */
+    private static jsonForWebviewScript(value: unknown): string {
+        return JSON.stringify(value)
+            .replace(/</g, '\\u003c')
+            .replace(/>/g, '\\u003e')
+            .replace(/&/g, '\\u0026')
+            .replace(/\u2028/g, '\\u2028')
+            .replace(/\u2029/g, '\\u2029');
+    }
+
+    private static pushUndoSnapshot(snapshot: {
+        tables: TableData[];
+        relationships: Relationship[];
+        comments: CommentData[];
+        textLabels: TextLabelData[];
+        vectorShapes: VectorShapeData[];
+    }) {
+        if (!snapshot) {
+            return;
+        }
+        const json = JSON.stringify(snapshot);
+        const last = ErdWebView.undoStack[ErdWebView.undoStack.length - 1];
+        if (last && JSON.stringify(last) === json) {
+            return;
+        }
+        ErdWebView.undoStack.push(snapshot);
+        if (ErdWebView.undoStack.length > ErdWebView.UNDO_MAX) {
+            ErdWebView.undoStack.shift();
+        }
+    }
+
+    private static async restoreFromSnapshot(snapshot: {
+        tables: TableData[];
+        relationships: Relationship[];
+        comments: CommentData[];
+        textLabels: TextLabelData[];
+        vectorShapes: VectorShapeData[];
+    }) {
+        ErdWebView.clearInternalData();
+        (snapshot.tables || []).forEach(table => {
+            ErdWebView.loadTable(table);
+        });
+        ErdWebView.relationships = JSON.parse(JSON.stringify(snapshot.relationships || []));
+        ErdWebView.comments = JSON.parse(JSON.stringify(snapshot.comments || []));
+        ErdWebView.textLabels = JSON.parse(JSON.stringify(snapshot.textLabels || []));
+        ErdWebView.vectorShapes = JSON.parse(JSON.stringify(snapshot.vectorShapes || []));
+
+        const panel = Array.from(ErdWebView.panels.values())[0];
+        if (panel) {
+            panel.webview.html = ErdWebView.getWebviewContent('', '');
+        }
+    }
+
+    private static async performUndo() {
+        if (ErdWebView.undoStack.length === 0) {
+            return;
+        }
+        const snapshot = ErdWebView.undoStack.pop()!;
+        await ErdWebView.restoreFromSnapshot(snapshot);
     }
 
     public static loadTable(table: TableData) {
@@ -260,6 +334,12 @@ export class ErdWebView {
             case 'exportImage':
                 await ErdWebView.exportImage(message.format, message.data, message.width, message.height);
                 break;
+            case 'pushUndo':
+                ErdWebView.pushUndoSnapshot(message.snapshot);
+                break;
+            case 'undo':
+                await ErdWebView.performUndo();
+                break;
         }
     }
 
@@ -310,11 +390,8 @@ export class ErdWebView {
 
     public static async clearCanvas() {
         // Clear existing data
-        ErdWebView.tableData.clear();
-        ErdWebView.relationships = [];
-        ErdWebView.comments = [];
-        ErdWebView.textLabels = [];
-        ErdWebView.vectorShapes = [];
+        ErdWebView.clearInternalData();
+        ErdWebView.clearUndoStack();
 
         // Get or create panel
         let panel = Array.from(ErdWebView.panels.values())[0];
@@ -470,6 +547,7 @@ export class ErdWebView {
                 await ErdWebView.syncWebviewTableState(panel);
             }
 
+            ErdWebView.clearUndoStack();
             panel.webview.html = ErdWebView.getWebviewContent(database, tableName);
 
         } catch (error) {
@@ -892,6 +970,7 @@ export class ErdWebView {
             // Clear existing data
             ErdWebView.tableData.clear();
             ErdWebView.relationships = [];
+            ErdWebView.clearUndoStack();
 
             // Load tables
             console.log('[openFromFile] Loading', merdData.tables.length, 'tables from MERD file');
@@ -969,6 +1048,12 @@ export class ErdWebView {
         }
         body.panning {
             cursor: grabbing;
+        }
+        body.vector-resizing {
+            user-select: none;
+        }
+        body.vector-resizing .vector-shape-resize-handle {
+            pointer-events: auto;
         }
         #canvas-container {
             width: 100%;
@@ -1621,6 +1706,7 @@ export class ErdWebView {
             border-radius: 3px;
             box-sizing: border-box;
             border: 1px solid transparent;
+            overflow: visible;
         }
         .vector-shape-node:hover {
             box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.28);
@@ -1630,30 +1716,57 @@ export class ErdWebView {
             width: 100%;
             height: 100%;
             overflow: visible;
+            pointer-events: none !important;
+        }
+        .vector-shape-handles {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            overflow: visible;
+            z-index: 30;
+        }
+        .vector-shape-handles .vector-shape-resize-handle {
+            pointer-events: auto;
+        }
+        .vector-shape-node:not(.resize-active) .vector-shape-resize-handle {
+            visibility: hidden;
             pointer-events: none;
         }
-        .vector-shape-node:not(.selected) .vector-shape-resize-handle {
-            display: none;
+        .vector-shape-node.resize-active .vector-shape-resize-handle {
+            visibility: visible;
+            pointer-events: auto;
+        }
+        .vector-shape-node.resize-active {
+            cursor: default;
+            box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007acc),
+                        0 0 0 4px rgba(0, 122, 204, 0.18);
+            border-color: var(--vscode-focusBorder, #007acc);
         }
         .vector-shape-resize-handle {
             position: absolute;
-            width: 10px;
-            height: 10px;
+            width: 12px;
+            height: 12px;
             background: var(--vscode-focusBorder, #007acc);
             border: 1px solid var(--vscode-editor-background, #fff);
             border-radius: 1px;
             pointer-events: auto;
             box-sizing: border-box;
-            z-index: 10;
+            z-index: 20;
+            touch-action: none;
         }
-        .vector-shape-resize-handle.nw { top: -5px; left: -5px; cursor: nwse-resize; }
-        .vector-shape-resize-handle.n  { top: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
-        .vector-shape-resize-handle.ne { top: -5px; right: -5px; cursor: nesw-resize; }
-        .vector-shape-resize-handle.e  { top: 50%; right: -5px; transform: translateY(-50%); cursor: ew-resize; }
-        .vector-shape-resize-handle.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
-        .vector-shape-resize-handle.s  { bottom: -5px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
-        .vector-shape-resize-handle.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
-        .vector-shape-resize-handle.w  { top: 50%; left: -5px; transform: translateY(-50%); cursor: ew-resize; }
+        .vector-shape-resize-handle::before {
+            content: '';
+            position: absolute;
+            inset: -10px;
+        }
+        .vector-shape-resize-handle.nw { top: -6px; left: -6px; cursor: nwse-resize; }
+        .vector-shape-resize-handle.n  { top: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+        .vector-shape-resize-handle.ne { top: -6px; right: -6px; cursor: nesw-resize; }
+        .vector-shape-resize-handle.e  { top: 50%; right: -6px; transform: translateY(-50%); cursor: ew-resize; }
+        .vector-shape-resize-handle.se { bottom: -6px; right: -6px; cursor: nwse-resize; }
+        .vector-shape-resize-handle.s  { bottom: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+        .vector-shape-resize-handle.sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+        .vector-shape-resize-handle.w  { top: 50%; left: -6px; transform: translateY(-50%); cursor: ew-resize; }
         .vector-shape-resize-handle.start,
         .vector-shape-resize-handle.end {
             transform: translate(-50%, -50%);
@@ -1663,7 +1776,16 @@ export class ErdWebView {
         }
         .vector-shape-resize-handle.dragging {
             background: #005a9e;
+        }
+        .vector-shape-resize-handle.start.dragging,
+        .vector-shape-resize-handle.end.dragging {
             transform: translate(-50%, -50%) scale(1.2);
+        }
+        .vector-shape-resize-handle.nw.dragging,
+        .vector-shape-resize-handle.ne.dragging,
+        .vector-shape-resize-handle.se.dragging,
+        .vector-shape-resize-handle.sw.dragging {
+            transform: scale(1.2);
         }
         .vector-shape-resize-handle.n.dragging,
         .vector-shape-resize-handle.s.dragging {
@@ -2185,6 +2307,8 @@ export class ErdWebView {
 
     <!-- Vector shape context menu -->
     <div class="text-label-context-menu" id="vectorShapeContextMenu">
+        <div class="context-menu-item" id="vectorShapeResizeMenu">调整大小</div>
+        <div class="context-menu-separator"></div>
         <div class="context-menu-item has-submenu" id="vectorStrokeWidthMenu">
             边框粗细
             <div class="context-submenu" id="vectorStrokeWidthSubmenu"></div>
@@ -2211,6 +2335,11 @@ export class ErdWebView {
             <div class="context-submenu text-label-color-submenu" id="vectorFillMoreColorSubmenu"></div>
         </div>
         <div class="context-menu-separator"></div>
+        <div class="context-menu-item has-submenu" id="vectorOpacityMenu">
+            透明度
+            <div class="context-submenu" id="vectorOpacitySubmenu"></div>
+        </div>
+        <div class="context-menu-separator"></div>
         <div class="context-menu-item" id="vectorBringToFront">置于顶层</div>
         <div class="context-menu-item" id="vectorBringForward">上移一层</div>
         <div class="context-menu-item" id="vectorSendBackward">下移一层</div>
@@ -2233,11 +2362,11 @@ export class ErdWebView {
 
     <script>
         const vscode = acquireVsCodeApi();
-        const tables = ${JSON.stringify(tables)};
-        const relationships = ${JSON.stringify(relationships)};
-        let comments = ${JSON.stringify(ErdWebView.comments)};
-        let textLabels = ${JSON.stringify(ErdWebView.textLabels)};
-        let vectorShapes = ${JSON.stringify(ErdWebView.vectorShapes)};
+        const tables = ${ErdWebView.jsonForWebviewScript(tables)};
+        const relationships = ${ErdWebView.jsonForWebviewScript(relationships)};
+        let comments = ${ErdWebView.jsonForWebviewScript(ErdWebView.comments)};
+        let textLabels = ${ErdWebView.jsonForWebviewScript(ErdWebView.textLabels)};
+        let vectorShapes = ${ErdWebView.jsonForWebviewScript(ErdWebView.vectorShapes)};
 
         let zoom = 1;
         let selectedTable = null;
@@ -2336,10 +2465,17 @@ export class ErdWebView {
             }
         }
 
+        function clearVectorShapeResizeMode() {
+            document.querySelectorAll('.vector-shape-node.resize-active').forEach(function(el) {
+                el.classList.remove('resize-active');
+            });
+        }
+
         function clearAllObjectSelections() {
             document.querySelectorAll('.table-node.selected, .comment-node.selected, .text-label-node.selected, .vector-shape-node.selected').forEach(function(el) {
                 el.classList.remove('selected');
             });
+            clearVectorShapeResizeMode();
             if (selectedTable) {
                 selectedTable.classList.remove('selected');
                 selectedTable = null;
@@ -2700,6 +2836,7 @@ export class ErdWebView {
 
         // Add comment button - create new comment
         document.getElementById('addCommentBtn').addEventListener('click', function() {
+            pushUndoSnapshot();
             const newComment = {
                 id: 'comment_' + Date.now(),
                 x: 100 + (comments.length * 50),
@@ -2767,11 +2904,14 @@ export class ErdWebView {
             }
         }
 
-        addTextLabelBtn.addEventListener('click', function() {
-            setAddTextLabelMode(!addTextLabelMode);
-        });
+        if (addTextLabelBtn) {
+            addTextLabelBtn.addEventListener('click', function() {
+                setAddTextLabelMode(!addTextLabelMode);
+            });
+        }
 
         function createTextLabel(x, y, options) {
+            pushUndoSnapshot();
             options = options || {};
             const newLabel = {
                 id: 'label_' + Date.now(),
@@ -3061,6 +3201,7 @@ export class ErdWebView {
                 if (e.button !== 0 || document.activeElement === labelEl) {
                     return;
                 }
+                pushUndoSnapshot();
                 labelDragPending = true;
                 labelDragStartX = e.clientX;
                 labelDragStartY = e.clientY;
@@ -3253,6 +3394,13 @@ export class ErdWebView {
             return vectorShapes.find(function(s) { return s.id === shapeEl.dataset.shapeId; });
         }
 
+        function getVectorShapeOpacity(shape) {
+            if (shape.opacity !== undefined && shape.opacity !== null) {
+                return shape.opacity;
+            }
+            return 1;
+        }
+
         function applyVectorShapeVisualStyles(shapeEl, shape) {
             if (shape.stroke) {
                 shapeEl.style.color = shape.stroke;
@@ -3261,6 +3409,12 @@ export class ErdWebView {
             }
             if (shape.zIndex !== undefined && shape.zIndex !== null) {
                 shapeEl.style.zIndex = String(shape.zIndex);
+            }
+            const opacity = getVectorShapeOpacity(shape);
+            if (opacity < 1) {
+                shapeEl.style.opacity = String(opacity);
+            } else {
+                shapeEl.style.removeProperty('opacity');
             }
         }
 
@@ -3344,19 +3498,31 @@ export class ErdWebView {
         }
 
         let vectorShapeResizing = null;
+        let vectorShapeDragState = null;
 
-        function finishVectorShapeResize() {
-            if (!vectorShapeResizing) {
+        function debugVectorShapeResize(eventName, detail) {
+            if (detail === undefined) {
+                console.log('[ERD Vector Resize]', eventName);
                 return;
             }
-            if (vectorShapeResizing.handle) {
-                vectorShapeResizing.handle.classList.remove('dragging');
+            console.log('[ERD Vector Resize]', eventName, detail);
+        }
+
+        function finishVectorShapeResize() {
+            if (vectorShapeResizing) {
+                debugVectorShapeResize('finish', {
+                    kind: vectorShapeResizing.kind,
+                    shapeId: vectorShapeResizing.shapeEl && vectorShapeResizing.shapeEl.dataset ? vectorShapeResizing.shapeEl.dataset.shapeId : undefined
+                });
+                if (vectorShapeResizing.handle) {
+                    vectorShapeResizing.handle.classList.remove('dragging');
+                }
+                const shape = getVectorShapeByEl(vectorShapeResizing.shapeEl);
+                vectorShapeResizing.shapeEl.style.zIndex = shape && shape.zIndex !== undefined ?
+                    String(shape.zIndex) : '';
+                vectorShapeResizing = null;
             }
-            const shape = getVectorShapeByEl(vectorShapeResizing.shapeEl);
-            vectorShapeResizing.shapeEl.style.zIndex = shape && shape.zIndex !== undefined ?
-                String(shape.zIndex) : '';
-            document.body.classList.remove('panning');
-            vectorShapeResizing = null;
+            document.body.classList.remove('vector-resizing');
         }
 
         function applyVectorBoxResize(resizeState, clientX, clientY) {
@@ -3389,6 +3555,15 @@ export class ErdWebView {
             shapeEl.style.height = newHeight + 'px';
             refreshVectorShapeElementContent(shapeEl);
             syncVectorShapeData(shapeEl);
+            debugVectorShapeResize('box move', {
+                shapeId: shapeEl.dataset.shapeId,
+                direction: direction,
+                left: Math.round(newLeft * 100) / 100,
+                top: Math.round(newTop * 100) / 100,
+                width: Math.round(newWidth * 100) / 100,
+                height: Math.round(newHeight * 100) / 100,
+                zoom: zoom
+            });
         }
 
         function applyVectorLineEndpointResize(resizeState, e) {
@@ -3404,110 +3579,405 @@ export class ErdWebView {
             }
             repositionVectorLineElement(shapeEl, shape);
             syncVectorShapeData(shapeEl);
+            debugVectorShapeResize('line endpoint move', {
+                shapeId: shapeEl.dataset.shapeId,
+                role: resizeState.role,
+                x: Math.round(coords.x * 100) / 100,
+                y: Math.round(coords.y * 100) / 100,
+                x2: shape.x2 !== undefined ? Math.round(shape.x2 * 100) / 100 : undefined,
+                y2: shape.y2 !== undefined ? Math.round(shape.y2 * 100) / 100 : undefined,
+                zoom: zoom
+            });
         }
 
-        document.addEventListener('mousemove', function vectorShapeResizeMove(e) {
-            if (!vectorShapeResizing) {
-                return;
+        function findVectorShapeHandleAt(shapeEl, clientX, clientY) {
+            if (!shapeEl || !shapeEl.classList.contains('resize-active')) {
+                return null;
             }
-            if (vectorShapeResizing.kind === 'box') {
-                applyVectorBoxResize(vectorShapeResizing, e.clientX, e.clientY);
-            } else if (vectorShapeResizing.kind === 'line') {
-                applyVectorLineEndpointResize(vectorShapeResizing, e);
+            const handles = shapeEl.querySelectorAll('.vector-shape-resize-handle');
+            for (let i = 0; i < handles.length; i++) {
+                const handle = handles[i];
+                const rect = handle.getBoundingClientRect();
+                if (rect.width <= 0 && rect.height <= 0) {
+                    continue;
+                }
+                const pad = 10;
+                if (clientX >= rect.left - pad && clientX <= rect.right + pad &&
+                    clientY >= rect.top - pad && clientY <= rect.bottom + pad) {
+                    return handle;
+                }
             }
-        });
-
-        document.addEventListener('mouseup', function vectorShapeResizeUp() {
-            finishVectorShapeResize();
-        });
-
-        function startVectorBoxResize(handle, shapeEl, direction, e) {
-            if (e.button !== 0 || addVectorShapeType) {
-                return;
-            }
-            e.preventDefault();
-            e.stopPropagation();
-            finishVectorShapeResize();
-            vectorShapeResizing = {
-                kind: 'box',
-                shapeEl: shapeEl,
-                direction: direction,
-                handle: handle,
-                startX: e.clientX,
-                startY: e.clientY,
-                startLeft: parseFloat(shapeEl.style.left) || 0,
-                startTop: parseFloat(shapeEl.style.top) || 0,
-                startWidth: shapeEl.offsetWidth,
-                startHeight: shapeEl.offsetHeight
-            };
-            handle.classList.add('dragging');
-            shapeEl.style.zIndex = '1000';
-            document.body.classList.add('panning');
+            return null;
         }
 
-        function startVectorLineEndpointResize(handle, shapeEl, role, e) {
-            if (e.button !== 0 || addVectorShapeType) {
-                return;
-            }
-            e.preventDefault();
-            e.stopPropagation();
-            const shape = getVectorShapeByEl(shapeEl);
-            if (!shape || shape.x2 === undefined || shape.y2 === undefined) {
-                return;
-            }
+        function startVectorShapeResize(handle, shapeEl, clientX, clientY) {
             finishVectorShapeResize();
-            vectorShapeResizing = {
-                kind: 'line',
-                shapeEl: shapeEl,
-                role: role,
-                shape: shape,
-                handle: handle
-            };
+            vectorShapeDragState = null;
+
+            const direction = handle.dataset.handle;
+            if (!direction) {
+                debugVectorShapeResize('start ignored: missing handle direction', {
+                    shapeId: shapeEl.dataset.shapeId,
+                    handleClass: handle.className
+                });
+                return;
+            }
+            pushUndoSnapshot();
+            if (!shapeEl.classList.contains('resize-active')) {
+                enterVectorShapeResizeMode(shapeEl);
+            }
+
+            if (isVectorLineType(shapeEl.dataset.shapeType)) {
+                const shape = getVectorShapeByEl(shapeEl);
+                if (!shape || shape.x2 === undefined || shape.y2 === undefined) {
+                    return;
+                }
+                vectorShapeResizing = {
+                    kind: 'line',
+                    shapeEl: shapeEl,
+                    role: direction,
+                    shape: shape,
+                    handle: handle,
+                    startX: clientX,
+                    startY: clientY
+                };
+                debugVectorShapeResize('start line', {
+                    shapeId: shapeEl.dataset.shapeId,
+                    role: direction,
+                    clientX: clientX,
+                    clientY: clientY,
+                    shape: {
+                        x: shape.x,
+                        y: shape.y,
+                        x2: shape.x2,
+                        y2: shape.y2
+                    }
+                });
+            } else {
+                vectorShapeResizing = {
+                    kind: 'box',
+                    shapeEl: shapeEl,
+                    direction: direction,
+                    handle: handle,
+                    startX: clientX,
+                    startY: clientY,
+                    startLeft: parseFloat(shapeEl.style.left) || 0,
+                    startTop: parseFloat(shapeEl.style.top) || 0,
+                    startWidth: shapeEl.offsetWidth,
+                    startHeight: shapeEl.offsetHeight
+                };
+                debugVectorShapeResize('start box', {
+                    shapeId: shapeEl.dataset.shapeId,
+                    direction: direction,
+                    clientX: clientX,
+                    clientY: clientY,
+                    left: vectorShapeResizing.startLeft,
+                    top: vectorShapeResizing.startTop,
+                    width: vectorShapeResizing.startWidth,
+                    height: vectorShapeResizing.startHeight,
+                    zoom: zoom
+                });
+            }
             handle.classList.add('dragging');
             shapeEl.style.zIndex = '1000';
-            document.body.classList.add('panning');
+            document.body.classList.add('vector-resizing');
+        }
+
+        function bindVectorShapeResizeHandle(handle, shapeEl) {
+            if (handle.dataset.bound === '1') {
+                return;
+            }
+            handle.dataset.bound = '1';
+
+            function onHandlePointerDown(e) {
+                debugVectorShapeResize('handle mousedown', {
+                    shapeId: shapeEl.dataset.shapeId,
+                    handle: handle.dataset.handle,
+                    button: e.button,
+                    addVectorShapeType: addVectorShapeType
+                });
+                if (e.button !== 0) {
+                    return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                if (typeof e.stopImmediatePropagation === 'function') {
+                    e.stopImmediatePropagation();
+                }
+                startVectorShapeResize(handle, shapeEl, e.clientX, e.clientY);
+            }
+
+            handle.addEventListener('mousedown', onHandlePointerDown, true);
+        }
+
+        function ensureVectorShapeResizeDocumentListeners() {
+            if (window.__vectorShapeResizeDocumentListeners) {
+                document.removeEventListener('mousedown', window.__vectorShapeResizeDocumentListeners.onMouseDown, true);
+                document.removeEventListener('mousemove', window.__vectorShapeResizeDocumentListeners.onMouseMove, true);
+                document.removeEventListener('mouseup', window.__vectorShapeResizeDocumentListeners.onMouseUp, true);
+                debugVectorShapeResize('rebind document listeners');
+            } else {
+                debugVectorShapeResize('bind document listeners');
+            }
+
+            function onMouseDown(e) {
+                const target = e.target;
+                if (!target || !target.closest) {
+                    return;
+                }
+                const handle = target.closest('.vector-shape-resize-handle');
+                const shapeEl = target.closest('.vector-shape-node') || (handle ? handle.closest('.vector-shape-node') : null);
+                if (!shapeEl && !handle) {
+                    return;
+                }
+                debugVectorShapeResize('document mousedown', {
+                    button: e.button,
+                    shapeId: shapeEl && shapeEl.dataset ? shapeEl.dataset.shapeId : undefined,
+                    targetClass: target.className,
+                    handle: handle && handle.dataset ? handle.dataset.handle : undefined,
+                    resizeActive: !!(shapeEl && shapeEl.classList && shapeEl.classList.contains('resize-active'))
+                });
+                if (e.button !== 0 || !handle) {
+                    return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                if (typeof e.stopImmediatePropagation === 'function') {
+                    e.stopImmediatePropagation();
+                }
+                startVectorShapeResize(handle, shapeEl, e.clientX, e.clientY);
+            }
+
+            function onMouseMove(e) {
+                if (vectorShapeResizing) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (vectorShapeResizing.kind === 'box') {
+                        applyVectorBoxResize(vectorShapeResizing, e.clientX, e.clientY);
+                    } else if (vectorShapeResizing.kind === 'line') {
+                        applyVectorLineEndpointResize(vectorShapeResizing, e);
+                    }
+                    return;
+                }
+                if (!vectorShapeDragState) {
+                    return;
+                }
+                const dx = e.clientX - vectorShapeDragState.startX;
+                const dy = e.clientY - vectorShapeDragState.startY;
+                if (!vectorShapeDragState.moved) {
+                    if (Math.abs(dx) < 4 && Math.abs(dy) < 4) {
+                        return;
+                    }
+                    vectorShapeDragState.moved = true;
+                    if (!vectorShapeDragState.undoPushed) {
+                        pushUndoSnapshot();
+                        vectorShapeDragState.undoPushed = true;
+                    }
+                    vectorShapeDragState.shapeEl.style.zIndex = '1000';
+                    document.body.classList.add('panning');
+                }
+                vectorShapeDragState.shapeEl.style.left = (vectorShapeDragState.startLeft + dx / zoom) + 'px';
+                vectorShapeDragState.shapeEl.style.top = (vectorShapeDragState.startTop + dy / zoom) + 'px';
+                syncVectorShapeData(vectorShapeDragState.shapeEl);
+            }
+
+            function onMouseUp() {
+                if (vectorShapeResizing) {
+                    finishVectorShapeResize();
+                }
+                if (vectorShapeDragState) {
+                    if (vectorShapeDragState.moved) {
+                        const shape = getVectorShapeByEl(vectorShapeDragState.shapeEl);
+                        vectorShapeDragState.shapeEl.style.zIndex = shape && shape.zIndex !== undefined ?
+                            String(shape.zIndex) : vectorShapeDragState.prevZIndex;
+                        document.body.classList.remove('panning');
+                    }
+                    vectorShapeDragState = null;
+                }
+            }
+
+            document.addEventListener('mousedown', onMouseDown, true);
+            document.addEventListener('mousemove', onMouseMove, true);
+            document.addEventListener('mouseup', onMouseUp, true);
+            window.__vectorShapeResizeDocumentListeners = {
+                onMouseDown: onMouseDown,
+                onMouseMove: onMouseMove,
+                onMouseUp: onMouseUp
+            };
+        }
+
+        function initGlobalVectorShapeInteraction() {
+            ensureVectorShapeResizeDocumentListeners();
+
+            const canvasContainer = document.getElementById('canvas-container');
+            if (!canvasContainer) {
+                debugVectorShapeResize('global interaction skipped: missing canvas-container');
+                return;
+            }
+
+            if (window.__vectorShapeInteractionListener && window.__vectorShapeInteractionContainer) {
+                window.__vectorShapeInteractionContainer.removeEventListener('mousedown', window.__vectorShapeInteractionListener, true);
+                debugVectorShapeResize('rebind canvas mousedown listener');
+            } else {
+                debugVectorShapeResize('bind canvas mousedown listener');
+            }
+
+            function onCanvasVectorShapeMouseDown(e) {
+                const targetHandle = e.target.closest && e.target.closest('.vector-shape-resize-handle');
+                const targetShape = e.target.closest && e.target.closest('.vector-shape-node');
+                if (e.button !== 0 || (addVectorShapeType && !targetHandle && !targetShape)) {
+                    return;
+                }
+                if (e.target.closest('.erd-toolbar') || e.target.closest('#vectorShapeContextMenu')) {
+                    return;
+                }
+
+                const shapeEl = e.target.closest && e.target.closest('.vector-shape-node');
+                if (shapeEl) {
+                    const handle = (e.target.closest && e.target.closest('.vector-shape-resize-handle')) ||
+                        findVectorShapeHandleAt(shapeEl, e.clientX, e.clientY);
+                    if (handle) {
+                        debugVectorShapeResize('canvas mousedown hit handle', {
+                            shapeId: shapeEl.dataset.shapeId,
+                            handle: handle.dataset.handle,
+                            targetClass: e.target.className
+                        });
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (typeof e.stopImmediatePropagation === 'function') {
+                            e.stopImmediatePropagation();
+                        }
+                        startVectorShapeResize(handle, shapeEl, e.clientX, e.clientY);
+                        return;
+                    }
+                    if (e.target.closest('.vector-shape-resize-handle')) {
+                        return;
+                    }
+                } else if (e.target.closest('.vector-shape-resize-handle')) {
+                    return;
+                }
+
+                if (!shapeEl) {
+                    return;
+                }
+
+                e.preventDefault();
+                e.stopPropagation();
+
+                selectVectorShape(shapeEl);
+                debugVectorShapeResize('start drag pending', {
+                    shapeId: shapeEl.dataset.shapeId,
+                    clientX: e.clientX,
+                    clientY: e.clientY,
+                    left: parseFloat(shapeEl.style.left) || 0,
+                    top: parseFloat(shapeEl.style.top) || 0
+                });
+                vectorShapeDragState = {
+                    shapeEl: shapeEl,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    startLeft: parseFloat(shapeEl.style.left) || 0,
+                    startTop: parseFloat(shapeEl.style.top) || 0,
+                    prevZIndex: shapeEl.style.zIndex || '',
+                    moved: false,
+                    undoPushed: false
+                };
+            }
+
+            canvasContainer.addEventListener('mousedown', onCanvasVectorShapeMouseDown, true);
+            window.__vectorShapeInteractionContainer = canvasContainer;
+            window.__vectorShapeInteractionListener = onCanvasVectorShapeMouseDown;
+        }
+
+        function getVectorShapeHandlesLayer(shapeEl) {
+            let layer = shapeEl.querySelector('.vector-shape-handles');
+            if (!layer) {
+                layer = document.createElement('div');
+                layer.className = 'vector-shape-handles';
+                shapeEl.appendChild(layer);
+            }
+            return layer;
         }
 
         function initVectorShapeResizeHandles(shapeEl) {
+            ensureVectorShapeResizeDocumentListeners();
+            const handlesLayer = getVectorShapeHandlesLayer(shapeEl);
             const type = shapeEl.dataset.shapeType;
+            debugVectorShapeResize('init handles', {
+                shapeId: shapeEl.dataset.shapeId,
+                type: type,
+                existingHandles: handlesLayer.querySelectorAll('.vector-shape-resize-handle').length
+            });
             if (isVectorLineType(type)) {
-                if (shapeEl.querySelector('.vector-shape-resize-handle.start')) {
-                    updateVectorShapeLineHandles(shapeEl);
-                    return;
-                }
-                ['start', 'end'].forEach(function(role) {
-                    const handle = document.createElement('div');
-                    handle.className = 'vector-shape-resize-handle ' + role;
-                    handle.dataset.handle = role;
-                    handle.addEventListener('mousedown', function(e) {
-                        startVectorLineEndpointResize(handle, shapeEl, role, e);
+                if (!handlesLayer.querySelector('.vector-shape-resize-handle.start')) {
+                    ['start', 'end'].forEach(function(role) {
+                        const handle = document.createElement('div');
+                        handle.className = 'vector-shape-resize-handle ' + role;
+                        handle.dataset.handle = role;
+                        handlesLayer.appendChild(handle);
+                        bindVectorShapeResizeHandle(handle, shapeEl);
                     });
-                    shapeEl.appendChild(handle);
-                });
-            } else {
-                if (shapeEl.querySelector('.vector-shape-resize-handle')) {
-                    return;
+                } else {
+                    handlesLayer.querySelectorAll('.vector-shape-resize-handle').forEach(function(handle) {
+                        bindVectorShapeResizeHandle(handle, shapeEl);
+                    });
                 }
+                updateVectorShapeLineHandles(shapeEl);
+                return;
+            }
+            if (!handlesLayer.querySelector('.vector-shape-resize-handle')) {
                 ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(function(dir) {
                     const handle = document.createElement('div');
                     handle.className = 'vector-shape-resize-handle ' + dir;
                     handle.dataset.handle = dir;
-                    handle.addEventListener('mousedown', function(e) {
-                        startVectorBoxResize(handle, shapeEl, dir, e);
-                    });
-                    shapeEl.appendChild(handle);
+                    handlesLayer.appendChild(handle);
+                    bindVectorShapeResizeHandle(handle, shapeEl);
+                });
+            } else {
+                handlesLayer.querySelectorAll('.vector-shape-resize-handle').forEach(function(handle) {
+                    bindVectorShapeResizeHandle(handle, shapeEl);
                 });
             }
-            updateVectorShapeLineHandles(shapeEl);
         }
 
         function selectVectorShape(shapeEl) {
+            clearVectorShapeResizeMode();
             document.querySelectorAll('.vector-shape-node').forEach(function(node) {
                 node.classList.remove('selected');
             });
             shapeEl.classList.add('selected');
             initVectorShapeResizeHandles(shapeEl);
             updateVectorShapeLineHandles(shapeEl);
+            debugVectorShapeResize('select shape', {
+                shapeId: shapeEl.dataset.shapeId,
+                type: shapeEl.dataset.shapeType
+            });
+        }
+
+        function enterVectorShapeResizeMode(shapeEl) {
+            if (!shapeEl) {
+                return;
+            }
+            if (addVectorShapeType) {
+                debugVectorShapeResize('clear add-vector mode before resize', {
+                    activeType: addVectorShapeType,
+                    shapeId: shapeEl.dataset.shapeId
+                });
+                setAddVectorShapeType(null, true);
+                activateSelectionMode();
+            }
+            document.querySelectorAll('.vector-shape-node').forEach(function(node) {
+                node.classList.remove('selected');
+                node.classList.remove('resize-active');
+            });
+            shapeEl.classList.add('resize-active');
+            initVectorShapeResizeHandles(shapeEl);
+            updateVectorShapeLineHandles(shapeEl);
+            debugVectorShapeResize('enter resize mode', {
+                shapeId: shapeEl.dataset.shapeId,
+                type: shapeEl.dataset.shapeType,
+                handles: shapeEl.querySelectorAll('.vector-shape-resize-handle').length
+            });
         }
 
         function createVectorShapeElement(shape) {
@@ -3551,6 +4021,14 @@ export class ErdWebView {
             refreshVectorShapeElementContent(shapeEl, shape, lineBounds);
             initVectorShapeEvents(shapeEl);
             initVectorShapeResizeHandles(shapeEl);
+            debugVectorShapeResize('create shape element', {
+                shapeId: shape.id,
+                type: shape.type,
+                x: shape.x,
+                y: shape.y,
+                width: shape.width,
+                height: shape.height
+            });
             return shapeEl;
         }
 
@@ -3577,6 +4055,9 @@ export class ErdWebView {
             }
             if (stored.zIndex !== undefined) {
                 entry.zIndex = stored.zIndex;
+            }
+            if (stored.opacity !== undefined && stored.opacity !== 1) {
+                entry.opacity = stored.opacity;
             }
             return entry;
         }
@@ -3721,6 +4202,7 @@ export class ErdWebView {
             if (bounds.width < 8 || bounds.height < 8) {
                 return;
             }
+            pushUndoSnapshot();
             const shape = {
                 id: 'vshape_' + Date.now(),
                 type: type,
@@ -3733,6 +4215,7 @@ export class ErdWebView {
         }
 
         function placeVectorShapeAt(type, x, y, x2, y2) {
+            pushUndoSnapshot();
             const defaultSize = 72;
             let shape;
             if (isVectorLineType(type)) {
@@ -3766,56 +4249,88 @@ export class ErdWebView {
             isDrawingVectorRect = false;
             pendingVectorRectStart = null;
             clearVectorShapePreview();
-            vectorShapeBtn.classList.toggle('active', !!type);
+            if (vectorShapeBtn) {
+                vectorShapeBtn.classList.toggle('active', !!type);
+            }
             document.body.classList.toggle('add-vector-mode', !!type);
-            vectorShapeGrid.querySelectorAll('.vector-shape-menu-item').forEach(function(item) {
-                item.classList.toggle('active', item.dataset.shapeType === type);
-            });
+            if (vectorShapeGrid) {
+                vectorShapeGrid.querySelectorAll('.vector-shape-menu-item').forEach(function(item) {
+                    item.classList.toggle('active', item.dataset.shapeType === type);
+                });
+            }
             if (type) {
                 deactivateSelectionMode();
                 addTextLabelMode = false;
-                addTextLabelBtn.classList.remove('active');
+                if (addTextLabelBtn) {
+                    addTextLabelBtn.classList.remove('active');
+                }
                 document.body.classList.remove('add-text-mode');
             } else if (!skipSelectionRestore) {
                 activateSelectionMode();
             }
         }
 
-        document.getElementById('selectToolBtn').addEventListener('click', function(e) {
-            e.stopPropagation();
-            activateSelectionMode();
-            vectorShapeMenu.classList.remove('show');
-        });
+        function initVectorShapeToolbar() {
+            const selectToolBtn = document.getElementById('selectToolBtn');
+            if (selectToolBtn) {
+                selectToolBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    activateSelectionMode();
+                    if (vectorShapeMenu) {
+                        vectorShapeMenu.classList.remove('show');
+                    }
+                });
+            }
 
-        vectorShapeBtn.addEventListener('click', function(e) {
-            e.stopPropagation();
-            vectorShapeMenu.classList.toggle('show');
-            exportMenu.classList.remove('show');
-        });
+            if (vectorShapeBtn && vectorShapeMenu) {
+                vectorShapeBtn.addEventListener('mousedown', function(e) {
+                    if (e.button !== 0) {
+                        return;
+                    }
+                    e.stopPropagation();
+                    if (typeof e.stopImmediatePropagation === 'function') {
+                        e.stopImmediatePropagation();
+                    }
+                }, true);
 
-        VECTOR_SHAPE_DEFS.forEach(function(def) {
-            if (def.type === '_divider') {
-                const divider = document.createElement('div');
-                divider.className = 'vector-shape-menu-divider';
-                vectorShapeGrid.appendChild(divider);
+                vectorShapeBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    vectorShapeMenu.classList.toggle('show');
+                    const exportMenuEl = document.getElementById('exportMenu');
+                    if (exportMenuEl) {
+                        exportMenuEl.classList.remove('show');
+                    }
+                });
+            }
+
+            if (!vectorShapeGrid || vectorShapeGrid.querySelector('.vector-shape-menu-item')) {
                 return;
             }
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'vector-shape-menu-item';
-            btn.dataset.shapeType = def.type;
-            btn.innerHTML = '<svg class="vector-shape-menu-icon" viewBox="0 0 24 24" aria-hidden="true">' + def.icon + '</svg><span>' + def.label + '</span>';
-            btn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                vectorShapeMenu.classList.remove('show');
-                if (addVectorShapeType === def.type) {
-                    setAddVectorShapeType(null);
-                } else {
-                    setAddVectorShapeType(def.type);
+
+            VECTOR_SHAPE_DEFS.forEach(function(def) {
+                if (def.type === '_divider') {
+                    const divider = document.createElement('div');
+                    divider.className = 'vector-shape-menu-divider';
+                    vectorShapeGrid.appendChild(divider);
+                    return;
                 }
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'vector-shape-menu-item';
+                btn.dataset.shapeType = def.type;
+                btn.innerHTML = '<svg class="vector-shape-menu-icon" viewBox="0 0 24 24" aria-hidden="true">' + def.icon + '</svg><span>' + def.label + '</span>';
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    vectorShapeMenu.classList.remove('show');
+                    if (addVectorShapeType === def.type) {
+                        setAddVectorShapeType(null);
+                    } else {
+                        setAddVectorShapeType(def.type);
+                    }
+                });
+                vectorShapeGrid.appendChild(btn);
             });
-            vectorShapeGrid.appendChild(btn);
-        });
+        }
 
         document.getElementById('canvas-container').addEventListener('mousemove', function(e) {
             if (isDrawingVectorRect && pendingVectorRectStart) {
@@ -3882,63 +4397,6 @@ export class ErdWebView {
         }, true);
 
         function initVectorShapeEvents(shapeEl) {
-            let isShapeDragging = false;
-            let shapeDragPending = false;
-            let shapeDragStartX = 0;
-            let shapeDragStartY = 0;
-            let shapeDragStartLeft = 0;
-            let shapeDragStartTop = 0;
-
-            shapeEl.addEventListener('mousedown', function(e) {
-                if (e.button !== 0 || addVectorShapeType || vectorShapeResizing) {
-                    return;
-                }
-                if (e.target.classList && e.target.classList.contains('vector-shape-resize-handle')) {
-                    return;
-                }
-                e.stopPropagation();
-                shapeDragPending = true;
-                shapeDragStartX = e.clientX;
-                shapeDragStartY = e.clientY;
-                shapeDragStartLeft = parseFloat(shapeEl.style.left) || 0;
-                shapeDragStartTop = parseFloat(shapeEl.style.top) || 0;
-            });
-
-            document.addEventListener('mousemove', function vectorShapeDragMove(e) {
-                if (vectorShapeResizing) {
-                    return;
-                }
-                if (shapeDragPending && !isShapeDragging) {
-                    const dx = Math.abs(e.clientX - shapeDragStartX);
-                    const dy = Math.abs(e.clientY - shapeDragStartY);
-                    if (dx > 4 || dy > 4) {
-                        isShapeDragging = true;
-                        shapeDragPending = false;
-                        selectVectorShape(shapeEl);
-                        shapeEl.style.zIndex = '1000';
-                        document.body.classList.add('panning');
-                    }
-                }
-                if (!isShapeDragging) {
-                    return;
-                }
-                const deltaX = e.clientX - shapeDragStartX;
-                const deltaY = e.clientY - shapeDragStartY;
-                shapeEl.style.left = ((deltaX / zoom) + shapeDragStartLeft) + 'px';
-                shapeEl.style.top = ((deltaY / zoom) + shapeDragStartTop) + 'px';
-                syncVectorShapeData(shapeEl);
-            });
-
-            document.addEventListener('mouseup', function vectorShapeDragUp() {
-                shapeDragPending = false;
-                if (isShapeDragging) {
-                    isShapeDragging = false;
-                    const shape = getVectorShapeByEl(shapeEl);
-                    shapeEl.style.zIndex = shape && shape.zIndex !== undefined ? String(shape.zIndex) : '';
-                    document.body.classList.remove('panning');
-                }
-            });
-
             shapeEl.addEventListener('click', function(e) {
                 e.stopPropagation();
                 selectVectorShape(shapeEl);
@@ -3947,7 +4405,6 @@ export class ErdWebView {
             shapeEl.addEventListener('contextmenu', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-                selectVectorShape(shapeEl);
                 showVectorShapeContextMenu(shapeEl, e.clientX, e.clientY);
             });
         }
@@ -3959,6 +4416,15 @@ export class ErdWebView {
         const vectorStrokeMoreColorSubmenu = document.getElementById('vectorStrokeMoreColorSubmenu');
         const vectorFillColorSwatches = document.getElementById('vectorFillColorSwatches');
         const vectorFillMoreColorSubmenu = document.getElementById('vectorFillMoreColorSubmenu');
+        const vectorOpacitySubmenu = document.getElementById('vectorOpacitySubmenu');
+
+        const VECTOR_OPACITY_OPTIONS = [
+            { label: '100%', value: 1 },
+            { label: '75%', value: 0.75 },
+            { label: '50%', value: 0.5 },
+            { label: '25%', value: 0.25 },
+            { label: '10%', value: 0.1 }
+        ];
 
         function hideVectorShapeContextMenu() {
             vectorShapeContextMenu.style.display = 'none';
@@ -4104,6 +4570,37 @@ export class ErdWebView {
             applyVectorShapeFillColor('none');
         });
 
+        VECTOR_OPACITY_OPTIONS.forEach(function(opt) {
+            const item = document.createElement('div');
+            item.className = 'context-submenu-item';
+            item.textContent = opt.label;
+            item.dataset.opacity = String(opt.value);
+            item.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (vectorShapeContextTarget) {
+                    const shape = getVectorShapeByEl(vectorShapeContextTarget);
+                    if (shape) {
+                        if (opt.value === 1) {
+                            delete shape.opacity;
+                        } else {
+                            shape.opacity = opt.value;
+                        }
+                        applyVectorShapeVisualStyles(vectorShapeContextTarget, shape);
+                    }
+                }
+                hideVectorShapeContextMenu();
+            });
+            vectorOpacitySubmenu.appendChild(item);
+        });
+
+        document.getElementById('vectorShapeResizeMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (vectorShapeContextTarget) {
+                enterVectorShapeResizeMode(vectorShapeContextTarget);
+            }
+            hideVectorShapeContextMenu();
+        });
+
         document.getElementById('vectorBringToFront').addEventListener('click', function(e) {
             e.stopPropagation();
             if (vectorShapeContextTarget) {
@@ -4140,6 +4637,10 @@ export class ErdWebView {
 
         function showVectorShapeContextMenu(shapeEl, clientX, clientY) {
             vectorShapeContextTarget = shapeEl;
+            const resizeMenuItem = document.getElementById('vectorShapeResizeMenu');
+            if (resizeMenuItem) {
+                resizeMenuItem.classList.toggle('active', shapeEl.classList.contains('resize-active'));
+            }
             const shape = getVectorShapeByEl(shapeEl);
             const currentWidth = shape && shape.strokeWidth ? shape.strokeWidth : 2;
             vectorStrokeWidthSubmenu.querySelectorAll('.context-submenu-item').forEach(function(item) {
@@ -4148,6 +4649,10 @@ export class ErdWebView {
             const styleName = shape ? getVectorStrokeStyleName(shape.strokeDasharray || '') : 'solid';
             document.getElementById('vectorStrokeStyleSubmenu').querySelectorAll('.context-submenu-item').forEach(function(item) {
                 item.classList.toggle('active', item.dataset.style === styleName);
+            });
+            const currentOpacity = shape ? getVectorShapeOpacity(shape) : 1;
+            vectorOpacitySubmenu.querySelectorAll('.context-submenu-item').forEach(function(item) {
+                item.classList.toggle('active', parseFloat(item.dataset.opacity) === currentOpacity);
             });
             vectorShapeContextMenu.style.left = clientX + 'px';
             vectorShapeContextMenu.style.top = clientY + 'px';
@@ -4195,6 +4700,69 @@ export class ErdWebView {
             return tag === 'TEXTAREA' || tag === 'INPUT';
         }
 
+        function findTableElementByName(tableName) {
+            const nodes = document.querySelectorAll('.table-node');
+            for (let i = 0; i < nodes.length; i++) {
+                if (nodes[i].getAttribute('data-table') === tableName) {
+                    return nodes[i];
+                }
+            }
+            return null;
+        }
+
+        function captureCanvasSnapshot() {
+            document.querySelectorAll('.text-label-node').forEach(function(el) {
+                syncTextLabelData(el);
+            });
+
+            const tablesSnapshot = [];
+            tables.forEach(function(table) {
+                const el = findTableElementByName(table.tableName);
+                const copy = JSON.parse(JSON.stringify(table));
+                if (el) {
+                    copy.x = parseFloat(el.style.left) || copy.x || 0;
+                    copy.y = parseFloat(el.style.top) || copy.y || 0;
+                    copy.width = el.offsetWidth || copy.width;
+                    copy.height = el.offsetHeight || copy.height;
+                    if (el.dataset.color) {
+                        copy.color = el.dataset.color;
+                    }
+                    if (el.dataset.database) {
+                        copy.database = el.dataset.database;
+                    }
+                }
+                tablesSnapshot.push(copy);
+            });
+
+            const commentsSnapshot = [];
+            document.querySelectorAll('.comment-node').forEach(function(commentEl) {
+                const textarea = commentEl.querySelector('.comment-textarea');
+                commentsSnapshot.push({
+                    id: commentEl.dataset.commentId,
+                    x: parseFloat(commentEl.style.left) || 0,
+                    y: parseFloat(commentEl.style.top) || 0,
+                    width: parseFloat(commentEl.style.width) || commentEl.offsetWidth || 200,
+                    height: parseFloat(commentEl.style.height) || commentEl.offsetHeight || 100,
+                    text: textarea ? textarea.value : ''
+                });
+            });
+
+            return {
+                tables: tablesSnapshot,
+                relationships: JSON.parse(JSON.stringify(relationships)),
+                comments: commentsSnapshot,
+                textLabels: JSON.parse(JSON.stringify(textLabels)),
+                vectorShapes: collectVectorShapesData()
+            };
+        }
+
+        function pushUndoSnapshot() {
+            vscode.postMessage({
+                command: 'pushUndo',
+                snapshot: captureCanvasSnapshot()
+            });
+        }
+
         function deleteAllSelectedObjects() {
             const selectedTables = Array.from(document.querySelectorAll('.table-node.selected'));
             const selectedComments = Array.from(document.querySelectorAll('.comment-node.selected'));
@@ -4205,6 +4773,8 @@ export class ErdWebView {
                 selectedLabels.length === 0 && selectedShapes.length === 0) {
                 return false;
             }
+
+            pushUndoSnapshot();
 
             selectedTables.forEach(function(tableEl) {
                 deleteTableElement(tableEl);
@@ -4226,6 +4796,14 @@ export class ErdWebView {
         }
 
         document.addEventListener('keydown', function(e) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+                if (isEditingCanvasObject()) {
+                    return;
+                }
+                e.preventDefault();
+                vscode.postMessage({ command: 'undo' });
+                return;
+            }
             if (e.key === 'Delete' || e.key === 'Backspace') {
                 const active = document.activeElement;
                 if (active && active.classList && active.classList.contains('text-label-node') &&
@@ -4488,17 +5066,19 @@ export class ErdWebView {
             const h = el.offsetHeight;
             const type = el.dataset.shapeType;
             const color = getComputedStyle(el).color || '#cccccc';
+            const opacity = parseFloat(getComputedStyle(el).opacity);
+            const opacityAttr = !isNaN(opacity) && opacity < 1 ? ' opacity="' + opacity + '"' : '';
             const innerSvg = el.querySelector('svg');
             if (!innerSvg) {
                 return '';
             }
             let content = innerSvg.innerHTML.replace(/currentColor/g, color);
             if (isVectorIconType(type)) {
-                return '<g transform="translate(' + offsetX + ',' + offsetY + ') scale(' + (w / 24) + ')">' +
+                return '<g transform="translate(' + offsetX + ',' + offsetY + ') scale(' + (w / 24) + ')"' + opacityAttr + '>' +
                     '<g fill="none" stroke="' + escapeXml(color) + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
                     content + '</g></g>';
             }
-            return '<svg x="' + offsetX + '" y="' + offsetY + '" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" overflow="visible">' +
+            return '<svg x="' + offsetX + '" y="' + offsetY + '" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" overflow="visible"' + opacityAttr + '>' +
                 content.replace(/currentColor/g, color) + '</svg>';
         }
 
@@ -4672,6 +5252,7 @@ function initCommentEvents(commentEl) {
 
                 // Don't connect to same point
                 if (connectionStartPoint.table !== endPoint.table) {
+                    pushUndoSnapshot();
                     // Add new relationship
                     const newRel = {
                         fromTable: connectionStartPoint.table,
@@ -4703,6 +5284,7 @@ function initCommentEvents(commentEl) {
     // Handle delete
     deleteBtn.addEventListener('click', function(e) {
         e.stopPropagation();
+        pushUndoSnapshot();
         const commentId = commentEl.dataset.commentId;
         const commentIndex = comments.findIndex(c => c.id === commentId);
         if (commentIndex !== -1) {
@@ -4753,6 +5335,7 @@ function initCommentEvents(commentEl) {
     
     resizeHandle.addEventListener('mousedown', function(e) {
         e.stopPropagation();
+        pushUndoSnapshot();
         isResizing = true;
         resizeStartX = e.clientX;
         resizeStartY = e.clientY;
@@ -4775,6 +5358,7 @@ function initCommentEvents(commentEl) {
     commentEl.addEventListener('mousedown', function(e) {
         // Only start dragging if clicking on the comment background or border
         if (e.target === commentEl || e.target === deleteBtn) {
+            pushUndoSnapshot();
             isDragging = true;
             dragStartX = e.clientX;
             dragStartY = e.clientY;
@@ -5529,6 +6113,7 @@ function initCommentEvents(commentEl) {
 
                 resizeHandle.addEventListener('mousedown', function(e) {
                     e.stopPropagation();
+                    pushUndoSnapshot();
                     isResizing = true;
                     isResizingVertical = false;
                     resizeElement = table;
@@ -5547,6 +6132,7 @@ function initCommentEvents(commentEl) {
 
                 resizeHandleVertical.addEventListener('mousedown', function(e) {
                     e.stopPropagation();
+                    pushUndoSnapshot();
                     isResizing = true;
                     isResizingVertical = true;
                     resizeElement = table;
@@ -5565,6 +6151,7 @@ function initCommentEvents(commentEl) {
                     cornerHandle.addEventListener('mousedown', function(e) {
                         e.stopPropagation();
                         e.preventDefault();
+                        pushUndoSnapshot();
                         isResizing = true;
                         isResizingVertical = false;
                         isResizingCorner = true;
@@ -5611,6 +6198,7 @@ function initCommentEvents(commentEl) {
                     const isHeaderClick = e.target.closest('.table-header');
                     if (!isHeaderClick) return;
 
+                    pushUndoSnapshot();
                     draggedElement = table;
                     const rect = table.getBoundingClientRect();
                     offsetX = e.clientX - rect.left;
@@ -5691,6 +6279,7 @@ function initCommentEvents(commentEl) {
                             if (connectionStartPoint.table !== endPoint.table ||
                                 connectionStartPoint.column !== endPoint.column) {
 
+                                pushUndoSnapshot();
                                 // Add new relationship
                                 const newRel = {
                                     fromTable: connectionStartPoint.table,
@@ -5947,6 +6536,7 @@ function initCommentEvents(commentEl) {
                 const tableName = contextMenu.dataset.tableName;
 
                 if (tableName) {
+                    pushUndoSnapshot();
                     // Find and remove the table
                     const tableToRemove = document.querySelector('[data-table="' + tableName + '"]');
                     if (tableToRemove) {
@@ -5987,6 +6577,7 @@ function initCommentEvents(commentEl) {
             // Relationship context menu item handlers
             document.getElementById('relTypeOneToOne').addEventListener('click', function() {
                 if (currentRelationshipIndex >= 0 && currentRelationshipIndex < relationships.length) {
+                    pushUndoSnapshot();
                     relationships[currentRelationshipIndex].type = 'one-to-one';
                     drawRelationships();
                     console.log('[Relationship Menu] Changed to one-to-one');
@@ -5996,6 +6587,7 @@ function initCommentEvents(commentEl) {
 
             document.getElementById('relTypeOneToMany').addEventListener('click', function() {
                 if (currentRelationshipIndex >= 0 && currentRelationshipIndex < relationships.length) {
+                    pushUndoSnapshot();
                     relationships[currentRelationshipIndex].type = 'one-to-many';
                     drawRelationships();
                     console.log('[Relationship Menu] Changed to one-to-many');
@@ -6005,6 +6597,7 @@ function initCommentEvents(commentEl) {
 
             document.getElementById('relTypeManyToMany').addEventListener('click', function() {
                 if (currentRelationshipIndex >= 0 && currentRelationshipIndex < relationships.length) {
+                    pushUndoSnapshot();
                     relationships[currentRelationshipIndex].type = 'many-to-many';
                     drawRelationships();
                     console.log('[Relationship Menu] Changed to many-to-many');
@@ -6014,6 +6607,7 @@ function initCommentEvents(commentEl) {
 
             document.getElementById('relDelete').addEventListener('click', function() {
                 if (currentRelationshipIndex >= 0 && currentRelationshipIndex < relationships.length) {
+                    pushUndoSnapshot();
                     const rel = relationships[currentRelationshipIndex];
                     console.log('[Relationship Menu] Deleting relationship:', rel.fromTable, '->', rel.toTable);
                     relationships.splice(currentRelationshipIndex, 1);
@@ -6211,10 +6805,16 @@ function initCommentEvents(commentEl) {
         });
 
         // Initialize
-        window.addEventListener('load', function() {
+        function initializeErdWebview() {
+            if (window.__erdWebviewInitialized) {
+                console.log('[ERD Init] Initialization skipped: already initialized');
+                return;
+            }
+            window.__erdWebviewInitialized = true;
             console.log('[ERD Init] Page loaded');
             document.body.classList.add('selection-mode');
             console.log('[ERD Init] Number of tables:', document.querySelectorAll('.table-node').length);
+            console.log('[ERD Init] Number of vector shapes:', document.querySelectorAll('.vector-shape-node').length);
             document.querySelectorAll('.table-node').forEach(function(table) {
                 initTableMenu(table);
             });
@@ -6222,8 +6822,18 @@ function initCommentEvents(commentEl) {
             drawRelationships();
             initCanvasPanning();
             initDraggable();
+            initVectorShapeToolbar();
+            initGlobalVectorShapeInteraction();
             console.log('[ERD Init] Initialization complete');
-        });
+        }
+
+        console.log('[ERD Init] Script loaded, readyState:', document.readyState);
+        if (document.readyState === 'loading') {
+            window.addEventListener('load', initializeErdWebview);
+            document.addEventListener('DOMContentLoaded', initializeErdWebview);
+        } else {
+            initializeErdWebview();
+        }
 
         window.addEventListener('resize', function() {
             drawRelationships();
