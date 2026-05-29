@@ -1893,15 +1893,28 @@ export class ErdWebView {
             border-color: var(--vscode-focusBorder, #007acc);
         }
         .comment-textarea {
+            display: block;
             width: 100%;
             min-height: 80px;
+            margin: 0;
+            padding: 0;
             border: none;
             background: transparent;
             resize: none;
             font-family: inherit;
             font-size: 13px;
+            line-height: 1.45;
             color: var(--vscode-editor-foreground);
             outline: none;
+            box-shadow: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .comment-textarea:focus,
+        .comment-textarea:focus-visible {
+            border: none;
+            outline: none;
+            box-shadow: none;
         }
         .comment-delete-btn {
             position: absolute;
@@ -2511,6 +2524,7 @@ export class ErdWebView {
             if (addVectorShapeType !== null) {
                 addVectorShapeType = null;
                 pendingVectorLineStart = null;
+                isDrawingVectorLine = false;
                 isDrawingVectorRect = false;
                 pendingVectorRectStart = null;
                 if (typeof clearVectorShapePreview === 'function') {
@@ -3662,8 +3676,10 @@ export class ErdWebView {
         document.querySelectorAll('.text-label-node').forEach(initTextLabelEvents);
         let addVectorShapeType = null;
         let pendingVectorLineStart = null;
+        let isDrawingVectorLine = false;
         let isDrawingVectorRect = false;
         let pendingVectorRectStart = null;
+        const VECTOR_LINE_MIN_LENGTH = 2;
         let vectorShapePreviewEl = null;
         const vectorShapeBtn = document.getElementById('vectorShapeBtn');
         const vectorShapeMenu = document.getElementById('vectorShapeMenu');
@@ -4575,7 +4591,7 @@ export class ErdWebView {
                 bounds = getVectorBoxDrawBounds(addVectorShapeType, pendingVectorRectStart.x, pendingVectorRectStart.y, endX, endY);
                 lx2 = bounds.width;
                 ly2 = bounds.height;
-            } else if (pendingVectorLineStart && isVectorLineType(addVectorShapeType)) {
+            } else if (isDrawingVectorLine && pendingVectorLineStart && isVectorLineType(addVectorShapeType)) {
                 bounds = getVectorLineBounds(
                     pendingVectorLineStart.x,
                     pendingVectorLineStart.y,
@@ -4657,9 +4673,31 @@ export class ErdWebView {
             addVectorShapeToCanvas(shape);
         }
 
+        function isVectorDrawBlockedTarget(target) {
+            return !target || !target.closest ||
+                target.closest('.table-node') || target.closest('.comment-node') ||
+                target.closest('.text-label-node') || target.closest('.vector-shape-node') ||
+                target.closest('.erd-toolbar') || target.closest('.zoom-controls');
+        }
+
+        function finishVectorLineDraw(endX, endY) {
+            if (!pendingVectorLineStart || !addVectorShapeType || !isVectorLineType(addVectorShapeType)) {
+                return;
+            }
+            const x1 = pendingVectorLineStart.x;
+            const y1 = pendingVectorLineStart.y;
+            if (Math.hypot(endX - x1, endY - y1) >= VECTOR_LINE_MIN_LENGTH) {
+                placeVectorShapeAt(addVectorShapeType, x1, y1, endX, endY);
+            }
+            isDrawingVectorLine = false;
+            pendingVectorLineStart = null;
+            clearVectorShapePreview();
+        }
+
         function setAddVectorShapeType(type, skipSelectionRestore) {
             addVectorShapeType = type;
             pendingVectorLineStart = null;
+            isDrawingVectorLine = false;
             isDrawingVectorRect = false;
             pendingVectorRectStart = null;
             clearVectorShapePreview();
@@ -4762,7 +4800,7 @@ export class ErdWebView {
                 updateVectorShapePreview(coords.x, coords.y);
                 return;
             }
-            if (!pendingVectorLineStart || !addVectorShapeType || !isVectorLineType(addVectorShapeType)) {
+            if (!isDrawingVectorLine || !pendingVectorLineStart || !addVectorShapeType || !isVectorLineType(addVectorShapeType)) {
                 return;
             }
             const coords = canvasCoordsFromEvent(e);
@@ -4770,12 +4808,20 @@ export class ErdWebView {
         });
 
         document.getElementById('canvas-container').addEventListener('mousedown', function(e) {
-            if (e.button !== 0 || !isVectorRectDrawType(addVectorShapeType)) {
+            if (e.button !== 0 || !addVectorShapeType) {
                 return;
             }
-            if (e.target.closest('.table-node') || e.target.closest('.comment-node') ||
-                e.target.closest('.text-label-node') || e.target.closest('.vector-shape-node') ||
-                e.target.closest('.erd-toolbar') || e.target.closest('.zoom-controls')) {
+            if (isVectorDrawBlockedTarget(e.target)) {
+                return;
+            }
+            if (isVectorLineType(addVectorShapeType)) {
+                e.preventDefault();
+                e.stopPropagation();
+                isDrawingVectorLine = true;
+                pendingVectorLineStart = canvasCoordsFromEvent(e);
+                return;
+            }
+            if (!isVectorRectDrawType(addVectorShapeType)) {
                 return;
             }
             e.preventDefault();
@@ -4785,6 +4831,11 @@ export class ErdWebView {
         }, true);
 
         document.addEventListener('mouseup', function(e) {
+            if (isDrawingVectorLine && pendingVectorLineStart && isVectorLineType(addVectorShapeType)) {
+                const coords = canvasCoordsFromEvent(e);
+                finishVectorLineDraw(coords.x, coords.y);
+                return;
+            }
             if (!isDrawingVectorRect || !pendingVectorRectStart || !isVectorRectDrawType(addVectorShapeType)) {
                 return;
             }
@@ -4796,27 +4847,15 @@ export class ErdWebView {
         });
 
         document.getElementById('canvas-container').addEventListener('click', function(e) {
-            if (!addVectorShapeType || isVectorRectDrawType(addVectorShapeType)) {
+            if (!addVectorShapeType || isVectorRectDrawType(addVectorShapeType) || isVectorLineType(addVectorShapeType)) {
                 return;
             }
-            if (e.target.closest('.table-node') || e.target.closest('.comment-node') ||
-                e.target.closest('.text-label-node') || e.target.closest('.vector-shape-node') ||
-                e.target.closest('.erd-toolbar') || e.target.closest('.zoom-controls')) {
+            if (isVectorDrawBlockedTarget(e.target)) {
                 return;
             }
             e.preventDefault();
             e.stopPropagation();
             const coords = canvasCoordsFromEvent(e);
-            if (isVectorLineType(addVectorShapeType)) {
-                if (!pendingVectorLineStart) {
-                    pendingVectorLineStart = coords;
-                    return;
-                }
-                placeVectorShapeAt(addVectorShapeType, pendingVectorLineStart.x, pendingVectorLineStart.y, coords.x, coords.y);
-                pendingVectorLineStart = null;
-                clearVectorShapePreview();
-                return;
-            }
             placeVectorShapeAt(addVectorShapeType, coords.x, coords.y);
         }, true);
 
