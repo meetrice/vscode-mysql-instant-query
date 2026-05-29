@@ -110,6 +110,119 @@ export class ErdWebView {
         ErdWebView.relationships = relationships;
     }
 
+    private static stateSyncResolvers: Map<string, () => void> = new Map();
+
+    private static findTableByName(tableName: string, database?: string): TableData | null {
+        let found: TableData | null = null;
+        ErdWebView.tableData.forEach((table) => {
+            if (table.tableName === tableName) {
+                if (!database || table.database === database) {
+                    found = table;
+                }
+            }
+        });
+        return found;
+    }
+
+    private static applyWebviewTablesState(webviewTables: any[]) {
+        webviewTables.forEach((webviewTable: any) => {
+            const foundTable = ErdWebView.findTableByName(webviewTable.tableName, webviewTable.database);
+            if (!foundTable) {
+                return;
+            }
+            if (webviewTable.width !== undefined) {
+                foundTable.width = webviewTable.width;
+            }
+            if (webviewTable.height !== undefined) {
+                foundTable.height = webviewTable.height;
+            }
+            if (webviewTable.x !== undefined) {
+                foundTable.x = webviewTable.x;
+            }
+            if (webviewTable.y !== undefined) {
+                foundTable.y = webviewTable.y;
+            }
+            if (webviewTable.color !== undefined && webviewTable.color !== '') {
+                foundTable.color = webviewTable.color;
+            }
+        });
+    }
+
+    private static async syncWebviewTableState(panel: vscode.WebviewPanel): Promise<void> {
+        if (ErdWebView.tableData.size === 0) {
+            return;
+        }
+
+        const requestId = `sync_${Date.now()}`;
+        return new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+                ErdWebView.stateSyncResolvers.delete(requestId);
+                resolve();
+            }, 500);
+
+            ErdWebView.stateSyncResolvers.set(requestId, () => {
+                clearTimeout(timeout);
+                resolve();
+            });
+
+            panel.webview.postMessage({ command: 'collectTableState', requestId });
+        });
+    }
+
+    private static async handleWebviewMessage(message: any) {
+        switch (message.command) {
+            case 'newErd':
+                await ErdWebView.clearCanvas();
+                break;
+            case 'selectTable100': {
+                const tableName = message.tableName;
+                const database = message.database;
+                if (tableName && database) {
+                    const sql = `SELECT * FROM \`${database}\`.\`${tableName}\` LIMIT 100;`;
+                    await Utility.appendSQLToEditor(sql);
+                }
+                break;
+            }
+            case 'updateTableColor': {
+                const foundTable = ErdWebView.findTableByName(message.tableName, message.database);
+                if (foundTable && message.color) {
+                    foundTable.color = message.color;
+                }
+                break;
+            }
+            case 'tableState':
+                if (message.tables) {
+                    ErdWebView.applyWebviewTablesState(message.tables);
+                }
+                if (message.requestId) {
+                    const resolve = ErdWebView.stateSyncResolvers.get(message.requestId);
+                    if (resolve) {
+                        ErdWebView.stateSyncResolvers.delete(message.requestId);
+                        resolve();
+                    }
+                }
+                break;
+            case 'save':
+                if (message.relationships) {
+                    ErdWebView.relationships = message.relationships;
+                }
+                if (message.tables) {
+                    ErdWebView.applyWebviewTablesState(message.tables);
+                }
+                if (message.comments) {
+                    ErdWebView.comments = message.comments;
+                }
+                await ErdWebView.saveToFile();
+                break;
+            case 'open':
+                await ErdWebView.openFromFile();
+                break;
+            case 'exportImage':
+                await ErdWebView.exportImage(message.format, message.data, message.width, message.height);
+                break;
+        }
+    }
+
     public static async renderPanel() {
         let panel = Array.from(ErdWebView.panels.values())[0];
         if (!panel) {
@@ -151,55 +264,7 @@ export class ErdWebView {
 
     private static registerMessageHandlers(panel: vscode.WebviewPanel) {
         panel.webview.onDidReceiveMessage(async (message) => {
-            switch (message.command) {
-                case 'newErd':
-                    await ErdWebView.clearCanvas();
-                    break;
-                case 'selectTable100': {
-                    const tableName = message.tableName;
-                    const database = message.database;
-                    if (tableName && database) {
-                        const sql = `SELECT * FROM \`${database}\`.\`${tableName}\` LIMIT 100;`;
-                        await Utility.appendSQLToEditor(sql);
-                    }
-                    break;
-                }
-                case 'save':
-                       if (message.relationships) {
-                           ErdWebView.relationships = message.relationships;
-                       }
-                       if (message.tables) {
-                           message.tables.forEach((webviewTable: any) => {
-                               let foundTable = null;
-                               ErdWebView.tableData.forEach((table, key) => {
-                                   if (table.tableName === webviewTable.tableName) {
-                                       foundTable = table;
-                                   }
-                               });
-   
-                               if (foundTable) {
-                                   foundTable.width = webviewTable.width;
-                                   foundTable.height = webviewTable.height;
-                                   foundTable.x = webviewTable.x;
-                                   foundTable.y = webviewTable.y;
-                                   if (webviewTable.color !== undefined) {
-                                       foundTable.color = webviewTable.color;
-                                   }
-                               }
-                           });
-                       }
-                       if (message.comments) {
-                           ErdWebView.comments = message.comments;
-                       }
-                       await ErdWebView.saveToFile();
-                       break;
-                case 'open':
-                    await ErdWebView.openFromFile();
-                    break;
-                case 'exportImage':
-                    await ErdWebView.exportImage(message.format, message.data, message.width, message.height);
-                    break;
-            }
+            await ErdWebView.handleWebviewMessage(message);
         }, undefined);
     }
 
@@ -224,66 +289,7 @@ export class ErdWebView {
                 }
             );
 
-            // Handle messages from webview
-            panel.webview.onDidReceiveMessage(async (message) => {
-                switch (message.command) {
-                    case 'selectTable100': {
-                            const tableName = message.tableName;
-                            const database = message.database;
-                            if (tableName && database) {
-                                const sql = `SELECT * FROM \`${database}\`.\`${tableName}\` LIMIT 100;`;
-                                // 追加SQL到现有的SQL编辑器
-                                await Utility.appendSQLToEditor(sql);
-                            }
-                        break;
-                    }
-                    case 'save':
-                        // Update relationships from current webview state
-                        if (message.relationships) {
-                            ErdWebView.relationships = message.relationships;
-                        }
-                        // Update table dimensions from webview
-                        if (message.tables) {
-                            message.tables.forEach((webviewTable: any) => {
-                                // Find the table by iterating through the Map
-                                let foundTable = null;
-                                let foundKey = null;
-
-                                ErdWebView.tableData.forEach((table, key) => {
-                                    if (table.tableName === webviewTable.tableName) {
-                                        foundTable = table;
-                                        foundKey = key;
-                                    }
-                                });
-
-                                if (foundTable) {
-                                    console.log('[Save Handler] Updating table:', webviewTable.tableName,
-                                                'old width:', foundTable.width, 'new width:', webviewTable.width,
-                                                'old height:', foundTable.height, 'new height:', webviewTable.height,
-                                                'old pos:', foundTable.x, ',', foundTable.y,
-                                                'new pos:', webviewTable.x, ',', webviewTable.y);
-                                    foundTable.width = webviewTable.width;
-                                    foundTable.height = webviewTable.height;
-                                    foundTable.x = webviewTable.x;
-                                    foundTable.y = webviewTable.y;
-                                    if (webviewTable.color !== undefined) {
-                                        foundTable.color = webviewTable.color;
-                                    }
-                                } else {
-                                    console.log('[Save Handler] Table not found:', webviewTable.tableName);
-                                }
-                            });
-                        }
-                        await ErdWebView.saveToFile();
-                        break;
-                    case 'open':
-                        await ErdWebView.openFromFile();
-                        break;
-                    case 'exportImage':
-                        await ErdWebView.exportImage(message.format, message.data, message.width, message.height);
-                        break;
-                }
-            }, undefined);
+            ErdWebView.registerMessageHandlers(panel);
 
             panel.onDidDispose(() => {
                 ErdWebView.panels.clear();
@@ -371,20 +377,24 @@ export class ErdWebView {
             const padding = 10;
 
             // Find a non-overlapping position
-            const position = ErdWebView.findNonOverlappingPosition(tableName, database, columnWidth, headerHeight + columns.length * rowHeight + padding * 2);
+            const tableKey = `${database}.${tableName}`;
+            const existingTable = ErdWebView.tableData.get(tableKey);
+            const defaultHeight = headerHeight + columns.length * rowHeight + padding * 2;
+            const position = ErdWebView.findNonOverlappingPosition(tableName, database, columnWidth, defaultHeight);
 
             const tableData: TableData = {
                 tableName: tableName,
                 columns: columns,
-                x: position.x,
-                y: position.y,
-                width: columnWidth,
-                height: headerHeight + columns.length * rowHeight + padding * 2,
+                x: existingTable?.x ?? position.x,
+                y: existingTable?.y ?? position.y,
+                width: existingTable?.width ?? columnWidth,
+                height: existingTable?.height ?? defaultHeight,
                 database: database,
-                comment: tableComment
+                comment: tableComment,
+                color: existingTable?.color
             };
 
-            ErdWebView.tableData.set(`${database}.${tableName}`, tableData);
+            ErdWebView.tableData.set(tableKey, tableData);
 
             // Also load related tables
             await ErdWebView.loadRelatedTables(database, tableName, columns, connection);
@@ -404,73 +414,7 @@ export class ErdWebView {
                     }
                 );
 
-                // Handle messages from webview
-                panel.webview.onDidReceiveMessage(async (message) => {
-                    switch (message.command) {
-                        case 'newErd':
-                            await ErdWebView.clearCanvas();
-                            break;
-                        case 'selectTable100': {
-                            const tableName = message.tableName;
-                            const database = message.database;
-                            if (tableName && database) {
-                                const sql = `SELECT * FROM \`${database}\`.\`${tableName}\` LIMIT 100;`;
-                                // 追加SQL到现有的SQL编辑器
-                                await Utility.appendSQLToEditor(sql);
-                            }
-                            break;
-                        }
-                        case 'save':
-                            // Update relationships from current webview state
-                            if (message.relationships) {
-                                ErdWebView.relationships = message.relationships;
-                            }
-                            // Update table dimensions from webview
-                            if (message.tables) {
-                                message.tables.forEach((webviewTable: any) => {
-                                    // Find the table by iterating through the Map
-                                    let foundTable = null;
-                                    let foundKey = null;
-
-                                    ErdWebView.tableData.forEach((table, key) => {
-                                        if (table.tableName === webviewTable.tableName) {
-                                            foundTable = table;
-                                            foundKey = key;
-                                        }
-                                    });
-
-                                    if (foundTable) {
-                                        console.log('[Save Handler] Updating table:', webviewTable.tableName,
-                                                    'old width:', foundTable.width, 'new width:', webviewTable.width,
-                                                    'old height:', foundTable.height, 'new height:', webviewTable.height,
-                                                    'old pos:', foundTable.x, ',', foundTable.y,
-                                                    'new pos:', webviewTable.x, ',', webviewTable.y);
-                                        foundTable.width = webviewTable.width;
-                                        foundTable.height = webviewTable.height;
-                                        foundTable.x = webviewTable.x;
-                                        foundTable.y = webviewTable.y;
-                                        if (webviewTable.color !== undefined) {
-                                            foundTable.color = webviewTable.color;
-                                        }
-                                    } else {
-                                        console.log('[Save Handler] Table not found:', webviewTable.tableName);
-                                    }
-                                });
-                            }
-                            // Update comments from webview
-                            if (message.comments) {
-                                ErdWebView.comments = message.comments;
-                            }
-                            await ErdWebView.saveToFile();
-                            break;
-                        case 'open':
-                            await ErdWebView.openFromFile();
-                            break;
-                        case 'exportImage':
-                            await ErdWebView.exportImage(message.format, message.data, message.width, message.height);
-                            break;
-                    }
-                }, undefined);
+                ErdWebView.registerMessageHandlers(panel);
 
                 panel.onDidDispose(() => {
                     ErdWebView.panels.clear();
@@ -481,6 +425,7 @@ export class ErdWebView {
                 ErdWebView.panels.set('global', panel);
             } else {
                 panel.reveal();
+                await ErdWebView.syncWebviewTableState(panel);
             }
 
             panel.webview.html = ErdWebView.getWebviewContent(database, tableName);
@@ -920,71 +865,7 @@ export class ErdWebView {
                     }
                 );
 
-                // Handle messages from webview for open file panel too
-                panel.webview.onDidReceiveMessage(async (message) => {
-                    switch (message.command) {
-                        case 'newErd':
-                            await ErdWebView.clearCanvas();
-                            break;
-                        case 'selectTable100': {
-                            const tableName = message.tableName;
-                            const database = message.database;
-                            if (tableName && database) {
-                                const sql = `SELECT * FROM \`${database}\`.\`${tableName}\` LIMIT 100;`;
-                                // 追加SQL到现有的SQL编辑器
-                                await Utility.appendSQLToEditor(sql);
-                            }
-                            break;
-                        }
-                        case 'save':
-                           // Update relationships from current webview state
-                           if (message.relationships) {
-                               ErdWebView.relationships = message.relationships;
-                           }
-                           // Update table dimensions from webview
-                           if (message.tables) {
-                               message.tables.forEach((webviewTable: any) => {
-                                   // Find the table by iterating through the Map
-                                   let foundTable = null;
-
-                                   ErdWebView.tableData.forEach((table, key) => {
-                                       if (table.tableName === webviewTable.tableName) {
-                                           foundTable = table;
-                                       }
-                                   });
-
-                                   if (foundTable) {
-                                       console.log('[Save from open file] Updating table:', webviewTable.tableName,
-                                                   'old width:', foundTable.width, 'new width:', webviewTable.width,
-                                                   'old height:', foundTable.height, 'new height:', webviewTable.height,
-                                                   'old pos:', foundTable.x, ',', foundTable.y,
-                                                   'new pos:', webviewTable.x, ',', webviewTable.y);
-                                       foundTable.width = webviewTable.width;
-                                       foundTable.height = webviewTable.height;
-                                       foundTable.x = webviewTable.x;
-                                       foundTable.y = webviewTable.y;
-                                       if (webviewTable.color !== undefined) {
-                                           foundTable.color = webviewTable.color;
-                                       }
-                                   } else {
-                                       console.log('[Save from open file] Table not found:', webviewTable.tableName);
-                                   }
-                               });
-                           }
-                           // Update comments from webview
-                           if (message.comments) {
-                               ErdWebView.comments = message.comments;
-                           }
-                           await ErdWebView.saveToFile();
-                           break;
-                        case 'open':
-                            await ErdWebView.openFromFile();
-                            break;
-                        case 'exportImage':
-                            await ErdWebView.exportImage(message.format, message.data, message.width, message.height);
-                            break;
-                    }
-                }, undefined);
+                ErdWebView.registerMessageHandlers(panel);
 
                 panel.onDidDispose(() => {
                     ErdWebView.panels.clear();
@@ -2735,7 +2616,43 @@ function initCommentEvents(commentEl) {
             if (tableData) {
                 tableData.color = color;
             }
+            vscode.postMessage({
+                command: 'updateTableColor',
+                tableName: tableName,
+                database: tableNode.dataset.database || '',
+                color: color
+            });
         }
+
+        window.addEventListener('message', function(event) {
+            const message = event.data;
+            if (!message || !message.command) {
+                return;
+            }
+            if (message.command === 'collectTableState') {
+                const tablesState = [];
+                document.querySelectorAll('.table-node').forEach(function(el) {
+                    const name = el.getAttribute('data-table');
+                    if (!name) {
+                        return;
+                    }
+                    tablesState.push({
+                        tableName: name,
+                        database: el.getAttribute('data-database') || '',
+                        x: parseFloat(el.style.left) || 0,
+                        y: parseFloat(el.style.top) || 0,
+                        width: el.offsetWidth,
+                        height: el.offsetHeight,
+                        color: el.dataset.color || undefined
+                    });
+                });
+                vscode.postMessage({
+                    command: 'tableState',
+                    tables: tablesState,
+                    requestId: message.requestId
+                });
+            }
+        });
 
         function getCommentsHidden(tableNode) {
             const tableBody = tableNode.querySelector('.table-body');
@@ -4053,7 +3970,6 @@ function initCommentEvents(commentEl) {
                     <div class="table-header-left">
                         <span>${this.escapeHtml(table.tableName)}</span>
                         ${table.comment ? `<span class="table-comment">${this.escapeHtml(table.comment)}</span>` : ''}
-                        ${isMainTable ? '<span>⭐</span>' : ''}
                     </div>
                     <div class="table-menu-wrapper">
                         <button type="button" class="table-menu-btn" title="更多选项" aria-label="更多选项">&#8942;</button>
