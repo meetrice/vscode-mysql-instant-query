@@ -3763,7 +3763,6 @@ export class ErdWebView {
                 });
             }
             handle.classList.add('dragging');
-            shapeEl.style.zIndex = '1000';
             document.body.classList.add('vector-resizing');
         }
 
@@ -3857,7 +3856,6 @@ export class ErdWebView {
                         pushUndoSnapshot();
                         vectorShapeDragState.undoPushed = true;
                     }
-                    vectorShapeDragState.shapeEl.style.zIndex = '1000';
                     document.body.classList.add('panning');
                 }
                 vectorShapeDragState.shapeEl.style.left = (vectorShapeDragState.startLeft + dx / zoom) + 'px';
@@ -4209,10 +4207,6 @@ export class ErdWebView {
             }
             shape.width = width;
             shape.height = height;
-            const zIndexParsed = parseInt(shapeEl.style.zIndex, 10);
-            if (!isNaN(zIndexParsed)) {
-                shape.zIndex = zIndexParsed;
-            }
         }
 
         function deleteVectorShape(shapeEl) {
