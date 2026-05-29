@@ -62,7 +62,10 @@ Use the `cursor://` protocol to launch Cursor directly from a web page or extern
 - **Custom multi-table relationships** - Create custom relationships between tables in the diagram, suitable for business databases without explicit foreign key constraints
 - **Save and reopen** - Save ERD layouts and reopen them later to preserve project-level database structure views
 - **Image export** - Export ERD diagrams as images for technical documents, reviews, and team collaboration
-- **Enhanced diagram interactions** - Provides zooming, thumbnails, and a centered toolbar for browsing large data models
+- **Enhanced diagram interactions** - Zoom, thumbnail, centering, undo, group/ungroup, marquee selection, and right-drag canvas panning
+- **Canvas annotations and shapes** - Sticky notes, text labels, lines/curves/arrows, rectangles/circles, and vector icons with configurable styles persisted in ERD files
+- **Table node styling** - Configurable border color, background color, and opacity for table nodes
+- **New ERD from sidebar** - Create a blank ERD canvas directly from the resource tree
 
 ### Cursor Protocol Integration
 
@@ -192,6 +195,29 @@ See **[docs/publishing.md](docs/publishing.md)** for:
 - Pre-release checklist
 - Manual step-by-step publish commands
 - Troubleshooting expired PAT, duplicate version, and related issues
+
+## Changelog
+
+### 0.8.9 (since 0.8.8)
+
+#### ERD canvas and tools
+- Added **New ERD** in the sidebar to create a blank canvas quickly
+- Added **Shapes** toolbar menu: lines, arrow lines, curves, rounded rectangles, circles, and icons such as user/cloud/database
+- Line shapes: press to set start, drag for preview, release to set end; box shapes: drag to draw
+- Toolbar **Shapes** button reflects the currently selected shape name and icon
+- Right-click blank canvas to switch back to **Select**; right-drag to pan the canvas
+- Canvas undo, group/ungroup, and unified layer management
+- Editable text labels (font, size, color, etc.) and sticky notes; note textarea shows only the outer border
+- Table node border/background/opacity styling; improved table header layout, menu stacking, and header size
+- Vector shapes and annotations persist with ERD save/open
+
+#### Other
+- Refactored ERD WebView state synchronization
+
+### 0.8.8
+
+- SQL column completion and multi-select; WHERE generation from column filter values
+- Query result panel reuse per table; settings page and sidebar layout improvements
 
 ## License
 

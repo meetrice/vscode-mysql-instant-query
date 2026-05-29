@@ -1,3 +1,44 @@
+# Release Notes - Version 0.8.9
+
+## 🎨 ERD 画布大幅增强
+
+### 新建与工具栏
+- 侧边栏资源树新增「新建 ERD」入口
+- 工具栏「图形」菜单：直线、箭头线、曲线、圆角矩形、圆形及多种矢量图标
+- 选中菜单项后，工具栏按钮同步显示对应图标与名称
+
+### 绘制与交互
+- 线型：左键按下为起点，拖动预览，松开为终点
+- 矩形/圆形：拖拽框选绘制
+- 画布空白处右键单击切回「选择」；右键拖拽平移画布
+- 支持撤销（Undo）、多元素组合/打散、统一层级管理
+
+### 标注与样式
+- 可编辑文本标签（字体、字号、颜色等）
+- 注释便签；输入区去除内边框，仅保留面板外框
+- 表节点边框色、背景色、透明度可配置
+- 表头布局、菜单层级与表头尺寸优化
+
+### 持久化
+- 矢量图形、文本标签等画布元素随 ERD 文件保存与打开
+
+## 🔧 其他
+
+- 重构 ERD WebView 状态同步逻辑
+
+## 📝 Modified Files
+- `package.json` / `package-lock.json` — version 0.8.9
+- `src/erdWebView.ts` — ERD canvas, shapes, toolbar, grouping, undo
+- `src/extension.ts`, `src/model/newErdNode.ts`, `src/model/rootNode.ts` — New ERD from tree
+- `language/messages.*.json`, `package.nls*.json` — localization
+- `README.md`, `README.en.md`, `RELEASE_NOTES.md` — documentation
+
+## 📋 Compatibility
+- Requires VS Code version 1.83.0 or higher
+- Compatible with MySQL, PostgreSQL, DuckDB, and SQLite
+
+---
+
 # Release Notes - Version 0.8.8
 
 ## 🚀 SQL 字段补全与多选

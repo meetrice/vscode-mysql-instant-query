@@ -2,7 +2,7 @@
     "name": "mysql-instant-query",
     "displayName": "%displayName%",
     "description": "%description%",
-    "version": "0.8.8",
+    "version": "0.8.9",
     "publisher": "meetrice",
     "icon": "logo.png",
     "engines": {

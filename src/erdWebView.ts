@@ -2300,9 +2300,9 @@ export class ErdWebView {
             <span>文本</span>
         </button>
         <div class="toolbar-menu-wrapper">
-            <button class="toolbar-btn" id="vectorShapeBtn" title="添加矢量图形">
+            <button class="toolbar-btn" id="vectorShapeBtn" title="添加图形">
                 <svg class="toolbar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 7a24 24 0 0 1 0 10"/><path d="M4.5 7a24 24 0 0 0 0 10"/><path d="M7 19.5a24 24 0 0 0 10 0"/><path d="M7 4.5a24 24 0 0 1 10 0"/><rect width="5" height="5" x="17" y="17" rx="1"/><rect width="5" height="5" x="17" y="2" rx="1"/><rect width="5" height="5" x="2" y="17" rx="1"/><rect width="5" height="5" x="2" y="2" rx="1"/></svg>
-                <span>矢量</span>
+                <span>图形</span>
             </button>
             <div class="toolbar-dropdown vector-shape-menu" id="vectorShapeMenu">
                 <div class="vector-shape-grid" id="vectorShapeGrid"></div>
@@ -2533,6 +2533,7 @@ export class ErdWebView {
                 if (vectorShapeBtn) {
                     vectorShapeBtn.classList.remove('active');
                 }
+                updateVectorShapeToolbarDisplay(null);
                 document.body.classList.remove('add-vector-mode');
                 if (vectorShapeGrid) {
                     vectorShapeGrid.querySelectorAll('.vector-shape-menu-item').forEach(function(item) {
@@ -3700,6 +3701,33 @@ export class ErdWebView {
             { type: 'bot', label: 'AI', icon: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>' }
         ];
 
+        const VECTOR_TOOLBAR_DEFAULT = {
+            label: '图形',
+            title: '添加图形',
+            icon: '<path d="M19.5 7a24 24 0 0 1 0 10"/><path d="M4.5 7a24 24 0 0 0 0 10"/><path d="M7 19.5a24 24 0 0 0 10 0"/><path d="M7 4.5a24 24 0 0 1 10 0"/><rect width="5" height="5" x="17" y="17" rx="1"/><rect width="5" height="5" x="17" y="2" rx="1"/><rect width="5" height="5" x="2" y="17" rx="1"/><rect width="5" height="5" x="2" y="2" rx="1"/>'
+        };
+
+        function getVectorShapeDef(type) {
+            return VECTOR_SHAPE_DEFS.find(function(def) { return def.type === type; }) || null;
+        }
+
+        function updateVectorShapeToolbarDisplay(type) {
+            if (!vectorShapeBtn) {
+                return;
+            }
+            const def = type ? getVectorShapeDef(type) : null;
+            const display = def || VECTOR_TOOLBAR_DEFAULT;
+            const iconEl = vectorShapeBtn.querySelector('.toolbar-icon');
+            const labelEl = vectorShapeBtn.querySelector('span');
+            if (iconEl) {
+                iconEl.innerHTML = display.icon;
+            }
+            if (labelEl) {
+                labelEl.textContent = display.label;
+            }
+            vectorShapeBtn.title = def ? ('添加' + def.label) : VECTOR_TOOLBAR_DEFAULT.title;
+        }
+
         function isVectorLineType(type) {
             return type === 'line' || type === 'arrow-line' || type === 'curve';
         }
@@ -4704,6 +4732,7 @@ export class ErdWebView {
             if (vectorShapeBtn) {
                 vectorShapeBtn.classList.toggle('active', !!type);
             }
+            updateVectorShapeToolbarDisplay(type);
             document.body.classList.toggle('add-vector-mode', !!type);
             if (vectorShapeGrid) {
                 vectorShapeGrid.querySelectorAll('.vector-shape-menu-item').forEach(function(item) {

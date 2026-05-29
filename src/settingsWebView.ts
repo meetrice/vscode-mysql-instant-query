@@ -102,7 +102,7 @@ export class SettingsWebView {
             dataLimit,
             keybindingRunQuery,
             keybindingOpenTable,
-            pluginVersion: packageJson.version || "0.8.8",
+            pluginVersion: packageJson.version || "0.8.9",
             pluginName: SettingsWebView.resolveDisplayName(context),
             repoUrl: "https://github.com/meetrice/vscode-mysql-instant-query",
             supportInfo: "https://github.com/meetrice/vscode-mysql-instant-query",
@@ -527,7 +527,7 @@ export class SettingsWebView {
             <div class="setting-group">
                 <table class="about-table">
                     <tr><td>${settings.aboutName}</td><td id="aboutName">Mysql Instant Query</td></tr>
-                    <tr><td>${settings.aboutVersion}</td><td id="aboutVersion">0.8.8</td></tr>
+                    <tr><td>${settings.aboutVersion}</td><td id="aboutVersion">0.8.9</td></tr>
                     <tr><td>${settings.aboutRepo}</td><td><a href="#" id="aboutRepoLink" onclick="openUrl('${isZh ? "https://github.com/meetrice/vscode-mysql-instant-query/blob/master/README.md" : "https://github.com/meetrice/vscode-mysql-instant-query"}')">GitHub</a></td></tr>
                     <tr><td>${settings.aboutSupport}</td><td><a href="#" onclick="openUrl('https://github.com/meetrice/vscode-mysql-instant-query/issues')">GitHub Issues</a></td></tr>
                 </table>
@@ -597,7 +597,7 @@ export class SettingsWebView {
                 document.getElementById('keyRunQueryDisplay').textContent = d.keybindingRunQuery || 'ctrl+alt+e';
                 document.getElementById('keyOpenTableDisplay').textContent = d.keybindingOpenTable || 'cmd+shift+t';
                 document.getElementById('aboutName').textContent = d.pluginName || 'Mysql Instant Query';
-                document.getElementById('aboutVersion').textContent = d.pluginVersion || '0.8.8';
+                document.getElementById('aboutVersion').textContent = d.pluginVersion || '0.8.9';
             }
         });
 
