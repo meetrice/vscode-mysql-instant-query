@@ -15,6 +15,11 @@ interface TableData {
     database?: string;
     comment?: string;
     color?: string;
+    borderWidth?: number;
+    borderStyle?: string;
+    backgroundColor?: string;
+    zIndex?: number;
+    opacity?: number;
 }
 
 interface ColumnData {
@@ -252,6 +257,21 @@ export class ErdWebView {
             }
             if (webviewTable.color !== undefined && webviewTable.color !== '') {
                 foundTable.color = webviewTable.color;
+            }
+            if (webviewTable.borderWidth !== undefined) {
+                foundTable.borderWidth = webviewTable.borderWidth;
+            }
+            if (webviewTable.borderStyle !== undefined) {
+                foundTable.borderStyle = webviewTable.borderStyle;
+            }
+            if (webviewTable.backgroundColor !== undefined) {
+                foundTable.backgroundColor = webviewTable.backgroundColor;
+            }
+            if (webviewTable.zIndex !== undefined) {
+                foundTable.zIndex = webviewTable.zIndex;
+            }
+            if (webviewTable.opacity !== undefined) {
+                foundTable.opacity = webviewTable.opacity;
             }
         });
     }
@@ -2079,6 +2099,10 @@ export class ErdWebView {
         .context-menu-item.danger {
             color: var(--vscode-errorForeground);
         }
+        .context-menu-item.disabled {
+            opacity: 0.45;
+            pointer-events: none;
+        }
         .context-menu-separator {
             height: 1px;
             background-color: var(--vscode-panel-border);
@@ -2270,6 +2294,44 @@ export class ErdWebView {
     <!-- Context menu -->
     <div class="context-menu" id="contextMenu">
         <div class="context-menu-item" id="ctxSelect100">📋 选择前100条</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" id="ctxTableResizeMenu">调整大小</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item has-submenu" id="ctxTableBorderWidthMenu">
+            边框粗细
+            <div class="context-submenu" id="ctxTableBorderWidthSubmenu"></div>
+        </div>
+        <div class="context-menu-item has-submenu" id="ctxTableBorderStyleMenu">
+            边框样式
+            <div class="context-submenu" id="ctxTableBorderStyleSubmenu">
+                <div class="context-submenu-item" data-style="solid">实线</div>
+                <div class="context-submenu-item" data-style="dashed">虚线</div>
+                <div class="context-submenu-item" data-style="dotted">点线</div>
+            </div>
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="text-label-color-swatches" id="ctxTableBorderColorSwatches"></div>
+        <div class="context-menu-item has-submenu" id="ctxTableBorderMoreColorMenu">
+            边框更多颜色
+            <div class="context-submenu text-label-color-submenu" id="ctxTableBorderMoreColorSubmenu"></div>
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" id="ctxTableBackgroundNoneMenu">无背景</div>
+        <div class="text-label-color-swatches" id="ctxTableBackgroundColorSwatches"></div>
+        <div class="context-menu-item has-submenu" id="ctxTableBackgroundMoreColorMenu">
+            背景更多颜色
+            <div class="context-submenu text-label-color-submenu" id="ctxTableBackgroundMoreColorSubmenu"></div>
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item has-submenu" id="ctxTableOpacityMenu">
+            透明度
+            <div class="context-submenu" id="ctxTableOpacitySubmenu"></div>
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" id="ctxTableBringToFront">置于顶层</div>
+        <div class="context-menu-item" id="ctxTableBringForward">上移一层</div>
+        <div class="context-menu-item" id="ctxTableSendBackward">下移一层</div>
+        <div class="context-menu-item" id="ctxTableSendToBack">置于底层</div>
         <div class="context-menu-separator"></div>
         <div class="context-menu-item danger" id="ctxDelete">🗑️ Delete</div>
     </div>
@@ -4430,6 +4492,13 @@ export class ErdWebView {
         const vectorFillColorSwatches = document.getElementById('vectorFillColorSwatches');
         const vectorFillMoreColorSubmenu = document.getElementById('vectorFillMoreColorSubmenu');
         const vectorOpacitySubmenu = document.getElementById('vectorOpacitySubmenu');
+        const tableContextMenu = document.getElementById('contextMenu');
+        const tableBorderWidthSubmenu = document.getElementById('ctxTableBorderWidthSubmenu');
+        const tableBorderColorSwatches = document.getElementById('ctxTableBorderColorSwatches');
+        const tableBorderMoreColorSubmenu = document.getElementById('ctxTableBorderMoreColorSubmenu');
+        const tableBackgroundColorSwatches = document.getElementById('ctxTableBackgroundColorSwatches');
+        const tableBackgroundMoreColorSubmenu = document.getElementById('ctxTableBackgroundMoreColorSubmenu');
+        const tableOpacitySubmenu = document.getElementById('ctxTableOpacitySubmenu');
 
         const VECTOR_OPACITY_OPTIONS = [
             { label: '100%', value: 1 },
@@ -4438,6 +4507,8 @@ export class ErdWebView {
             { label: '25%', value: 0.25 },
             { label: '10%', value: 0.1 }
         ];
+
+        let tableContextTarget = null;
 
         function hideVectorShapeContextMenu() {
             vectorShapeContextMenu.style.display = 'none';
@@ -4499,6 +4570,171 @@ export class ErdWebView {
             setVectorShapeZIndex(shapeEl, Math.max(1, getEffectiveZIndex(shapeEl) - 1));
         }
 
+        function getTableDataByEl(tableEl) {
+            if (!tableEl) {
+                return null;
+            }
+            const tableName = tableEl.dataset.table;
+            const database = tableEl.dataset.database || '';
+            return tables.find(function(t) {
+                return t.tableName === tableName && (t.database || '') === database;
+            }) || tables.find(function(t) { return t.tableName === tableName; }) || null;
+        }
+
+        function applyTableBorderWidth(tableEl, width) {
+            if (!tableEl) {
+                return;
+            }
+            tableEl.style.borderWidth = width + 'px';
+            const tableData = getTableDataByEl(tableEl);
+            if (tableData) {
+                tableData.borderWidth = width;
+            }
+        }
+
+        function applyTableBorderStyle(tableEl, styleName) {
+            if (!tableEl) {
+                return;
+            }
+            tableEl.style.borderStyle = styleName || 'solid';
+            const tableData = getTableDataByEl(tableEl);
+            if (tableData) {
+                tableData.borderStyle = styleName || 'solid';
+            }
+        }
+
+        function applyTableBackgroundColor(tableEl, color) {
+            if (!tableEl) {
+                return;
+            }
+            const tableBody = tableEl.querySelector('.table-body');
+            const value = color || '';
+            if (value) {
+                tableEl.dataset.backgroundColor = value;
+                tableEl.style.backgroundColor = value;
+                if (tableBody) {
+                    tableBody.style.backgroundColor = value;
+                }
+            } else {
+                delete tableEl.dataset.backgroundColor;
+                tableEl.style.removeProperty('background-color');
+                if (tableBody) {
+                    tableBody.style.removeProperty('background-color');
+                }
+            }
+            const tableData = getTableDataByEl(tableEl);
+            if (tableData) {
+                if (value) {
+                    tableData.backgroundColor = value;
+                } else {
+                    delete tableData.backgroundColor;
+                }
+            }
+        }
+
+        function getTableOpacity(tableEl) {
+            const parsed = parseFloat(tableEl.style.opacity);
+            return isNaN(parsed) ? 1 : parsed;
+        }
+
+        function applyTableOpacity(tableEl, opacity) {
+            if (!tableEl) {
+                return;
+            }
+            if (opacity >= 1) {
+                tableEl.style.removeProperty('opacity');
+            } else {
+                tableEl.style.opacity = String(opacity);
+            }
+            const tableData = getTableDataByEl(tableEl);
+            if (tableData) {
+                if (opacity >= 1) {
+                    delete tableData.opacity;
+                } else {
+                    tableData.opacity = opacity;
+                }
+            }
+        }
+
+        function setTableZIndex(tableEl, zIndex) {
+            if (!tableEl) {
+                return;
+            }
+            tableEl.style.zIndex = String(zIndex);
+            const tableData = getTableDataByEl(tableEl);
+            if (tableData) {
+                tableData.zIndex = zIndex;
+            }
+        }
+
+        function bringTableToFront(tableEl) {
+            let maxZ = 0;
+            getCanvasLayerElements().forEach(function(el) {
+                maxZ = Math.max(maxZ, getEffectiveZIndex(el));
+            });
+            setTableZIndex(tableEl, maxZ + 1);
+        }
+
+        function sendTableToBack(tableEl) {
+            let minZ = Infinity;
+            getCanvasLayerElements().forEach(function(el) {
+                minZ = Math.min(minZ, getEffectiveZIndex(el));
+            });
+            setTableZIndex(tableEl, Math.max(1, minZ - 1));
+        }
+
+        function bringTableForward(tableEl) {
+            setTableZIndex(tableEl, getEffectiveZIndex(tableEl) + 1);
+        }
+
+        function sendTableBackward(tableEl) {
+            setTableZIndex(tableEl, Math.max(1, getEffectiveZIndex(tableEl) - 1));
+        }
+
+        function showTableContextMenu(tableEl, clientX, clientY) {
+            tableContextTarget = tableEl;
+            const tableData = getTableDataByEl(tableEl) || {};
+            tableContextMenu.dataset.tableName = tableEl.dataset.table || '';
+            tableContextMenu.dataset.database = tableEl.dataset.database || '';
+            const borderWidth = parseFloat(tableEl.style.borderWidth) || tableData.borderWidth || 2;
+            tableBorderWidthSubmenu.querySelectorAll('.context-submenu-item').forEach(function(item) {
+                item.classList.toggle('active', parseInt(item.dataset.width, 10) === borderWidth);
+            });
+            const borderStyle = tableEl.style.borderStyle || tableData.borderStyle || 'solid';
+            document.getElementById('ctxTableBorderStyleSubmenu').querySelectorAll('.context-submenu-item').forEach(function(item) {
+                item.classList.toggle('active', item.dataset.style === borderStyle);
+            });
+            const opacity = getTableOpacity(tableEl);
+            tableOpacitySubmenu.querySelectorAll('.context-submenu-item').forEach(function(item) {
+                item.classList.toggle('active', parseFloat(item.dataset.opacity) === opacity);
+            });
+            tableContextMenu.style.left = clientX + 'px';
+            tableContextMenu.style.top = clientY + 'px';
+            tableContextMenu.style.display = 'block';
+        }
+
+        function applyStoredTableStyles(tableEl) {
+            const tableData = getTableDataByEl(tableEl);
+            if (!tableData) {
+                return;
+            }
+            if (tableData.borderWidth !== undefined) {
+                tableEl.style.borderWidth = tableData.borderWidth + 'px';
+            }
+            if (tableData.borderStyle) {
+                tableEl.style.borderStyle = tableData.borderStyle;
+            }
+            if (tableData.backgroundColor) {
+                applyTableBackgroundColor(tableEl, tableData.backgroundColor);
+            }
+            if (tableData.opacity !== undefined) {
+                applyTableOpacity(tableEl, tableData.opacity);
+            }
+            if (tableData.zIndex !== undefined) {
+                tableEl.style.zIndex = String(tableData.zIndex);
+            }
+        }
+
         function applyVectorShapeStrokeColor(color) {
             if (!vectorShapeContextTarget) {
                 return;
@@ -4535,6 +4771,159 @@ export class ErdWebView {
             });
             container.appendChild(swatch);
         }
+
+        function getTableContextTarget() {
+            if (tableContextTarget && tableContextTarget.isConnected) {
+                return tableContextTarget;
+            }
+            const tableName = tableContextMenu.dataset.tableName;
+            const database = tableContextMenu.dataset.database || '';
+            if (!tableName) {
+                return null;
+            }
+            const nodes = document.querySelectorAll('.table-node');
+            for (let i = 0; i < nodes.length; i++) {
+                if (nodes[i].dataset.table === tableName && (nodes[i].dataset.database || '') === database) {
+                    return nodes[i];
+                }
+            }
+            return findTableElementByName(tableName);
+        }
+
+        function hideTableContextMenu() {
+            tableContextMenu.style.display = 'none';
+            tableContextTarget = null;
+        }
+
+        function applyTableContextBorderColor(color) {
+            const tableEl = getTableContextTarget();
+            if (!tableEl) {
+                return;
+            }
+            pushUndoSnapshot();
+            applyTableColor(tableEl, color);
+            drawRelationships();
+            hideTableContextMenu();
+        }
+
+        function applyTableContextBackgroundColor(color) {
+            const tableEl = getTableContextTarget();
+            if (!tableEl) {
+                return;
+            }
+            pushUndoSnapshot();
+            applyTableBackgroundColor(tableEl, color);
+            hideTableContextMenu();
+        }
+
+        [1, 2, 3, 4, 6].forEach(function(width) {
+            const item = document.createElement('div');
+            item.className = 'context-submenu-item';
+            item.textContent = width + 'px';
+            item.dataset.width = String(width);
+            item.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const tableEl = getTableContextTarget();
+                if (tableEl) {
+                    pushUndoSnapshot();
+                    applyTableBorderWidth(tableEl, width);
+                    drawRelationships();
+                }
+                hideTableContextMenu();
+            });
+            tableBorderWidthSubmenu.appendChild(item);
+        });
+
+        TEXT_LABEL_QUICK_COLORS.forEach(function(color) {
+            appendVectorColorSwatch(tableBorderColorSwatches, color, applyTableContextBorderColor);
+            appendVectorColorSwatch(tableBackgroundColorSwatches, color, applyTableContextBackgroundColor);
+        });
+        TEXT_LABEL_MORE_COLORS.forEach(function(color) {
+            appendVectorColorSwatch(tableBorderMoreColorSubmenu, color, applyTableContextBorderColor);
+            appendVectorColorSwatch(tableBackgroundMoreColorSubmenu, color, applyTableContextBackgroundColor);
+        });
+
+        document.getElementById('ctxTableBorderStyleSubmenu').querySelectorAll('.context-submenu-item').forEach(function(item) {
+            item.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const tableEl = getTableContextTarget();
+                if (tableEl) {
+                    pushUndoSnapshot();
+                    applyTableBorderStyle(tableEl, item.dataset.style);
+                    drawRelationships();
+                }
+                hideTableContextMenu();
+            });
+        });
+
+        document.getElementById('ctxTableBackgroundNoneMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            applyTableContextBackgroundColor('');
+        });
+
+        VECTOR_OPACITY_OPTIONS.forEach(function(opt) {
+            const item = document.createElement('div');
+            item.className = 'context-submenu-item';
+            item.textContent = opt.label;
+            item.dataset.opacity = String(opt.value);
+            item.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const tableEl = getTableContextTarget();
+                if (tableEl) {
+                    pushUndoSnapshot();
+                    applyTableOpacity(tableEl, opt.value);
+                }
+                hideTableContextMenu();
+            });
+            tableOpacitySubmenu.appendChild(item);
+        });
+
+        document.getElementById('ctxTableResizeMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            const tableEl = getTableContextTarget();
+            if (tableEl) {
+                selectTable(tableEl);
+                tableEl.classList.add('selected');
+            }
+            hideTableContextMenu();
+        });
+
+        document.getElementById('ctxTableBringToFront').addEventListener('click', function(e) {
+            e.stopPropagation();
+            const tableEl = getTableContextTarget();
+            if (tableEl) {
+                pushUndoSnapshot();
+                bringTableToFront(tableEl);
+            }
+            hideTableContextMenu();
+        });
+        document.getElementById('ctxTableBringForward').addEventListener('click', function(e) {
+            e.stopPropagation();
+            const tableEl = getTableContextTarget();
+            if (tableEl) {
+                pushUndoSnapshot();
+                bringTableForward(tableEl);
+            }
+            hideTableContextMenu();
+        });
+        document.getElementById('ctxTableSendBackward').addEventListener('click', function(e) {
+            e.stopPropagation();
+            const tableEl = getTableContextTarget();
+            if (tableEl) {
+                pushUndoSnapshot();
+                sendTableBackward(tableEl);
+            }
+            hideTableContextMenu();
+        });
+        document.getElementById('ctxTableSendToBack').addEventListener('click', function(e) {
+            e.stopPropagation();
+            const tableEl = getTableContextTarget();
+            if (tableEl) {
+                pushUndoSnapshot();
+                sendTableToBack(tableEl);
+            }
+            hideTableContextMenu();
+        });
 
         [1, 2, 3, 4, 6].forEach(function(width) {
             const item = document.createElement('div');
@@ -4739,6 +5128,28 @@ export class ErdWebView {
                     copy.height = el.offsetHeight || copy.height;
                     if (el.dataset.color) {
                         copy.color = el.dataset.color;
+                    }
+                    const borderWidth = parseFloat(el.style.borderWidth);
+                    if (!isNaN(borderWidth)) {
+                        copy.borderWidth = borderWidth;
+                    }
+                    if (el.style.borderStyle) {
+                        copy.borderStyle = el.style.borderStyle;
+                    }
+                    if (el.dataset.backgroundColor) {
+                        copy.backgroundColor = el.dataset.backgroundColor;
+                    } else {
+                        delete copy.backgroundColor;
+                    }
+                    const zIndex = parseInt(el.style.zIndex, 10);
+                    if (!isNaN(zIndex)) {
+                        copy.zIndex = zIndex;
+                    }
+                    const opacity = parseFloat(el.style.opacity);
+                    if (!isNaN(opacity) && opacity < 1) {
+                        copy.opacity = opacity;
+                    } else {
+                        delete copy.opacity;
                     }
                     if (el.dataset.database) {
                         copy.database = el.dataset.database;
@@ -5490,7 +5901,12 @@ function initCommentEvents(commentEl) {
                         y: parseFloat(el.style.top) || 0,
                         width: el.offsetWidth,
                         height: el.offsetHeight,
-                        color: el.dataset.color || undefined
+                        color: el.dataset.color || undefined,
+                        borderWidth: parseFloat(el.style.borderWidth) || undefined,
+                        borderStyle: el.style.borderStyle || undefined,
+                        backgroundColor: el.dataset.backgroundColor || undefined,
+                        zIndex: parseInt(el.style.zIndex, 10) || undefined,
+                        opacity: parseFloat(el.style.opacity) || undefined
                     });
                 });
                 vscode.postMessage({
@@ -5652,6 +6068,7 @@ function initCommentEvents(commentEl) {
             if (tableData && tableData.color) {
                 applyTableColor(table, tableData.color);
             }
+            applyStoredTableStyles(table);
             updateToggleCommentsLabel(table);
             updateToggleTableNameCommentLabel(table);
 
@@ -6189,15 +6606,7 @@ function initCommentEvents(commentEl) {
                     selectTable(table);
                     selectedTable = table;
 
-                    // Show context menu at mouse position
-                    const contextMenu = document.getElementById('contextMenu');
-                    contextMenu.style.left = e.clientX + 'px';
-                    contextMenu.style.top = e.clientY + 'px';
-                    contextMenu.style.display = 'block';
-
-                    // Store reference to the table for actions
-                    contextMenu.dataset.tableName = table.dataset.table;
-                    contextMenu.dataset.database = table.dataset.database;
+                    showTableContextMenu(table, e.clientX, e.clientY);
                 });
 
                 table.addEventListener('mousedown', function(e) {
@@ -6474,7 +6883,7 @@ function initCommentEvents(commentEl) {
                 }
                 // Hide context menu
                 if (!e.target.closest('.context-menu')) {
-                    document.getElementById('contextMenu').style.display = 'none';
+                    hideTableContextMenu();
                 }
                 // Hide export menu
                 if (!e.target.closest('.toolbar-menu-wrapper')) {
@@ -6540,8 +6949,7 @@ function initCommentEvents(commentEl) {
                     });
                 }
 
-                // Hide context menu
-                contextMenu.style.display = 'none';
+                hideTableContextMenu();
             });
 
             document.getElementById('ctxDelete').addEventListener('click', function() {
@@ -6550,26 +6958,10 @@ function initCommentEvents(commentEl) {
 
                 if (tableName) {
                     pushUndoSnapshot();
-                    // Find and remove the table
-                    const tableToRemove = document.querySelector('[data-table="' + tableName + '"]');
+                    const tableToRemove = getTableContextTarget();
                     if (tableToRemove) {
-                        // Remove relationships involving this table
                         const initialRelCount = relationships.length;
-                        // Remove elements from const array using splice
-                        for (let i = relationships.length - 1; i >= 0; i--) {
-                            if (relationships[i].fromTable === tableName || relationships[i].toTable === tableName) {
-                                relationships.splice(i, 1);
-                            }
-                        }
-
-                        // Remove from tables array
-                        const tableIndex = tables.findIndex(function(t) { return t.tableName === tableName; });
-                        if (tableIndex !== -1) {
-                            tables.splice(tableIndex, 1);
-                        }
-
-                        // Remove from DOM
-                        tableToRemove.remove();
+                        deleteTableElement(tableToRemove);
 
                         // Clear selection
                         if (selectedTable && selectedTable.dataset.table === tableName) {
@@ -6583,8 +6975,7 @@ function initCommentEvents(commentEl) {
                     }
                 }
 
-                // Hide context menu
-                contextMenu.style.display = 'none';
+                hideTableContextMenu();
             });
 
             // Relationship context menu item handlers
@@ -6890,16 +7281,24 @@ function initCommentEvents(commentEl) {
         const maxBodyHeight = table.height - headerHeight - padding;
 
         const tableColorAttr = table.color ? ` data-color="${this.escapeHtml(table.color)}"` : '';
+        const tableBackgroundAttr = table.backgroundColor ? ` data-background-color="${this.escapeHtml(table.backgroundColor)}"` : '';
         const tableBorderStyle = table.color ? ` border-color: ${table.color};` : '';
+        const tableExtraStyle =
+            (table.borderWidth !== undefined ? ` border-width: ${table.borderWidth}px;` : '') +
+            (table.borderStyle ? ` border-style: ${table.borderStyle};` : '') +
+            (table.backgroundColor ? ` background-color: ${table.backgroundColor};` : '') +
+            (table.zIndex !== undefined ? ` z-index: ${table.zIndex};` : '') +
+            (table.opacity !== undefined ? ` opacity: ${table.opacity};` : '');
         const headerStyle = table.color
             ? ` style="background: linear-gradient(135deg, ${table.color} 0%, ${ErdWebView.darkenHex(table.color)} 100%);"`
             : '';
+        const bodyBackgroundStyle = table.backgroundColor ? ` background-color: ${table.backgroundColor};` : '';
 
         return `
             <div class="table-node ${isMainTable ? 'main-table' : ''}"
-                 data-table="${this.escapeHtml(table.tableName)}"
-                 data-database="${this.escapeHtml(table.database || '')}"${tableColorAttr}
-                 style="left: ${table.x}px; top: ${table.y}px; width: ${table.width}px; height: ${table.height}px;${tableBorderStyle}">
+                  data-table="${this.escapeHtml(table.tableName)}"
+                  data-database="${this.escapeHtml(table.database || '')}"${tableColorAttr}${tableBackgroundAttr}
+                  style="left: ${table.x}px; top: ${table.y}px; width: ${table.width}px; height: ${table.height}px;${tableBorderStyle}${tableExtraStyle}">
                 <div class="table-header"${headerStyle}>
                     <div class="table-header-center">
                         <span class="table-name">${this.escapeHtml(table.tableName)}</span>
@@ -6915,7 +7314,7 @@ function initCommentEvents(commentEl) {
                         </div>
                     </div>
                 </div>
-                <div class="table-body" style="max-height: ${maxBodyHeight}px; overflow-y: auto;">
+                <div class="table-body" style="max-height: ${maxBodyHeight}px; overflow-y: auto;${bodyBackgroundStyle}">
                     ${columns}
                 </div>
                 <!-- Connection points on all four sides -->
