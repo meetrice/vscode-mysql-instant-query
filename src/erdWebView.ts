@@ -54,6 +54,8 @@ interface TextLabelData {
     fontSize?: number;
     fontFamily?: string;
     color?: string;
+    fontWeight?: string;
+    fontStyle?: string;
 }
 
 interface MerdFileData {
@@ -1719,6 +1721,15 @@ export class ErdWebView {
         .context-submenu-item.active {
             background-color: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground));
         }
+        .context-menu-item.active {
+            background-color: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground));
+        }
+        .context-menu-item.menu-bold {
+            font-weight: bold;
+        }
+        .context-menu-item.menu-italic {
+            font-style: italic;
+        }
         .text-label-color-swatches {
             display: flex;
             flex-wrap: wrap;
@@ -1726,9 +1737,21 @@ export class ErdWebView {
             padding: 8px 12px;
             align-items: center;
         }
-        .text-label-color-swatches .color-swatch {
+        .text-label-color-swatches .color-swatch,
+        .text-label-color-submenu .color-swatch {
             width: 22px;
             height: 22px;
+        }
+        .text-label-color-submenu {
+            display: none;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 8px 12px;
+            min-width: 120px;
+            max-width: 160px;
+        }
+        .context-menu-item.has-submenu:hover > .text-label-color-submenu {
+            display: flex;
         }
         /* Context menu */
         .context-menu {
@@ -1870,6 +1893,12 @@ export class ErdWebView {
             if (fontFamily) {
                 styleParts.push('font-family: ' + fontFamily);
             }
+            if (label.fontWeight) {
+                styleParts.push('font-weight: ' + label.fontWeight);
+            }
+            if (label.fontStyle) {
+                styleParts.push('font-style: ' + label.fontStyle);
+            }
             const labelHtml = '                <div class="text-label-node" contenteditable="true" data-label-id="' +
                 label.id + '" style="' + styleParts.join('; ') + ';">' +
                 ErdWebView.escapeHtml(label.text) + '</div>';
@@ -1950,8 +1979,14 @@ export class ErdWebView {
             字体
             <div class="context-submenu" id="textLabelFontSubmenu"></div>
         </div>
+        <div class="context-menu-item menu-bold" id="textLabelBoldMenu">加粗</div>
+        <div class="context-menu-item menu-italic" id="textLabelItalicMenu">斜体</div>
         <div class="context-menu-separator"></div>
         <div class="text-label-color-swatches" id="textLabelColorSwatches"></div>
+        <div class="context-menu-item has-submenu" id="textLabelMoreColorMenu">
+            更多颜色
+            <div class="context-submenu text-label-color-submenu" id="textLabelMoreColorSubmenu"></div>
+        </div>
         <div class="context-menu-separator"></div>
         <div class="context-menu-item danger" id="textLabelDeleteMenu">删除</div>
     </div>
@@ -2203,6 +2238,8 @@ export class ErdWebView {
                 const fontSize = parseInt(labelEl.style.fontSize, 10) || 16;
                 const fontFamily = labelEl.style.fontFamily || '';
                 const color = labelEl.style.color || '';
+                const fontWeight = labelEl.style.fontWeight || '';
+                const fontStyle = labelEl.style.fontStyle || '';
 
                 textLabelsData.push({
                     id: labelId,
@@ -2211,7 +2248,9 @@ export class ErdWebView {
                     text: text,
                     fontSize: fontSize,
                     fontFamily: fontFamily,
-                    color: color
+                    color: color,
+                    fontWeight: fontWeight,
+                    fontStyle: fontStyle
                 });
             });
 
@@ -2294,7 +2333,8 @@ export class ErdWebView {
             { label: '黑体', value: 'SimHei, "黑体", sans-serif' },
             { label: 'PingFang SC', value: '"PingFang SC", "Hiragino Sans GB", sans-serif' }
         ];
-        const TEXT_LABEL_COLORS = ['#cccccc', '#ffffff', '#007acc', '#4caf50', '#e91e63', '#ff9800', '#9c27b0', '#f44336', '#00bcd4', '#ffd700'];
+        const TEXT_LABEL_QUICK_COLORS = ['#f44336', '#007acc', '#ffd700', '#4caf50'];
+        const TEXT_LABEL_MORE_COLORS = ['#cccccc', '#ffffff', '#e91e63', '#ff9800', '#9c27b0', '#00bcd4'];
 
         function setAddTextLabelMode(enabled) {
             addTextLabelMode = enabled;
@@ -2324,7 +2364,9 @@ export class ErdWebView {
                 text: options.text || '',
                 fontSize: options.fontSize || 16,
                 fontFamily: options.fontFamily || '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                color: options.color || ''
+                color: options.color || '',
+                fontWeight: options.fontWeight || '',
+                fontStyle: options.fontStyle || ''
             };
 
             textLabels.push(newLabel);
@@ -2339,6 +2381,12 @@ export class ErdWebView {
             labelEl.style.fontFamily = newLabel.fontFamily;
             if (newLabel.color) {
                 labelEl.style.color = newLabel.color;
+            }
+            if (newLabel.fontWeight) {
+                labelEl.style.fontWeight = newLabel.fontWeight;
+            }
+            if (newLabel.fontStyle) {
+                labelEl.style.fontStyle = newLabel.fontStyle;
             }
             if (newLabel.text) {
                 labelEl.textContent = newLabel.text;
@@ -2373,6 +2421,75 @@ export class ErdWebView {
         const textLabelSizeSubmenu = document.getElementById('textLabelSizeSubmenu');
         const textLabelFontSubmenu = document.getElementById('textLabelFontSubmenu');
         const textLabelColorSwatches = document.getElementById('textLabelColorSwatches');
+        const textLabelMoreColorSubmenu = document.getElementById('textLabelMoreColorSubmenu');
+        const textLabelBoldMenu = document.getElementById('textLabelBoldMenu');
+        const textLabelItalicMenu = document.getElementById('textLabelItalicMenu');
+
+        function applyTextLabelColor(color) {
+            if (textLabelContextTarget) {
+                textLabelContextTarget.style.color = color;
+                syncTextLabelData(textLabelContextTarget);
+            }
+            hideTextLabelContextMenu();
+        }
+
+        function appendTextLabelColorSwatch(container, color) {
+            const swatch = document.createElement('button');
+            swatch.type = 'button';
+            swatch.className = 'color-swatch';
+            swatch.style.backgroundColor = color;
+            swatch.title = color;
+            swatch.addEventListener('click', function(e) {
+                e.stopPropagation();
+                applyTextLabelColor(color);
+            });
+            container.appendChild(swatch);
+        }
+
+        TEXT_LABEL_QUICK_COLORS.forEach(function(color) {
+            appendTextLabelColorSwatch(textLabelColorSwatches, color);
+        });
+
+        TEXT_LABEL_MORE_COLORS.forEach(function(color) {
+            appendTextLabelColorSwatch(textLabelMoreColorSubmenu, color);
+        });
+
+        function isTextLabelBold(labelEl) {
+            const weight = labelEl.style.fontWeight || '';
+            return weight === 'bold' || parseInt(weight, 10) >= 700;
+        }
+
+        function isTextLabelItalic(labelEl) {
+            return (labelEl.style.fontStyle || '') === 'italic';
+        }
+
+        function updateTextLabelStyleMenuState() {
+            if (!textLabelContextTarget) {
+                return;
+            }
+            textLabelBoldMenu.classList.toggle('active', isTextLabelBold(textLabelContextTarget));
+            textLabelItalicMenu.classList.toggle('active', isTextLabelItalic(textLabelContextTarget));
+        }
+
+        textLabelBoldMenu.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (textLabelContextTarget) {
+                const isBold = isTextLabelBold(textLabelContextTarget);
+                textLabelContextTarget.style.fontWeight = isBold ? 'normal' : 'bold';
+                syncTextLabelData(textLabelContextTarget);
+                updateTextLabelStyleMenuState();
+            }
+        });
+
+        textLabelItalicMenu.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (textLabelContextTarget) {
+                const isItalic = isTextLabelItalic(textLabelContextTarget);
+                textLabelContextTarget.style.fontStyle = isItalic ? 'normal' : 'italic';
+                syncTextLabelData(textLabelContextTarget);
+                updateTextLabelStyleMenuState();
+            }
+        });
 
         TEXT_LABEL_FONT_SIZES.forEach(function(size) {
             const item = document.createElement('div');
@@ -2407,23 +2524,6 @@ export class ErdWebView {
             textLabelFontSubmenu.appendChild(item);
         });
 
-        TEXT_LABEL_COLORS.forEach(function(color) {
-            const swatch = document.createElement('button');
-            swatch.type = 'button';
-            swatch.className = 'color-swatch';
-            swatch.style.backgroundColor = color;
-            swatch.title = color;
-            swatch.addEventListener('click', function(e) {
-                e.stopPropagation();
-                if (textLabelContextTarget) {
-                    textLabelContextTarget.style.color = color;
-                    syncTextLabelData(textLabelContextTarget);
-                }
-                hideTextLabelContextMenu();
-            });
-            textLabelColorSwatches.appendChild(swatch);
-        });
-
         function syncTextLabelData(labelEl) {
             const labelId = labelEl.dataset.labelId;
             const label = textLabels.find(function(l) { return l.id === labelId; });
@@ -2436,6 +2536,8 @@ export class ErdWebView {
             label.fontSize = parseInt(labelEl.style.fontSize, 10) || 16;
             label.fontFamily = labelEl.style.fontFamily || '';
             label.color = labelEl.style.color || '';
+            label.fontWeight = labelEl.style.fontWeight || '';
+            label.fontStyle = labelEl.style.fontStyle || '';
         }
 
         function hideTextLabelContextMenu() {
@@ -2511,6 +2613,7 @@ export class ErdWebView {
                 textLabelContextMenu.style.left = e.clientX + 'px';
                 textLabelContextMenu.style.top = e.clientY + 'px';
                 textLabelContextMenu.style.display = 'block';
+                updateTextLabelStyleMenuState();
             });
 
             labelEl.addEventListener('dblclick', function(e) {
@@ -2816,10 +2919,12 @@ export class ErdWebView {
             const fontSize = parseInt(el.style.fontSize, 10) || 16;
             const fontFamily = el.style.fontFamily || '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif';
             const color = el.style.color || getComputedStyle(document.body).color || '#cccccc';
+            const fontWeight = el.style.fontWeight || 'normal';
+            const fontStyle = el.style.fontStyle || 'normal';
 
             let svg = '<g>';
             text.split('\\n').forEach(function(line, index) {
-                svg += '<text x="' + x + '" y="' + (y + fontSize + index * (fontSize * 1.2)) + '" fill="' + escapeXml(color) + '" font-size="' + fontSize + '" font-family="' + escapeXml(fontFamily) + '">' + escapeXml(line) + '</text>';
+                svg += '<text x="' + x + '" y="' + (y + fontSize + index * (fontSize * 1.2)) + '" fill="' + escapeXml(color) + '" font-size="' + fontSize + '" font-family="' + escapeXml(fontFamily) + '" font-weight="' + escapeXml(fontWeight) + '" font-style="' + escapeXml(fontStyle) + '">' + escapeXml(line) + '</text>';
             });
             svg += '</g>';
             return svg;
