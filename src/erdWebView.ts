@@ -49,6 +49,7 @@ interface CommentData {
     text: string;
     width?: number;
     height?: number;
+    zIndex?: number;
 }
 
 interface TextLabelData {
@@ -61,6 +62,7 @@ interface TextLabelData {
     color?: string;
     fontWeight?: string;
     fontStyle?: string;
+    zIndex?: number;
 }
 
 interface VectorShapeData {
@@ -1101,6 +1103,7 @@ export class ErdWebView {
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             cursor: default;
             transition: box-shadow 0.2s, border-color 0.2s;
+            z-index: 100;
         }
         .table-header {
             cursor: move;
@@ -1720,7 +1723,7 @@ export class ErdWebView {
         .vector-shape-node {
             position: absolute;
             cursor: move;
-            z-index: 40;
+            z-index: 100;
             color: var(--vscode-editor-foreground);
             pointer-events: auto;
             border-radius: 3px;
@@ -1830,7 +1833,7 @@ export class ErdWebView {
         .vector-shape-preview {
             position: absolute;
             pointer-events: none;
-            z-index: 39;
+            z-index: 1000;
             color: var(--vscode-editor-foreground);
             opacity: 0.7;
         }
@@ -1857,7 +1860,7 @@ export class ErdWebView {
             max-width: 500px;
             min-height: 100px;
             max-height: 600px;
-            z-index: 500;
+            z-index: 100;
             transition: box-shadow 0.2s, border-color 0.2s;
         }
         .comment-resize-handle {
@@ -1956,7 +1959,7 @@ export class ErdWebView {
             min-height: 20px;
             padding: 2px 4px;
             cursor: move;
-            z-index: 50;
+            z-index: 100;
             white-space: pre-wrap;
             word-break: break-word;
             outline: none;
@@ -2188,9 +2191,10 @@ export class ErdWebView {
 
         // Add comment nodes
         ErdWebView.comments.forEach(comment => {
+            const commentZIndex = comment.zIndex !== undefined ? '; z-index: ' + comment.zIndex : '';
             const commentHtml = '                <div class="comment-node" data-comment-id="' +
                 comment.id + '" style="left: ' + comment.x + 'px; top: ' + comment.y +
-                'px; width: ' + (comment.width || 200) + 'px; height: ' + (comment.height || 100) + 'px;">' +
+                'px; width: ' + (comment.width || 200) + 'px; height: ' + (comment.height || 100) + 'px' + commentZIndex + ';">' +
                 '<button class="comment-delete-btn" title="Delete comment">×</button>' +
                 '<textarea class="comment-textarea" placeholder="Enter comment...">' +
                 ErdWebView.escapeHtml(comment.text) + '</textarea>' +
@@ -2222,6 +2226,9 @@ export class ErdWebView {
             }
             if (label.fontStyle) {
                 styleParts.push('font-style: ' + label.fontStyle);
+            }
+            if (label.zIndex !== undefined) {
+                styleParts.push('z-index: ' + label.zIndex);
             }
             const labelHtml = '                <div class="text-label-node" contenteditable="true" data-label-id="' +
                 label.id + '" style="' + styleParts.join('; ') + ';">' +
@@ -2820,8 +2827,13 @@ export class ErdWebView {
                            y: y,
                            width: actualWidth,
                            height: actualHeight,
-                           color: tableColor
-                       });
+                           color: tableColor,
+                           borderWidth: parseFloat(tableEl.style.borderWidth) || undefined,
+                           borderStyle: tableEl.style.borderStyle || undefined,
+                           backgroundColor: tableEl.dataset.backgroundColor || undefined,
+                           zIndex: getEffectiveZIndex(tableEl),
+                           opacity: parseFloat(tableEl.style.opacity) || undefined
+                        });
                 }
             });
 
@@ -2844,7 +2856,8 @@ export class ErdWebView {
                     y: y,
                     width: width,
                     height: height,
-                    text: text
+                    text: text,
+                    zIndex: getEffectiveZIndex(commentEl)
                 });
             });
 
@@ -2869,7 +2882,8 @@ export class ErdWebView {
                     fontFamily: fontFamily,
                     color: color,
                     fontWeight: fontWeight,
-                    fontStyle: fontStyle
+                    fontStyle: fontStyle,
+                    zIndex: getEffectiveZIndex(labelEl)
                 });
             });
 
@@ -2926,6 +2940,7 @@ export class ErdWebView {
                 '<textarea class="comment-textarea" placeholder="Enter comment..."></textarea>';
             
             document.getElementById('canvas').appendChild(commentEl);
+            moveCanvasObjectLayer(commentEl, 'front');
             
             // Initialize events for new comment
             initCommentEvents(commentEl);
@@ -3014,6 +3029,7 @@ export class ErdWebView {
             }
 
             document.getElementById('canvas').appendChild(labelEl);
+            moveCanvasObjectLayer(labelEl, 'front');
             initTextLabelEvents(labelEl);
 
             labelEl.focus();
@@ -3159,6 +3175,7 @@ export class ErdWebView {
             label.color = labelEl.style.color || '';
             label.fontWeight = labelEl.style.fontWeight || '';
             label.fontStyle = labelEl.style.fontStyle || '';
+            label.zIndex = getEffectiveZIndex(labelEl);
         }
 
         function hideTextLabelContextMenu() {
@@ -3241,7 +3258,6 @@ export class ErdWebView {
                 e.stopPropagation();
                 labelDragPending = false;
                 isLabelDragging = false;
-                labelEl.style.zIndex = '';
                 document.body.classList.remove('panning');
                 labelEl.focus();
             });
@@ -3261,6 +3277,7 @@ export class ErdWebView {
             let labelDragStartY = 0;
             let labelDragStartLeft = 0;
             let labelDragStartTop = 0;
+            let labelDragPrevZIndex = '';
 
             labelEl.addEventListener('mousedown', function(e) {
                 if (e.button !== 0 || document.activeElement === labelEl) {
@@ -3272,6 +3289,7 @@ export class ErdWebView {
                 labelDragStartY = e.clientY;
                 labelDragStartLeft = parseFloat(labelEl.style.left) || 0;
                 labelDragStartTop = parseFloat(labelEl.style.top) || 0;
+                labelDragPrevZIndex = labelEl.style.zIndex || '';
             });
 
             document.addEventListener('mousemove', function labelDragMove(e) {
@@ -3302,7 +3320,8 @@ export class ErdWebView {
                 labelDragPending = false;
                 if (isLabelDragging) {
                     isLabelDragging = false;
-                    labelEl.style.zIndex = '';
+                    labelEl.style.zIndex = labelDragPrevZIndex;
+                    labelDragPrevZIndex = '';
                     document.body.classList.remove('panning');
                 }
             });
@@ -4099,7 +4118,9 @@ export class ErdWebView {
 
         function addVectorShapeToCanvas(shape) {
             vectorShapes.push(shape);
-            return createVectorShapeElement(shape);
+            const shapeEl = createVectorShapeElement(shape);
+            moveCanvasObjectLayer(shapeEl, 'front');
+            return shapeEl;
         }
 
         function appendVectorShapeStyleFields(entry, stored) {
@@ -4527,50 +4548,105 @@ export class ErdWebView {
             if (!isNaN(parsed)) {
                 return parsed;
             }
-            if (el.classList.contains('comment-node')) {
-                return 500;
-            }
-            if (el.classList.contains('text-label-node')) {
-                return 50;
-            }
-            if (el.classList.contains('vector-shape-node')) {
-                return 40;
-            }
-            return 1;
+            const computed = parseInt(window.getComputedStyle(el).zIndex, 10);
+            return isNaN(computed) ? 100 : computed;
         }
 
-        function setVectorShapeZIndex(shapeEl, zIndex) {
-            shapeEl.style.zIndex = String(zIndex);
-            const shape = getVectorShapeByEl(shapeEl);
-            if (shape) {
-                shape.zIndex = zIndex;
+        function syncCanvasObjectZIndex(el, zIndex) {
+            if (!el) {
+                return;
             }
+            if (el.classList.contains('table-node')) {
+                const tableData = getTableDataByEl(el);
+                if (tableData) {
+                    tableData.zIndex = zIndex;
+                }
+                return;
+            }
+            if (el.classList.contains('vector-shape-node')) {
+                const shape = getVectorShapeByEl(el);
+                if (shape) {
+                    shape.zIndex = zIndex;
+                }
+                return;
+            }
+            if (el.classList.contains('comment-node')) {
+                const comment = comments.find(function(c) { return c.id === el.dataset.commentId; });
+                if (comment) {
+                    comment.zIndex = zIndex;
+                }
+                return;
+            }
+            if (el.classList.contains('text-label-node')) {
+                const label = textLabels.find(function(l) { return l.id === el.dataset.labelId; });
+                if (label) {
+                    label.zIndex = zIndex;
+                }
+            }
+        }
+
+        function setCanvasObjectZIndex(el, zIndex) {
+            if (!el) {
+                return;
+            }
+            el.style.zIndex = String(zIndex);
+            syncCanvasObjectZIndex(el, zIndex);
+        }
+
+        function normalizeCanvasObjectLayers() {
+            const originalOrder = getCanvasLayerElements();
+            const all = originalOrder.slice().sort(function(a, b) {
+                const za = getEffectiveZIndex(a);
+                const zb = getEffectiveZIndex(b);
+                if (za !== zb) {
+                    return za - zb;
+                }
+                return originalOrder.indexOf(a) - originalOrder.indexOf(b);
+            });
+            all.forEach(function(el, index) {
+                setCanvasObjectZIndex(el, 100 + index * 10);
+            });
+            return all;
+        }
+
+        function moveCanvasObjectLayer(el, action) {
+            if (!el) {
+                return;
+            }
+            const ordered = normalizeCanvasObjectLayers();
+            const index = ordered.indexOf(el);
+            if (index < 0) {
+                return;
+            }
+            ordered.splice(index, 1);
+            if (action === 'front') {
+                ordered.push(el);
+            } else if (action === 'back') {
+                ordered.unshift(el);
+            } else if (action === 'forward') {
+                ordered.splice(Math.min(index + 1, ordered.length), 0, el);
+            } else if (action === 'backward') {
+                ordered.splice(Math.max(index - 1, 0), 0, el);
+            }
+            ordered.forEach(function(item, layerIndex) {
+                setCanvasObjectZIndex(item, 100 + layerIndex * 10);
+            });
         }
 
         function bringVectorShapeToFront(shapeEl) {
-            const all = getCanvasLayerElements();
-            let maxZ = 0;
-            all.forEach(function(el) {
-                maxZ = Math.max(maxZ, getEffectiveZIndex(el));
-            });
-            setVectorShapeZIndex(shapeEl, maxZ + 1);
+            moveCanvasObjectLayer(shapeEl, 'front');
         }
 
         function sendVectorShapeToBack(shapeEl) {
-            const all = getCanvasLayerElements();
-            let minZ = Infinity;
-            all.forEach(function(el) {
-                minZ = Math.min(minZ, getEffectiveZIndex(el));
-            });
-            setVectorShapeZIndex(shapeEl, Math.max(1, minZ - 1));
+            moveCanvasObjectLayer(shapeEl, 'back');
         }
 
         function bringVectorShapeForward(shapeEl) {
-            setVectorShapeZIndex(shapeEl, getEffectiveZIndex(shapeEl) + 1);
+            moveCanvasObjectLayer(shapeEl, 'forward');
         }
 
         function sendVectorShapeBackward(shapeEl) {
-            setVectorShapeZIndex(shapeEl, Math.max(1, getEffectiveZIndex(shapeEl) - 1));
+            moveCanvasObjectLayer(shapeEl, 'backward');
         }
 
         function getTableDataByEl(tableEl) {
@@ -4663,35 +4739,23 @@ export class ErdWebView {
             if (!tableEl) {
                 return;
             }
-            tableEl.style.zIndex = String(zIndex);
-            const tableData = getTableDataByEl(tableEl);
-            if (tableData) {
-                tableData.zIndex = zIndex;
-            }
+            setCanvasObjectZIndex(tableEl, zIndex);
         }
 
         function bringTableToFront(tableEl) {
-            let maxZ = 0;
-            getCanvasLayerElements().forEach(function(el) {
-                maxZ = Math.max(maxZ, getEffectiveZIndex(el));
-            });
-            setTableZIndex(tableEl, maxZ + 1);
+            moveCanvasObjectLayer(tableEl, 'front');
         }
 
         function sendTableToBack(tableEl) {
-            let minZ = Infinity;
-            getCanvasLayerElements().forEach(function(el) {
-                minZ = Math.min(minZ, getEffectiveZIndex(el));
-            });
-            setTableZIndex(tableEl, Math.max(1, minZ - 1));
+            moveCanvasObjectLayer(tableEl, 'back');
         }
 
         function bringTableForward(tableEl) {
-            setTableZIndex(tableEl, getEffectiveZIndex(tableEl) + 1);
+            moveCanvasObjectLayer(tableEl, 'forward');
         }
 
         function sendTableBackward(tableEl) {
-            setTableZIndex(tableEl, Math.max(1, getEffectiveZIndex(tableEl) - 1));
+            moveCanvasObjectLayer(tableEl, 'backward');
         }
 
         function showTableContextMenu(tableEl, clientX, clientY) {
@@ -5037,6 +5101,7 @@ export class ErdWebView {
         document.getElementById('vectorBringToFront').addEventListener('click', function(e) {
             e.stopPropagation();
             if (vectorShapeContextTarget) {
+                pushUndoSnapshot();
                 bringVectorShapeToFront(vectorShapeContextTarget);
             }
             hideVectorShapeContextMenu();
@@ -5044,6 +5109,7 @@ export class ErdWebView {
         document.getElementById('vectorBringForward').addEventListener('click', function(e) {
             e.stopPropagation();
             if (vectorShapeContextTarget) {
+                pushUndoSnapshot();
                 bringVectorShapeForward(vectorShapeContextTarget);
             }
             hideVectorShapeContextMenu();
@@ -5051,6 +5117,7 @@ export class ErdWebView {
         document.getElementById('vectorSendBackward').addEventListener('click', function(e) {
             e.stopPropagation();
             if (vectorShapeContextTarget) {
+                pushUndoSnapshot();
                 sendVectorShapeBackward(vectorShapeContextTarget);
             }
             hideVectorShapeContextMenu();
@@ -5058,6 +5125,7 @@ export class ErdWebView {
         document.getElementById('vectorSendToBack').addEventListener('click', function(e) {
             e.stopPropagation();
             if (vectorShapeContextTarget) {
+                pushUndoSnapshot();
                 sendVectorShapeToBack(vectorShapeContextTarget);
             }
             hideVectorShapeContextMenu();
@@ -5198,7 +5266,8 @@ export class ErdWebView {
                     y: parseFloat(commentEl.style.top) || 0,
                     width: parseFloat(commentEl.style.width) || commentEl.offsetWidth || 200,
                     height: parseFloat(commentEl.style.height) || commentEl.offsetHeight || 100,
-                    text: textarea ? textarea.value : ''
+                    text: textarea ? textarea.value : '',
+                    zIndex: getEffectiveZIndex(commentEl)
                 });
             });
 
@@ -5545,28 +5614,20 @@ export class ErdWebView {
             svg += '<rect x="0" y="0" width="' + bounds.width + '" height="' + bounds.height + '" fill="' + escapeXml(bgColor) + '"/>';
             svg += buildRelationshipsSvg(bounds.minX, bounds.minY);
 
-            document.querySelectorAll('.table-node').forEach(function(el) {
+            getCanvasLayerElements()
+                .sort(function(a, b) { return getEffectiveZIndex(a) - getEffectiveZIndex(b); })
+                .forEach(function(el) {
                 const x = (parseFloat(el.style.left) || 0) - bounds.minX;
                 const y = (parseFloat(el.style.top) || 0) - bounds.minY;
-                svg += buildTableSvgFromDom(el, x, y);
-            });
-
-            document.querySelectorAll('.comment-node').forEach(function(el) {
-                const x = (parseFloat(el.style.left) || 0) - bounds.minX;
-                const y = (parseFloat(el.style.top) || 0) - bounds.minY;
-                svg += buildCommentSvgFromDom(el, x, y);
-            });
-
-            document.querySelectorAll('.text-label-node').forEach(function(el) {
-                const x = (parseFloat(el.style.left) || 0) - bounds.minX;
-                const y = (parseFloat(el.style.top) || 0) - bounds.minY;
-                svg += buildTextLabelSvgFromDom(el, x, y);
-            });
-
-            document.querySelectorAll('.vector-shape-node').forEach(function(el) {
-                const x = (parseFloat(el.style.left) || 0) - bounds.minX;
-                const y = (parseFloat(el.style.top) || 0) - bounds.minY;
-                svg += buildVectorShapeSvgFromDom(el, x, y);
+                if (el.classList.contains('table-node')) {
+                    svg += buildTableSvgFromDom(el, x, y);
+                } else if (el.classList.contains('comment-node')) {
+                    svg += buildCommentSvgFromDom(el, x, y);
+                } else if (el.classList.contains('text-label-node')) {
+                    svg += buildTextLabelSvgFromDom(el, x, y);
+                } else if (el.classList.contains('vector-shape-node')) {
+                    svg += buildVectorShapeSvgFromDom(el, x, y);
+                }
             });
 
             svg += '</svg>';
@@ -5754,6 +5815,7 @@ function initCommentEvents(commentEl) {
     let resizeStartY = 0;
     let resizeStartWidth = 0;
     let resizeStartHeight = 0;
+    let activeCommentZIndex = '';
     
     const handleResizeMove = function(e) {
         if (isResizing) {
@@ -5782,7 +5844,8 @@ function initCommentEvents(commentEl) {
         if (isResizing) {
             isResizing = false;
             resizeHandle.classList.remove('dragging');
-            commentEl.style.zIndex = '';
+            commentEl.style.zIndex = activeCommentZIndex;
+            activeCommentZIndex = '';
             document.removeEventListener('mousemove', handleResizeMove);
             document.removeEventListener('mouseup', handleResizeUp);
         }
@@ -5796,6 +5859,7 @@ function initCommentEvents(commentEl) {
         resizeStartY = e.clientY;
         resizeStartWidth = commentEl.offsetWidth;
         resizeStartHeight = commentEl.offsetHeight;
+        activeCommentZIndex = commentEl.style.zIndex || '';
         resizeHandle.classList.add('dragging');
         commentEl.style.zIndex = '1000';
         
@@ -5819,6 +5883,7 @@ function initCommentEvents(commentEl) {
             dragStartY = e.clientY;
             dragStartLeft = parseFloat(commentEl.style.left) || 0;
             dragStartTop = parseFloat(commentEl.style.top) || 0;
+            activeCommentZIndex = commentEl.style.zIndex || '';
             commentEl.style.zIndex = '1000';
             commentEl.classList.add('selected');
             
@@ -5857,7 +5922,8 @@ function initCommentEvents(commentEl) {
     document.addEventListener('mouseup', function() {
         if (isDragging) {
             isDragging = false;
-            commentEl.style.zIndex = '';
+            commentEl.style.zIndex = activeCommentZIndex;
+            activeCommentZIndex = '';
             commentEl.classList.remove('selected');
             document.body.classList.remove('panning');
         }
@@ -5936,7 +6002,7 @@ function initCommentEvents(commentEl) {
                         borderWidth: parseFloat(el.style.borderWidth) || undefined,
                         borderStyle: el.style.borderStyle || undefined,
                         backgroundColor: el.dataset.backgroundColor || undefined,
-                        zIndex: parseInt(el.style.zIndex, 10) || undefined,
+                        zIndex: getEffectiveZIndex(el),
                         opacity: parseFloat(el.style.opacity) || undefined
                     });
                 });
@@ -6477,6 +6543,7 @@ function initCommentEvents(commentEl) {
             let resizeCorner = null;
             let startLeft = 0;
             let startTop = 0;
+            let activeElementZIndex = '';
 
             document.querySelectorAll('.table-node').forEach(function(table) {
                 // Handle horizontal resize
@@ -6490,6 +6557,7 @@ function initCommentEvents(commentEl) {
                     isResizing = true;
                     isResizingVertical = false;
                     resizeElement = table;
+                    activeElementZIndex = table.style.zIndex || '';
                     startX = e.clientX;
                     startWidth = table.offsetWidth;
                     resizeHandle.classList.add('dragging');
@@ -6509,6 +6577,7 @@ function initCommentEvents(commentEl) {
                     isResizing = true;
                     isResizingVertical = true;
                     resizeElement = table;
+                    activeElementZIndex = table.style.zIndex || '';
                     startY = e.clientY;
                     startHeight = table.offsetHeight;
                     resizeHandleVertical.classList.add('dragging');
@@ -6530,6 +6599,7 @@ function initCommentEvents(commentEl) {
                         isResizingCorner = true;
                         resizeCorner = corner;
                         resizeElement = table;
+                        activeElementZIndex = table.style.zIndex || '';
                         startX = e.clientX;
                         startY = e.clientY;
                         startWidth = table.offsetWidth;
@@ -6565,6 +6635,7 @@ function initCommentEvents(commentEl) {
 
                     pushUndoSnapshot();
                     draggedElement = table;
+                    activeElementZIndex = table.style.zIndex || '';
                     const rect = table.getBoundingClientRect();
                     offsetX = e.clientX - rect.left;
                     offsetY = e.clientY - rect.top;
@@ -6779,8 +6850,9 @@ function initCommentEvents(commentEl) {
 
             document.addEventListener('mouseup', function() {
                 if (draggedElement) {
-                    draggedElement.style.zIndex = '';
+                    draggedElement.style.zIndex = activeElementZIndex;
                     draggedElement = null;
+                    activeElementZIndex = '';
                 }
 
                 if (isResizing) {
@@ -6794,12 +6866,13 @@ function initCommentEvents(commentEl) {
                         const handle = resizeElement?.querySelector('.resize-handle');
                         if (handle) handle.classList.remove('dragging');
                     }
-                    if (resizeElement) resizeElement.style.zIndex = '';
+                    if (resizeElement) resizeElement.style.zIndex = activeElementZIndex;
                     isResizing = false;
                     isResizingVertical = false;
                     isResizingCorner = false;
                     resizeCorner = null;
                     resizeElement = null;
+                    activeElementZIndex = '';
                 }
 
                 if (isDraggingConnection) {
@@ -7171,6 +7244,7 @@ function initCommentEvents(commentEl) {
             initDraggable();
             initVectorShapeToolbar();
             initGlobalVectorShapeInteraction();
+            normalizeCanvasObjectLayers();
             console.log('[ERD Init] Initialization complete');
         }
 
