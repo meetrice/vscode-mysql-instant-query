@@ -2474,8 +2474,13 @@ export class ErdWebView {
         let panX = 0;
         let panY = 0;
         let isPanning = false;
+        let panningMouseButton = null;
         let panStartX = 0;
         let panStartY = 0;
+        let rightPanSuppressContextMenu = false;
+        let rightPanPointerX = 0;
+        let rightPanPointerY = 0;
+        const RIGHT_PAN_DRAG_THRESHOLD = 4;
         let isMarqueeSelecting = false;
         let marqueeStart = null;
         let marqueeEl = null;
@@ -2554,6 +2559,27 @@ export class ErdWebView {
             return target.id === 'canvas-container' ||
                 target.id === 'canvas' ||
                 target.id === 'relationships';
+        }
+
+        function isCanvasBlankContextTarget(target) {
+            if (!target || !target.closest) {
+                return false;
+            }
+            if (!target.closest('#canvas-container')) {
+                return false;
+            }
+            if (target.closest('.erd-toolbar') || target.closest('.zoom-controls')) {
+                return false;
+            }
+            if (target.closest('.table-node') || target.closest('.comment-node') ||
+                target.closest('.text-label-node') || target.closest('.vector-shape-node')) {
+                return false;
+            }
+            if (target.closest('.relationship-line') || target.closest('.relationship-hit-area') ||
+                target.closest('.relationship-arrow') || target.closest('.relationship-start-marker')) {
+                return false;
+            }
+            return true;
         }
 
         function clearMarqueeOverlay() {
@@ -2902,7 +2928,33 @@ export class ErdWebView {
         function initCanvasPanning() {
             const container = document.getElementById('canvas-container');
 
+            container.addEventListener('contextmenu', function(e) {
+                if (!isCanvasBlankContextTarget(e.target)) {
+                    return;
+                }
+                e.preventDefault();
+                hideAllContextMenus();
+                if (rightPanSuppressContextMenu) {
+                    rightPanSuppressContextMenu = false;
+                    return;
+                }
+                activateSelectionMode();
+            });
+
             container.addEventListener('mousedown', function(e) {
+                if (e.button === 2 && isCanvasBlankContextTarget(e.target)) {
+                    isPanning = true;
+                    panningMouseButton = 2;
+                    rightPanSuppressContextMenu = false;
+                    rightPanPointerX = e.clientX;
+                    rightPanPointerY = e.clientY;
+                    panStartX = e.clientX - panX;
+                    panStartY = e.clientY - panY;
+                    document.body.classList.add('panning');
+                    e.preventDefault();
+                    return;
+                }
+
                 if (addTextLabelMode || addVectorShapeType || !selectionModeActive) {
                     return;
                 }
@@ -2912,6 +2964,7 @@ export class ErdWebView {
                 }
                 if (e.button === 1) {
                     isPanning = true;
+                    panningMouseButton = 1;
                     panStartX = e.clientX - panX;
                     panStartY = e.clientY - panY;
                     document.body.classList.add('panning');
@@ -2933,6 +2986,12 @@ export class ErdWebView {
                     return;
                 }
                 if (isPanning) {
+                    if (panningMouseButton === 2) {
+                        if (Math.abs(e.clientX - rightPanPointerX) > RIGHT_PAN_DRAG_THRESHOLD ||
+                            Math.abs(e.clientY - rightPanPointerY) > RIGHT_PAN_DRAG_THRESHOLD) {
+                            rightPanSuppressContextMenu = true;
+                        }
+                    }
                     panX = e.clientX - panStartX;
                     panY = e.clientY - panStartY;
                     updateCanvasTransform();
@@ -2962,6 +3021,7 @@ export class ErdWebView {
                 }
                 if (isPanning) {
                     isPanning = false;
+                    panningMouseButton = null;
                     document.body.classList.remove('panning');
                 }
             });
