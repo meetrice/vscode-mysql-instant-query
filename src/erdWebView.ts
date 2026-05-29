@@ -20,6 +20,7 @@ interface TableData {
     backgroundColor?: string;
     zIndex?: number;
     opacity?: number;
+    groupId?: string;
 }
 
 interface ColumnData {
@@ -50,6 +51,7 @@ interface CommentData {
     width?: number;
     height?: number;
     zIndex?: number;
+    groupId?: string;
 }
 
 interface TextLabelData {
@@ -63,6 +65,7 @@ interface TextLabelData {
     fontWeight?: string;
     fontStyle?: string;
     zIndex?: number;
+    groupId?: string;
 }
 
 interface VectorShapeData {
@@ -80,6 +83,7 @@ interface VectorShapeData {
     fill?: string;
     zIndex?: number;
     opacity?: number;
+    groupId?: string;
 }
 
 interface MerdFileData {
@@ -2106,6 +2110,10 @@ export class ErdWebView {
             opacity: 0.45;
             pointer-events: none;
         }
+        .context-menu-item.hidden,
+        .context-menu-separator.hidden {
+            display: none;
+        }
         .context-menu-separator {
             height: 1px;
             background-color: var(--vscode-panel-border);
@@ -2192,8 +2200,9 @@ export class ErdWebView {
         // Add comment nodes
         ErdWebView.comments.forEach(comment => {
             const commentZIndex = comment.zIndex !== undefined ? '; z-index: ' + comment.zIndex : '';
+            const commentGroupAttr = comment.groupId ? ' data-group-id="' + ErdWebView.escapeHtml(comment.groupId) + '"' : '';
             const commentHtml = '                <div class="comment-node" data-comment-id="' +
-                comment.id + '" style="left: ' + comment.x + 'px; top: ' + comment.y +
+                comment.id + '"' + commentGroupAttr + ' style="left: ' + comment.x + 'px; top: ' + comment.y +
                 'px; width: ' + (comment.width || 200) + 'px; height: ' + (comment.height || 100) + 'px' + commentZIndex + ';">' +
                 '<button class="comment-delete-btn" title="Delete comment">×</button>' +
                 '<textarea class="comment-textarea" placeholder="Enter comment...">' +
@@ -2230,8 +2239,9 @@ export class ErdWebView {
             if (label.zIndex !== undefined) {
                 styleParts.push('z-index: ' + label.zIndex);
             }
+            const labelGroupAttr = label.groupId ? ' data-group-id="' + ErdWebView.escapeHtml(label.groupId) + '"' : '';
             const labelHtml = '                <div class="text-label-node" contenteditable="true" data-label-id="' +
-                label.id + '" style="' + styleParts.join('; ') + ';">' +
+                label.id + '"' + labelGroupAttr + ' style="' + styleParts.join('; ') + ';">' +
                 ErdWebView.escapeHtml(label.text) + '</div>';
             html += labelHtml;
         });
@@ -2343,6 +2353,9 @@ export class ErdWebView {
         <div class="context-menu-item" id="ctxTableSendBackward">下移一层</div>
         <div class="context-menu-item" id="ctxTableSendToBack">置于底层</div>
         <div class="context-menu-separator"></div>
+        <div class="context-menu-item" id="ctxGroupObjects">组合</div>
+        <div class="context-menu-item" id="ctxUngroupObjects">打散</div>
+        <div class="context-menu-separator" id="ctxGroupSeparator"></div>
         <div class="context-menu-item danger" id="ctxDelete">🗑️ Delete</div>
     </div>
 
@@ -2374,6 +2387,9 @@ export class ErdWebView {
             <div class="context-submenu text-label-color-submenu" id="textLabelMoreColorSubmenu"></div>
         </div>
         <div class="context-menu-separator"></div>
+        <div class="context-menu-item" id="textLabelGroupMenu">组合</div>
+        <div class="context-menu-item" id="textLabelUngroupMenu">打散</div>
+        <div class="context-menu-separator" id="textLabelGroupSeparator"></div>
         <div class="context-menu-item danger" id="textLabelDeleteMenu">删除</div>
     </div>
 
@@ -2417,7 +2433,17 @@ export class ErdWebView {
         <div class="context-menu-item" id="vectorSendBackward">下移一层</div>
         <div class="context-menu-item" id="vectorSendToBack">置于底层</div>
         <div class="context-menu-separator"></div>
+        <div class="context-menu-item" id="vectorShapeGroupMenu">组合</div>
+        <div class="context-menu-item" id="vectorShapeUngroupMenu">打散</div>
+        <div class="context-menu-separator" id="vectorShapeGroupSeparator"></div>
         <div class="context-menu-item danger" id="vectorShapeDeleteMenu">删除</div>
+    </div>
+
+    <div class="text-label-context-menu" id="commentContextMenu">
+        <div class="context-menu-item" id="commentGroupMenu">组合</div>
+        <div class="context-menu-item" id="commentUngroupMenu">打散</div>
+        <div class="context-menu-separator" id="commentGroupSeparator"></div>
+        <div class="context-menu-item danger" id="commentDeleteMenu">删除</div>
     </div>
 
     <!-- Thumbnail toggle button -->
@@ -2541,6 +2567,191 @@ export class ErdWebView {
             document.querySelectorAll('.vector-shape-node.resize-active').forEach(function(el) {
                 el.classList.remove('resize-active');
             });
+        }
+
+        function getCanvasObjectSelector() {
+            return '.table-node, .comment-node, .text-label-node, .vector-shape-node';
+        }
+
+        function getSelectedCanvasObjects() {
+            return Array.from(document.querySelectorAll('.table-node.selected, .comment-node.selected, .text-label-node.selected, .vector-shape-node.selected'));
+        }
+
+        function getCanvasObjectData(el) {
+            if (!el) {
+                return null;
+            }
+            if (el.classList.contains('table-node')) {
+                return getTableDataByEl(el);
+            }
+            if (el.classList.contains('comment-node')) {
+                return comments.find(function(c) { return c.id === el.dataset.commentId; }) || null;
+            }
+            if (el.classList.contains('text-label-node')) {
+                return textLabels.find(function(l) { return l.id === el.dataset.labelId; }) || null;
+            }
+            if (el.classList.contains('vector-shape-node')) {
+                return getVectorShapeByEl(el);
+            }
+            return null;
+        }
+
+        function syncCanvasObjectPosition(el) {
+            if (!el) {
+                return;
+            }
+            if (el.classList.contains('table-node')) {
+                const tableData = getTableDataByEl(el);
+                if (tableData) {
+                    tableData.x = parseFloat(el.style.left) || 0;
+                    tableData.y = parseFloat(el.style.top) || 0;
+                    tableData.width = el.offsetWidth || tableData.width;
+                    tableData.height = el.offsetHeight || tableData.height;
+                }
+                return;
+            }
+            if (el.classList.contains('comment-node')) {
+                const comment = comments.find(function(c) { return c.id === el.dataset.commentId; });
+                if (comment) {
+                    comment.x = parseFloat(el.style.left) || 0;
+                    comment.y = parseFloat(el.style.top) || 0;
+                }
+                return;
+            }
+            if (el.classList.contains('text-label-node')) {
+                syncTextLabelData(el);
+                return;
+            }
+            if (el.classList.contains('vector-shape-node')) {
+                syncVectorShapeData(el);
+            }
+        }
+
+        function setCanvasObjectGroupId(el, groupId) {
+            const data = getCanvasObjectData(el);
+            if (!data) {
+                return;
+            }
+            if (groupId) {
+                data.groupId = groupId;
+                el.dataset.groupId = groupId;
+            } else {
+                delete data.groupId;
+                delete el.dataset.groupId;
+            }
+        }
+
+        function getGroupObjects(groupId) {
+            if (!groupId) {
+                return [];
+            }
+            return Array.from(document.querySelectorAll(getCanvasObjectSelector())).filter(function(el) {
+                return el.dataset.groupId === groupId;
+            });
+        }
+
+        function getDragGroupObjects(anchorEl) {
+            if (!anchorEl || !anchorEl.dataset.groupId) {
+                return [anchorEl].filter(Boolean);
+            }
+            return getGroupObjects(anchorEl.dataset.groupId);
+        }
+
+        function captureGroupDragState(anchorEl) {
+            return getDragGroupObjects(anchorEl).map(function(el) {
+                return {
+                    el: el,
+                    startLeft: parseFloat(el.style.left) || 0,
+                    startTop: parseFloat(el.style.top) || 0
+                };
+            });
+        }
+
+        function applyGroupDragState(items, dx, dy) {
+            items.forEach(function(item) {
+                item.el.style.left = (item.startLeft + dx) + 'px';
+                item.el.style.top = (item.startTop + dy) + 'px';
+                syncCanvasObjectPosition(item.el);
+            });
+            drawRelationships();
+            if (thumbnailVisible) {
+                updateThumbnail();
+            }
+        }
+
+        function selectObjects(objects) {
+            clearAllObjectSelections();
+            let lastTable = null;
+            objects.forEach(function(el) {
+                if (!el || !el.isConnected) {
+                    return;
+                }
+                el.classList.add('selected');
+                if (el.classList.contains('table-node')) {
+                    lastTable = el;
+                }
+                if (el.classList.contains('vector-shape-node')) {
+                    initVectorShapeResizeHandles(el);
+                    updateVectorShapeLineHandles(el);
+                }
+            });
+            selectedTable = lastTable;
+        }
+
+        function selectObjectWithGroup(el) {
+            if (!el) {
+                return;
+            }
+            selectObjects(el.dataset.groupId ? getGroupObjects(el.dataset.groupId) : [el]);
+        }
+
+        function groupSelectedObjects() {
+            const selected = getSelectedCanvasObjects();
+            if (selected.length < 2) {
+                return false;
+            }
+            pushUndoSnapshot();
+            const groupId = 'group_' + Date.now();
+            selected.forEach(function(el) {
+                setCanvasObjectGroupId(el, groupId);
+            });
+            selectObjects(selected);
+            return true;
+        }
+
+        function ungroupCanvasObject(anchorEl) {
+            const groupId = anchorEl && anchorEl.dataset ? anchorEl.dataset.groupId : '';
+            if (!groupId) {
+                return false;
+            }
+            const groupObjects = getGroupObjects(groupId);
+            if (groupObjects.length === 0) {
+                return false;
+            }
+            pushUndoSnapshot();
+            groupObjects.forEach(function(el) {
+                setCanvasObjectGroupId(el, '');
+            });
+            selectObjects(groupObjects);
+            return true;
+        }
+
+        function updateGroupMenuVisibility(prefix, anchorEl) {
+            const groupItem = document.getElementById(prefix + 'GroupMenu') || document.getElementById(prefix + 'GroupObjects');
+            const ungroupItem = document.getElementById(prefix + 'UngroupMenu') || document.getElementById(prefix + 'UngroupObjects');
+            const separator = document.getElementById(prefix + 'GroupSeparator');
+            const selectedCount = getSelectedCanvasObjects().length;
+            const canGroup = selectedCount >= 2;
+            const canUngroup = !!(anchorEl && anchorEl.dataset && anchorEl.dataset.groupId);
+            if (groupItem) {
+                groupItem.classList.toggle('hidden', !canGroup);
+            }
+            if (ungroupItem) {
+                ungroupItem.classList.toggle('hidden', !canUngroup);
+            }
+            if (separator) {
+                separator.classList.toggle('hidden', !canGroup && !canUngroup);
+            }
         }
 
         function clearAllObjectSelections() {
@@ -2830,10 +3041,11 @@ export class ErdWebView {
                            color: tableColor,
                            borderWidth: parseFloat(tableEl.style.borderWidth) || undefined,
                            borderStyle: tableEl.style.borderStyle || undefined,
-                           backgroundColor: tableEl.dataset.backgroundColor || undefined,
-                           zIndex: getEffectiveZIndex(tableEl),
-                           opacity: parseFloat(tableEl.style.opacity) || undefined
-                        });
+                        backgroundColor: tableEl.dataset.backgroundColor || undefined,
+                        zIndex: getEffectiveZIndex(tableEl),
+                        opacity: parseFloat(tableEl.style.opacity) || undefined,
+                        groupId: tableEl.dataset.groupId || undefined
+                    });
                 }
             });
 
@@ -2857,7 +3069,8 @@ export class ErdWebView {
                     width: width,
                     height: height,
                     text: text,
-                    zIndex: getEffectiveZIndex(commentEl)
+                    zIndex: getEffectiveZIndex(commentEl),
+                    groupId: commentEl.dataset.groupId || undefined
                 });
             });
 
@@ -2883,7 +3096,8 @@ export class ErdWebView {
                     color: color,
                     fontWeight: fontWeight,
                     fontStyle: fontStyle,
-                    zIndex: getEffectiveZIndex(labelEl)
+                    zIndex: getEffectiveZIndex(labelEl),
+                    groupId: labelEl.dataset.groupId || undefined
                 });
             });
 
@@ -3011,6 +3225,9 @@ export class ErdWebView {
             labelEl.className = 'text-label-node';
             labelEl.contentEditable = 'true';
             labelEl.dataset.labelId = newLabel.id;
+            if (newLabel.groupId) {
+                labelEl.dataset.groupId = newLabel.groupId;
+            }
             labelEl.style.left = newLabel.x + 'px';
             labelEl.style.top = newLabel.y + 'px';
             labelEl.style.fontSize = newLabel.fontSize + 'px';
@@ -3176,6 +3393,11 @@ export class ErdWebView {
             label.fontWeight = labelEl.style.fontWeight || '';
             label.fontStyle = labelEl.style.fontStyle || '';
             label.zIndex = getEffectiveZIndex(labelEl);
+            if (labelEl.dataset.groupId) {
+                label.groupId = labelEl.dataset.groupId;
+            } else {
+                delete label.groupId;
+            }
         }
 
         function hideTextLabelContextMenu() {
@@ -3183,12 +3405,37 @@ export class ErdWebView {
             textLabelContextTarget = null;
         }
 
-        document.addEventListener('mousedown', function(e) {
-            if (e.button !== 0) {
-                return;
+        function isInsideAnyContextMenu(target) {
+            return !!(target && target.closest && (
+                target.closest('.context-menu') ||
+                target.closest('.relationship-context-menu') ||
+                target.closest('.text-label-context-menu') ||
+                target.closest('#vectorShapeContextMenu') ||
+                target.closest('#commentContextMenu') ||
+                target.closest('.context-submenu')
+            ));
+        }
+
+        function hideAllContextMenus() {
+            hideTableContextMenu();
+            hideTextLabelContextMenu();
+            hideVectorShapeContextMenu();
+            hideCommentContextMenu();
+            const relationshipMenu = document.getElementById('relationshipContextMenu');
+            if (relationshipMenu) {
+                relationshipMenu.style.display = 'none';
             }
-            if (!e.target.closest('.text-label-context-menu')) {
-                hideTextLabelContextMenu();
+        }
+
+        document.addEventListener('mousedown', function(e) {
+            if (!isInsideAnyContextMenu(e.target)) {
+                hideAllContextMenus();
+            }
+        }, true);
+
+        document.addEventListener('contextmenu', function(e) {
+            if (!isInsideAnyContextMenu(e.target)) {
+                hideAllContextMenus();
             }
         }, true);
 
@@ -3228,6 +3475,18 @@ export class ErdWebView {
             deleteTextLabel(textLabelContextTarget);
         });
 
+        document.getElementById('textLabelGroupMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            groupSelectedObjects();
+            hideTextLabelContextMenu();
+        });
+
+        document.getElementById('textLabelUngroupMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            ungroupCanvasObject(textLabelContextTarget);
+            hideTextLabelContextMenu();
+        });
+
         function initTextLabelEvents(labelEl) {
             labelEl.addEventListener('input', function() {
                 syncTextLabelData(labelEl);
@@ -3243,14 +3502,14 @@ export class ErdWebView {
                 e.preventDefault();
                 e.stopPropagation();
                 textLabelContextTarget = labelEl;
-                document.querySelectorAll('.text-label-node').forEach(function(node) {
-                    node.classList.remove('selected');
-                });
-                labelEl.classList.add('selected');
+                if (!labelEl.classList.contains('selected')) {
+                    selectObjectWithGroup(labelEl);
+                }
 
                 textLabelContextMenu.style.left = e.clientX + 'px';
                 textLabelContextMenu.style.top = e.clientY + 'px';
                 textLabelContextMenu.style.display = 'block';
+                updateGroupMenuVisibility('textLabel', labelEl);
                 updateTextLabelStyleMenuState();
             });
 
@@ -3278,6 +3537,7 @@ export class ErdWebView {
             let labelDragStartLeft = 0;
             let labelDragStartTop = 0;
             let labelDragPrevZIndex = '';
+            let labelDragGroupItems = [];
 
             labelEl.addEventListener('mousedown', function(e) {
                 if (e.button !== 0 || document.activeElement === labelEl) {
@@ -3290,6 +3550,7 @@ export class ErdWebView {
                 labelDragStartLeft = parseFloat(labelEl.style.left) || 0;
                 labelDragStartTop = parseFloat(labelEl.style.top) || 0;
                 labelDragPrevZIndex = labelEl.style.zIndex || '';
+                labelDragGroupItems = captureGroupDragState(labelEl);
             });
 
             document.addEventListener('mousemove', function labelDragMove(e) {
@@ -3309,11 +3570,7 @@ export class ErdWebView {
                 }
                 const deltaX = e.clientX - labelDragStartX;
                 const deltaY = e.clientY - labelDragStartY;
-                const x = (deltaX / zoom) + labelDragStartLeft;
-                const y = (deltaY / zoom) + labelDragStartTop;
-                labelEl.style.left = x + 'px';
-                labelEl.style.top = y + 'px';
-                syncTextLabelData(labelEl);
+                applyGroupDragState(labelDragGroupItems, deltaX / zoom, deltaY / zoom);
             });
 
             document.addEventListener('mouseup', function labelDragUp() {
@@ -3322,16 +3579,14 @@ export class ErdWebView {
                     isLabelDragging = false;
                     labelEl.style.zIndex = labelDragPrevZIndex;
                     labelDragPrevZIndex = '';
+                    labelDragGroupItems = [];
                     document.body.classList.remove('panning');
                 }
             });
 
             labelEl.addEventListener('click', function(e) {
                 e.stopPropagation();
-                document.querySelectorAll('.text-label-node').forEach(function(node) {
-                    node.classList.remove('selected');
-                });
-                labelEl.classList.add('selected');
+                selectObjectWithGroup(labelEl);
             });
 
             labelEl.addEventListener('keydown', function(e) {
@@ -3858,9 +4113,7 @@ export class ErdWebView {
                     }
                     document.body.classList.add('panning');
                 }
-                vectorShapeDragState.shapeEl.style.left = (vectorShapeDragState.startLeft + dx / zoom) + 'px';
-                vectorShapeDragState.shapeEl.style.top = (vectorShapeDragState.startTop + dy / zoom) + 'px';
-                syncVectorShapeData(vectorShapeDragState.shapeEl);
+                applyGroupDragState(vectorShapeDragState.groupItems, dx / zoom, dy / zoom);
             }
 
             function onMouseUp() {
@@ -3960,6 +4213,7 @@ export class ErdWebView {
                     startY: e.clientY,
                     startLeft: parseFloat(shapeEl.style.left) || 0,
                     startTop: parseFloat(shapeEl.style.top) || 0,
+                    groupItems: captureGroupDragState(shapeEl),
                     prevZIndex: shapeEl.style.zIndex || '',
                     moved: false,
                     undoPushed: false
@@ -4023,11 +4277,7 @@ export class ErdWebView {
         }
 
         function selectVectorShape(shapeEl) {
-            clearVectorShapeResizeMode();
-            document.querySelectorAll('.vector-shape-node').forEach(function(node) {
-                node.classList.remove('selected');
-            });
-            shapeEl.classList.add('selected');
+            selectObjectWithGroup(shapeEl);
             initVectorShapeResizeHandles(shapeEl);
             updateVectorShapeLineHandles(shapeEl);
             debugVectorShapeResize('select shape', {
@@ -4067,6 +4317,9 @@ export class ErdWebView {
             shapeEl.className = 'vector-shape-node';
             shapeEl.dataset.shapeId = shape.id;
             shapeEl.dataset.shapeType = shape.type;
+            if (shape.groupId) {
+                shapeEl.dataset.groupId = shape.groupId;
+            }
             shapeEl.style.left = shape.x + 'px';
             shapeEl.style.top = shape.y + 'px';
             shapeEl.style.width = shape.width + 'px';
@@ -4143,6 +4396,9 @@ export class ErdWebView {
             if (stored.opacity !== undefined && stored.opacity !== 1) {
                 entry.opacity = stored.opacity;
             }
+            if (stored.groupId) {
+                entry.groupId = stored.groupId;
+            }
             return entry;
         }
 
@@ -4207,6 +4463,11 @@ export class ErdWebView {
             }
             shape.width = width;
             shape.height = height;
+            if (shapeEl.dataset.groupId) {
+                shape.groupId = shapeEl.dataset.groupId;
+            } else {
+                delete shape.groupId;
+            }
         }
 
         function deleteVectorShape(shapeEl) {
@@ -4376,6 +4637,16 @@ export class ErdWebView {
             }
 
             if (vectorShapeBtn && vectorShapeMenu) {
+                document.addEventListener('mousedown', function(e) {
+                    const target = e.target;
+                    if (!target || !target.closest) {
+                        return;
+                    }
+                    if (!target.closest('#vectorShapeBtn') && !target.closest('#vectorShapeMenu')) {
+                        vectorShapeMenu.classList.remove('show');
+                    }
+                }, true);
+
                 vectorShapeBtn.addEventListener('mousedown', function(e) {
                     if (e.button !== 0) {
                         return;
@@ -4498,6 +4769,9 @@ export class ErdWebView {
             shapeEl.addEventListener('contextmenu', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
+                if (!shapeEl.classList.contains('selected')) {
+                    selectObjectWithGroup(shapeEl);
+                }
                 showVectorShapeContextMenu(shapeEl, e.clientX, e.clientY);
             });
         }
@@ -4531,6 +4805,25 @@ export class ErdWebView {
         function hideVectorShapeContextMenu() {
             vectorShapeContextMenu.style.display = 'none';
             vectorShapeContextTarget = null;
+        }
+
+        const commentContextMenu = document.getElementById('commentContextMenu');
+        let commentContextTarget = null;
+
+        function hideCommentContextMenu() {
+            commentContextMenu.style.display = 'none';
+            commentContextTarget = null;
+        }
+
+        function showCommentContextMenu(commentEl, clientX, clientY) {
+            commentContextTarget = commentEl;
+            if (!commentEl.classList.contains('selected')) {
+                selectObjectWithGroup(commentEl);
+            }
+            updateGroupMenuVisibility('comment', commentEl);
+            commentContextMenu.style.left = clientX + 'px';
+            commentContextMenu.style.top = clientY + 'px';
+            commentContextMenu.style.display = 'block';
         }
 
         function getCanvasLayerElements() {
@@ -4780,6 +5073,7 @@ export class ErdWebView {
             tableContextMenu.style.left = clientX + 'px';
             tableContextMenu.style.top = clientY + 'px';
             tableContextMenu.style.display = 'block';
+            updateGroupMenuVisibility('ctx', tableEl);
         }
 
         function applyStoredTableStyles(tableEl) {
@@ -5014,6 +5308,39 @@ export class ErdWebView {
             hideTableContextMenu();
         });
 
+        document.getElementById('ctxGroupObjects').addEventListener('click', function(e) {
+            e.stopPropagation();
+            groupSelectedObjects();
+            hideTableContextMenu();
+        });
+
+        document.getElementById('ctxUngroupObjects').addEventListener('click', function(e) {
+            e.stopPropagation();
+            ungroupCanvasObject(getTableContextTarget());
+            hideTableContextMenu();
+        });
+
+        document.getElementById('commentGroupMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            groupSelectedObjects();
+            hideCommentContextMenu();
+        });
+
+        document.getElementById('commentUngroupMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            ungroupCanvasObject(commentContextTarget);
+            hideCommentContextMenu();
+        });
+
+        document.getElementById('commentDeleteMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (commentContextTarget) {
+                pushUndoSnapshot();
+                deleteCommentElement(commentContextTarget);
+            }
+            hideCommentContextMenu();
+        });
+
         [1, 2, 3, 4, 6].forEach(function(width) {
             const item = document.createElement('div');
             item.className = 'context-submenu-item';
@@ -5130,6 +5457,18 @@ export class ErdWebView {
             hideVectorShapeContextMenu();
         });
 
+        document.getElementById('vectorShapeGroupMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            groupSelectedObjects();
+            hideVectorShapeContextMenu();
+        });
+
+        document.getElementById('vectorShapeUngroupMenu').addEventListener('click', function(e) {
+            e.stopPropagation();
+            ungroupCanvasObject(vectorShapeContextTarget);
+            hideVectorShapeContextMenu();
+        });
+
         function showVectorShapeContextMenu(shapeEl, clientX, clientY) {
             vectorShapeContextTarget = shapeEl;
             const resizeMenuItem = document.getElementById('vectorShapeResizeMenu');
@@ -5152,6 +5491,7 @@ export class ErdWebView {
             vectorShapeContextMenu.style.left = clientX + 'px';
             vectorShapeContextMenu.style.top = clientY + 'px';
             vectorShapeContextMenu.style.display = 'block';
+            updateGroupMenuVisibility('vectorShape', shapeEl);
         }
 
         function deleteTableElement(tableEl) {
@@ -5247,6 +5587,11 @@ export class ErdWebView {
                     if (el.dataset.database) {
                         copy.database = el.dataset.database;
                     }
+                    if (el.dataset.groupId) {
+                        copy.groupId = el.dataset.groupId;
+                    } else {
+                        delete copy.groupId;
+                    }
                 }
                 tablesSnapshot.push(copy);
             });
@@ -5261,7 +5606,8 @@ export class ErdWebView {
                     width: parseFloat(commentEl.style.width) || commentEl.offsetWidth || 200,
                     height: parseFloat(commentEl.style.height) || commentEl.offsetHeight || 100,
                     text: textarea ? textarea.value : '',
-                    zIndex: getEffectiveZIndex(commentEl)
+                    zIndex: getEffectiveZIndex(commentEl),
+                    groupId: commentEl.dataset.groupId || undefined
                 });
             });
 
@@ -5867,6 +6213,7 @@ function initCommentEvents(commentEl) {
     let dragStartY = 0;
     let dragStartLeft = 0;
     let dragStartTop = 0;
+    let commentDragGroupItems = [];
     
     commentEl.addEventListener('mousedown', function(e) {
         // Only start dragging if clicking on the comment background or border
@@ -5878,8 +6225,9 @@ function initCommentEvents(commentEl) {
             dragStartLeft = parseFloat(commentEl.style.left) || 0;
             dragStartTop = parseFloat(commentEl.style.top) || 0;
             activeCommentZIndex = commentEl.style.zIndex || '';
+            commentDragGroupItems = captureGroupDragState(commentEl);
             commentEl.style.zIndex = '1000';
-            commentEl.classList.add('selected');
+            selectObjectWithGroup(commentEl);
             
             document.body.classList.add('panning');
         }
@@ -5890,26 +6238,7 @@ function initCommentEvents(commentEl) {
             const deltaX = e.clientX - dragStartX;
             const deltaY = e.clientY - dragStartY;
             
-            const canvasRect = document.getElementById('canvas-container').getBoundingClientRect();
-            const x = (deltaX / zoom) + dragStartLeft;
-            const y = (deltaY / zoom) + dragStartTop;
-            
-            commentEl.style.left = x + 'px';
-            commentEl.style.top = y + 'px';
-            
-            // Update comment data
-            const commentId = commentEl.dataset.commentId;
-            const comment = comments.find(c => c.id === commentId);
-            if (comment) {
-                comment.x = x;
-                comment.y = y;
-            }
-            
-            // Redraw relationships to reflect new position
-            drawRelationships();
-            if (thumbnailVisible) {
-                updateThumbnail();
-            }
+            applyGroupDragState(commentDragGroupItems, deltaX / zoom, deltaY / zoom);
         }
     });
     
@@ -5918,17 +6247,20 @@ function initCommentEvents(commentEl) {
             isDragging = false;
             commentEl.style.zIndex = activeCommentZIndex;
             activeCommentZIndex = '';
-            commentEl.classList.remove('selected');
+            commentDragGroupItems = [];
             document.body.classList.remove('panning');
         }
     });
     
     // Select comment when clicked
     commentEl.addEventListener('click', function() {
-        document.querySelectorAll('.comment-node').forEach(node => {
-            node.classList.remove('selected');
-        });
-        commentEl.classList.add('selected');
+        selectObjectWithGroup(commentEl);
+    });
+
+    commentEl.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        showCommentContextMenu(commentEl, e.clientX, e.clientY);
     });
 }
 
@@ -5997,7 +6329,8 @@ function initCommentEvents(commentEl) {
                         borderStyle: el.style.borderStyle || undefined,
                         backgroundColor: el.dataset.backgroundColor || undefined,
                         zIndex: getEffectiveZIndex(el),
-                        opacity: parseFloat(el.style.opacity) || undefined
+                        opacity: parseFloat(el.style.opacity) || undefined,
+                        groupId: el.dataset.groupId || undefined
                     });
                 });
                 vscode.postMessage({
@@ -6538,6 +6871,7 @@ function initCommentEvents(commentEl) {
             let startLeft = 0;
             let startTop = 0;
             let activeElementZIndex = '';
+            let draggedGroupItems = [];
 
             document.querySelectorAll('.table-node').forEach(function(table) {
                 // Handle horizontal resize
@@ -6610,7 +6944,9 @@ function initCommentEvents(commentEl) {
                     e.preventDefault();
 
                     // Select this table
-                    selectTable(table);
+                    if (!table.classList.contains('selected')) {
+                        selectObjectWithGroup(table);
+                    }
                     selectedTable = table;
 
                     showTableContextMenu(table, e.clientX, e.clientY);
@@ -6633,8 +6969,9 @@ function initCommentEvents(commentEl) {
                     const rect = table.getBoundingClientRect();
                     offsetX = e.clientX - rect.left;
                     offsetY = e.clientY - rect.top;
+                    draggedGroupItems = captureGroupDragState(table);
                     table.style.zIndex = '1000';
-                    selectTable(table);
+                    selectObjectWithGroup(table);
                 });
 
                  initTableMenu(table);
@@ -6733,13 +7070,8 @@ function initCommentEvents(commentEl) {
                     const canvasRect = document.getElementById('canvas-container').getBoundingClientRect();
                     const x = (e.clientX - canvasRect.left - offsetX - panX) / zoom;
                     const y = (e.clientY - canvasRect.top - offsetY - panY) / zoom;
-
-                    draggedElement.style.left = x + 'px';
-                    draggedElement.style.top = y + 'px';
-                    drawRelationships();
-                    if (thumbnailVisible) {
-                        updateThumbnail();
-                    }
+                    const anchorStart = draggedGroupItems.find(function(item) { return item.el === draggedElement; });
+                    applyGroupDragState(draggedGroupItems, x - (anchorStart ? anchorStart.startLeft : 0), y - (anchorStart ? anchorStart.startTop : 0));
                 }
 
                 // Handle resizing
@@ -6847,6 +7179,7 @@ function initCommentEvents(commentEl) {
                     draggedElement.style.zIndex = activeElementZIndex;
                     draggedElement = null;
                     activeElementZIndex = '';
+                    draggedGroupItems = [];
                 }
 
                 if (isResizing) {
@@ -6909,9 +7242,10 @@ function initCommentEvents(commentEl) {
                     document.getElementById('relationshipContextMenu').style.display = 'none';
                 }
                 // Hide text label context menu
-            if (!e.target.closest('.text-label-context-menu') && !e.target.closest('#vectorShapeContextMenu') && !e.target.closest('.context-submenu')) {
+            if (!e.target.closest('.text-label-context-menu') && !e.target.closest('#vectorShapeContextMenu') && !e.target.closest('#commentContextMenu') && !e.target.closest('.context-submenu')) {
                 hideTextLabelContextMenu();
                 hideVectorShapeContextMenu();
+                hideCommentContextMenu();
             }
 
                 if (!e.target.closest('.table-node') && !e.target.closest('.zoom-controls') &&
@@ -7293,6 +7627,7 @@ function initCommentEvents(commentEl) {
 
         const tableColorAttr = table.color ? ` data-color="${this.escapeHtml(table.color)}"` : '';
         const tableBackgroundAttr = table.backgroundColor ? ` data-background-color="${this.escapeHtml(table.backgroundColor)}"` : '';
+        const tableGroupAttr = table.groupId ? ` data-group-id="${this.escapeHtml(table.groupId)}"` : '';
         const tableBorderStyle = table.color ? ` border-color: ${table.color};` : '';
         const tableExtraStyle =
             (table.borderWidth !== undefined ? ` border-width: ${table.borderWidth}px;` : '') +
@@ -7308,7 +7643,7 @@ function initCommentEvents(commentEl) {
         return `
             <div class="table-node ${isMainTable ? 'main-table' : ''}"
                   data-table="${this.escapeHtml(table.tableName)}"
-                  data-database="${this.escapeHtml(table.database || '')}"${tableColorAttr}${tableBackgroundAttr}
+                  data-database="${this.escapeHtml(table.database || '')}"${tableColorAttr}${tableBackgroundAttr}${tableGroupAttr}
                   style="left: ${table.x}px; top: ${table.y}px; width: ${table.width}px; height: ${table.height}px;${tableBorderStyle}${tableExtraStyle}">
                 <div class="table-header"${headerStyle}>
                     <div class="table-header-center">
