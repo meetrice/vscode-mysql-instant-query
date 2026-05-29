@@ -1122,7 +1122,7 @@ export class ErdWebView {
         .table-header {
             background: linear-gradient(135deg, #007acc 0%, #005a9e 100%);
             color: white;
-            padding: 6px 28px 6px 10px;
+            padding: 6px 10px;
             font-size: 13px;
             line-height: 1.2;
             border-radius: 6px 6px 0 0;
@@ -2294,6 +2294,9 @@ export class ErdWebView {
     <!-- Context menu -->
     <div class="context-menu" id="contextMenu">
         <div class="context-menu-item" id="ctxSelect100">📋 选择前100条</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" id="ctxToggleComments">隐藏注释</div>
+        <div class="context-menu-item" id="ctxToggleTableComment">隐藏表名注释</div>
         <div class="context-menu-separator"></div>
         <div class="context-menu-item" id="ctxTableResizeMenu">调整大小</div>
         <div class="context-menu-separator"></div>
@@ -4696,6 +4699,14 @@ export class ErdWebView {
             const tableData = getTableDataByEl(tableEl) || {};
             tableContextMenu.dataset.tableName = tableEl.dataset.table || '';
             tableContextMenu.dataset.database = tableEl.dataset.database || '';
+            const toggleCommentsItem = document.getElementById('ctxToggleComments');
+            if (toggleCommentsItem) {
+                toggleCommentsItem.textContent = getCommentsHidden(tableEl) ? '显示注释' : '隐藏注释';
+            }
+            const toggleTableCommentItem = document.getElementById('ctxToggleTableComment');
+            if (toggleTableCommentItem) {
+                toggleTableCommentItem.textContent = getTableNameCommentHidden(tableEl) ? '显示表名注释' : '隐藏表名注释';
+            }
             const borderWidth = parseFloat(tableEl.style.borderWidth) || tableData.borderWidth || 2;
             tableBorderWidthSubmenu.querySelectorAll('.context-submenu-item').forEach(function(item) {
                 item.classList.toggle('active', parseInt(item.dataset.width, 10) === borderWidth);
@@ -4884,6 +4895,26 @@ export class ErdWebView {
             if (tableEl) {
                 selectTable(tableEl);
                 tableEl.classList.add('selected');
+            }
+            hideTableContextMenu();
+        });
+
+        document.getElementById('ctxToggleComments').addEventListener('click', function(e) {
+            e.stopPropagation();
+            const tableEl = getTableContextTarget();
+            if (tableEl) {
+                pushUndoSnapshot();
+                toggleComments(tableEl);
+            }
+            hideTableContextMenu();
+        });
+
+        document.getElementById('ctxToggleTableComment').addEventListener('click', function(e) {
+            e.stopPropagation();
+            const tableEl = getTableContextTarget();
+            if (tableEl) {
+                pushUndoSnapshot();
+                toggleTableNameComment(tableEl);
             }
             hideTableContextMenu();
         });
@@ -6015,53 +6046,10 @@ function initCommentEvents(commentEl) {
         }
 
         function initTableMenu(table) {
-            const wrapper = table.querySelector('.table-menu-wrapper');
-            if (!wrapper || wrapper.dataset.initialized === 'true') {
+            if (!table || table.dataset.tableStyleInitialized === 'true') {
                 return;
             }
-            wrapper.dataset.initialized = 'true';
-
-            const menuBtn = wrapper.querySelector('.table-menu-btn');
-            const dropdown = wrapper.querySelector('.table-dropdown');
-            dropdown._menuWrapper = wrapper;
-            const toggleItem = wrapper.querySelector('.table-menu-toggle-comments');
-            const toggleTableCommentItem = wrapper.querySelector('.table-menu-toggle-table-comment');
-            table._toggleCommentsBtn = toggleItem;
-            table._toggleTableCommentBtn = toggleTableCommentItem;
-            const setColorItem = wrapper.querySelector('.table-menu-set-color');
-            const colorPanel = wrapper.querySelector('.table-color-panel');
-
-            if (colorPanel && !colorPanel.innerHTML) {
-                let swatchHtml = '<div class="table-color-swatches">';
-                PRESET_TABLE_COLORS.forEach(function(c) {
-                    swatchHtml += '<button type="button" class="color-swatch" data-color="' + c + '" style="background-color:' + c + '" title="' + c + '"></button>';
-                });
-                swatchHtml += '<label class="color-picker-label" title="调色盘"><input type="color" class="table-color-input" value="#007acc"/></label>';
-                swatchHtml += '</div>';
-                colorPanel.innerHTML = swatchHtml;
-
-                colorPanel.querySelectorAll('.color-swatch').forEach(function(swatch) {
-                    swatch.addEventListener('click', function(e) {
-                        e.stopPropagation();
-                        applyTableColor(table, swatch.dataset.color);
-                        closeTableMenus();
-                        drawRelationships();
-                    });
-                });
-
-                const colorInput = colorPanel.querySelector('.table-color-input');
-                if (colorInput) {
-                    colorInput.addEventListener('input', function(e) {
-                        e.stopPropagation();
-                        applyTableColor(table, colorInput.value);
-                    });
-                    colorInput.addEventListener('change', function(e) {
-                        e.stopPropagation();
-                        closeTableMenus();
-                        drawRelationships();
-                    });
-                }
-            }
+            table.dataset.tableStyleInitialized = 'true';
 
             const tableName = table.dataset.table;
             const tableData = tables.find(function(t) { return t.tableName === tableName; });
@@ -6069,51 +6057,6 @@ function initCommentEvents(commentEl) {
                 applyTableColor(table, tableData.color);
             }
             applyStoredTableStyles(table);
-            updateToggleCommentsLabel(table);
-            updateToggleTableNameCommentLabel(table);
-
-            menuBtn.addEventListener('mousedown', function(e) {
-                e.stopPropagation();
-            });
-
-            menuBtn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                e.preventDefault();
-                const isOpen = dropdown.classList.contains('show') && dropdown.parentNode === document.body;
-                closeTableMenus();
-                if (!isOpen) {
-                    table.classList.add('menu-open');
-                    table.style.zIndex = '2000';
-                    colorPanel.classList.remove('show');
-                    setTimeout(function() {
-                        attachTableDropdown(dropdown, menuBtn, table);
-                    }, 0);
-                }
-            });
-
-            toggleItem.addEventListener('click', function(e) {
-                e.stopPropagation();
-                toggleComments(table);
-                closeTableMenus();
-            });
-
-            if (toggleTableCommentItem) {
-                toggleTableCommentItem.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    toggleTableNameComment(table);
-                    closeTableMenus();
-                });
-            }
-
-            setColorItem.addEventListener('click', function(e) {
-                e.stopPropagation();
-                colorPanel.classList.toggle('show');
-                if (dropdown.classList.contains('show') && dropdown.parentNode === document.body) {
-                    requestAnimationFrame(function() {
-                        positionTableDropdown(dropdown, menuBtn);
-                    });
-                }
-            });
         }
 
         function selectTable(tableNode) {
@@ -7303,15 +7246,6 @@ function initCommentEvents(commentEl) {
                     <div class="table-header-center">
                         <span class="table-name">${this.escapeHtml(table.tableName)}</span>
                         ${table.comment ? `<span class="table-comment">${this.escapeHtml(table.comment)}</span>` : ''}
-                    </div>
-                    <div class="table-menu-wrapper">
-                        <button type="button" class="table-menu-btn" title="更多选项" aria-label="更多选项">&#8942;</button>
-                        <div class="table-dropdown">
-                            <button type="button" class="table-dropdown-item table-menu-toggle-comments">隐藏注释</button>
-                            <button type="button" class="table-dropdown-item table-menu-toggle-table-comment">隐藏表名注释</button>
-                            <button type="button" class="table-dropdown-item table-menu-set-color">设置颜色</button>
-                            <div class="table-color-panel"></div>
-                        </div>
                     </div>
                 </div>
                 <div class="table-body" style="max-height: ${maxBodyHeight}px; overflow-y: auto;${bodyBackgroundStyle}">
