@@ -3290,7 +3290,7 @@ export class ErdWebView {
         }
 
         function isVectorRectDrawType(type) {
-            return type === 'rounded-rect';
+            return type === 'rounded-rect' || type === 'circle';
         }
 
         function isVectorIconType(type) {
@@ -4148,6 +4148,19 @@ export class ErdWebView {
             }
         }
 
+        function getVectorBoxDrawBounds(type, x1, y1, x2, y2) {
+            if (type !== 'circle') {
+                return getBoxBounds(x1, y1, x2, y2);
+            }
+            const size = Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1), 1);
+            return {
+                x: x2 < x1 ? x1 - size : x1,
+                y: y2 < y1 ? y1 - size : y1,
+                width: size,
+                height: size
+            };
+        }
+
         function updateVectorShapePreview(endX, endY) {
             if (!addVectorShapeType) {
                 return;
@@ -4158,7 +4171,7 @@ export class ErdWebView {
             let lx2 = 0;
             let ly2 = 0;
             if (isDrawingVectorRect && pendingVectorRectStart) {
-                bounds = getBoxBounds(pendingVectorRectStart.x, pendingVectorRectStart.y, endX, endY);
+                bounds = getVectorBoxDrawBounds(addVectorShapeType, pendingVectorRectStart.x, pendingVectorRectStart.y, endX, endY);
                 lx2 = bounds.width;
                 ly2 = bounds.height;
             } else if (pendingVectorLineStart && isVectorLineType(addVectorShapeType)) {
@@ -4198,7 +4211,7 @@ export class ErdWebView {
         }
 
         function placeVectorBoxAt(type, x1, y1, x2, y2) {
-            const bounds = getBoxBounds(x1, y1, x2, y2);
+            const bounds = getVectorBoxDrawBounds(type, x1, y1, x2, y2);
             if (bounds.width < 8 || bounds.height < 8) {
                 return;
             }
@@ -4346,7 +4359,7 @@ export class ErdWebView {
         });
 
         document.getElementById('canvas-container').addEventListener('mousedown', function(e) {
-            if (e.button !== 0 || addVectorShapeType !== 'rounded-rect') {
+            if (e.button !== 0 || !isVectorRectDrawType(addVectorShapeType)) {
                 return;
             }
             if (e.target.closest('.table-node') || e.target.closest('.comment-node') ||
@@ -4361,11 +4374,11 @@ export class ErdWebView {
         }, true);
 
         document.addEventListener('mouseup', function(e) {
-            if (!isDrawingVectorRect || !pendingVectorRectStart || addVectorShapeType !== 'rounded-rect') {
+            if (!isDrawingVectorRect || !pendingVectorRectStart || !isVectorRectDrawType(addVectorShapeType)) {
                 return;
             }
             const coords = canvasCoordsFromEvent(e);
-            placeVectorBoxAt('rounded-rect', pendingVectorRectStart.x, pendingVectorRectStart.y, coords.x, coords.y);
+            placeVectorBoxAt(addVectorShapeType, pendingVectorRectStart.x, pendingVectorRectStart.y, coords.x, coords.y);
             isDrawingVectorRect = false;
             pendingVectorRectStart = null;
             clearVectorShapePreview();
