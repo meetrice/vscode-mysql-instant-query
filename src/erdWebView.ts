@@ -961,32 +961,56 @@ export class ErdWebView {
         .table-header {
             background: linear-gradient(135deg, #007acc 0%, #005a9e 100%);
             color: white;
-            padding: 6px 10px;
-            font-weight: 600;
+            padding: 6px 28px 6px 10px;
             font-size: 13px;
             line-height: 1.2;
             border-radius: 6px 6px 0 0;
+            position: relative;
+            z-index: 2;
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: center;
+        }
+        .table-node.menu-open {
+            z-index: 2000 !important;
         }
         .table-header.related {
             background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
         }
-        .table-header-left {
+        .table-header-center {
             display: flex;
             align-items: center;
-            gap: 8px;
-            flex: 1;
+            justify-content: center;
+            gap: 6px;
+            max-width: 100%;
+            min-width: 0;
+            text-align: center;
         }
-        .table-comment {
-            font-size: 11px;
-            color: rgba(255, 255, 255, 0.8);
+        .table-name {
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex-shrink: 0;
+        }
+        .table-header .table-comment {
+            font-size: 9px;
+            color: rgba(255, 255, 255, 0.75);
             font-weight: normal;
-            margin-left: 8px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex-shrink: 1;
+            max-width: 140px;
+        }
+        .table-node.hide-table-name-comment .table-header .table-comment {
+            display: none;
         }
         .table-menu-wrapper {
-            position: relative;
+            position: absolute;
+            right: 4px;
+            top: 50%;
+            transform: translateY(-50%);
             flex-shrink: 0;
         }
         .table-menu-btn {
@@ -1005,17 +1029,16 @@ export class ErdWebView {
             background: rgba(255, 255, 255, 0.15);
         }
         .table-dropdown {
-            position: absolute;
-            top: calc(100% + 4px);
-            right: 0;
+            position: fixed;
             display: none;
-            min-width: 148px;
+            min-width: 168px;
             padding: 4px 0;
             background-color: var(--vscode-menu-background, var(--vscode-editor-background));
             border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
             border-radius: 6px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-            z-index: 1100;
+            z-index: 10001;
+            pointer-events: auto;
         }
         .table-dropdown.show {
             display: block;
@@ -2209,23 +2232,30 @@ export class ErdWebView {
             const fontFamily = '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif';
             const tableName = el.getAttribute('data-table') || '';
 
-            const nameEl = el.querySelector('.table-header-left > span');
+            const nameEl = el.querySelector('.table-name');
             const tableTitle = nameEl ? nameEl.textContent.trim() : tableName;
-            const tableCommentEl = el.querySelector('.table-comment');
+            const tableCommentEl = el.querySelector('.table-header .table-comment');
             let tableComment = tableCommentEl ? tableCommentEl.textContent.trim() : '';
             if (!tableComment) {
                 const tableData = tables.find(function(t) { return t.tableName === tableName; });
                 tableComment = tableData && tableData.comment ? tableData.comment : '';
             }
+            const hideTableNameComment = el.classList.contains('hide-table-name-comment');
+            const showTableNameComment = tableComment && !hideTableNameComment;
 
             let svg = '<g>';
             svg += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="8" fill="' + escapeXml(tableBg) + '" stroke="' + escapeXml(strokeColor) + '" stroke-width="2"/>';
             svg += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + headerHeight + '" rx="8" fill="' + headerColor + '"/>';
             svg += '<rect x="' + x + '" y="' + (y + headerHeight - 8) + '" width="' + w + '" height="8" fill="' + headerColor + '"/>';
             const headerMidY = y + headerHeight / 2 + 5;
-            svg += '<text x="' + (x + 12) + '" y="' + headerMidY + '" fill="white" font-size="14" font-weight="600" font-family="' + fontFamily + '">' + escapeXml(tableTitle) + '</text>';
-            if (tableComment) {
-                svg += '<text x="' + (x + w - 12) + '" y="' + headerMidY + '" fill="rgba(255,255,255,0.85)" font-size="11" text-anchor="end" font-family="' + fontFamily + '">' + escapeXml(tableComment) + '</text>';
+            const headerCenterX = x + w / 2;
+            if (showTableNameComment) {
+                const approxTitleWidth = tableTitle.length * 7;
+                const titleX = headerCenterX - (approxTitleWidth + tableComment.length * 4) / 2;
+                svg += '<text x="' + titleX + '" y="' + headerMidY + '" fill="white" font-size="13" font-weight="600" font-family="' + fontFamily + '">' + escapeXml(tableTitle) + '</text>';
+                svg += '<text x="' + (titleX + approxTitleWidth + 6) + '" y="' + headerMidY + '" fill="rgba(255,255,255,0.75)" font-size="9" font-family="' + fontFamily + '">' + escapeXml(tableComment) + '</text>';
+            } else {
+                svg += '<text x="' + headerCenterX + '" y="' + headerMidY + '" fill="white" font-size="13" font-weight="600" text-anchor="middle" font-family="' + fontFamily + '">' + escapeXml(tableTitle) + '</text>';
             }
 
             let rowY = y + headerHeight + 8;
@@ -2661,18 +2691,75 @@ function initCommentEvents(commentEl) {
         }
 
         function updateToggleCommentsLabel(tableNode) {
-            const btn = tableNode.querySelector('.table-menu-toggle-comments');
+            const btn = tableNode._toggleCommentsBtn;
             if (btn) {
                 btn.textContent = getCommentsHidden(tableNode) ? '显示注释' : '隐藏注释';
+            }
+        }
+
+        function getTableNameCommentHidden(tableNode) {
+            return tableNode.classList.contains('hide-table-name-comment');
+        }
+
+        function updateToggleTableNameCommentLabel(tableNode) {
+            const btn = tableNode._toggleTableCommentBtn;
+            if (btn) {
+                btn.textContent = getTableNameCommentHidden(tableNode) ? '显示表名注释' : '隐藏表名注释';
+            }
+        }
+
+        function toggleTableNameComment(tableNode) {
+            tableNode.classList.toggle('hide-table-name-comment');
+            updateToggleTableNameCommentLabel(tableNode);
+        }
+
+        function positionTableDropdown(dropdown, menuBtn) {
+            const rect = menuBtn.getBoundingClientRect();
+            const menuWidth = dropdown.offsetWidth || 168;
+            let left = rect.right - menuWidth;
+            left = Math.max(4, Math.min(left, window.innerWidth - menuWidth - 4));
+            let top = rect.bottom + 4;
+            const menuHeight = dropdown.offsetHeight || 120;
+            if (top + menuHeight > window.innerHeight - 4) {
+                top = Math.max(4, rect.top - menuHeight - 4);
+            }
+            dropdown.style.top = top + 'px';
+            dropdown.style.left = left + 'px';
+            dropdown.style.right = 'auto';
+        }
+
+        function resetTableDropdown(dropdown) {
+            dropdown.style.top = '';
+            dropdown.style.left = '';
+            dropdown.style.right = '';
+        }
+
+        function attachTableDropdown(dropdown, menuBtn, tableNode) {
+            document.body.appendChild(dropdown);
+            dropdown.classList.add('show');
+            positionTableDropdown(dropdown, menuBtn);
+            if (tableNode) {
+                updateToggleCommentsLabel(tableNode);
+                updateToggleTableNameCommentLabel(tableNode);
             }
         }
 
         function closeTableMenus() {
             document.querySelectorAll('.table-dropdown').forEach(function(menu) {
                 menu.classList.remove('show');
+                resetTableDropdown(menu);
+                if (menu._menuWrapper && menu.parentNode !== menu._menuWrapper) {
+                    menu._menuWrapper.appendChild(menu);
+                }
             });
             document.querySelectorAll('.table-color-panel').forEach(function(panel) {
                 panel.classList.remove('show');
+            });
+            document.querySelectorAll('.table-node.menu-open').forEach(function(node) {
+                node.classList.remove('menu-open');
+                if (node.style.zIndex === '2000') {
+                    node.style.zIndex = '';
+                }
             });
         }
 
@@ -2704,7 +2791,11 @@ function initCommentEvents(commentEl) {
 
             const menuBtn = wrapper.querySelector('.table-menu-btn');
             const dropdown = wrapper.querySelector('.table-dropdown');
+            dropdown._menuWrapper = wrapper;
             const toggleItem = wrapper.querySelector('.table-menu-toggle-comments');
+            const toggleTableCommentItem = wrapper.querySelector('.table-menu-toggle-table-comment');
+            table._toggleCommentsBtn = toggleItem;
+            table._toggleTableCommentBtn = toggleTableCommentItem;
             const setColorItem = wrapper.querySelector('.table-menu-set-color');
             const colorPanel = wrapper.querySelector('.table-color-panel');
 
@@ -2746,14 +2837,24 @@ function initCommentEvents(commentEl) {
                 applyTableColor(table, tableData.color);
             }
             updateToggleCommentsLabel(table);
+            updateToggleTableNameCommentLabel(table);
+
+            menuBtn.addEventListener('mousedown', function(e) {
+                e.stopPropagation();
+            });
 
             menuBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                const isOpen = dropdown.classList.contains('show');
+                e.preventDefault();
+                const isOpen = dropdown.classList.contains('show') && dropdown.parentNode === document.body;
                 closeTableMenus();
                 if (!isOpen) {
-                    dropdown.classList.add('show');
+                    table.classList.add('menu-open');
+                    table.style.zIndex = '2000';
                     colorPanel.classList.remove('show');
+                    setTimeout(function() {
+                        attachTableDropdown(dropdown, menuBtn, table);
+                    }, 0);
                 }
             });
 
@@ -2763,9 +2864,22 @@ function initCommentEvents(commentEl) {
                 closeTableMenus();
             });
 
+            if (toggleTableCommentItem) {
+                toggleTableCommentItem.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    toggleTableNameComment(table);
+                    closeTableMenus();
+                });
+            }
+
             setColorItem.addEventListener('click', function(e) {
                 e.stopPropagation();
                 colorPanel.classList.toggle('show');
+                if (dropdown.classList.contains('show') && dropdown.parentNode === document.body) {
+                    requestAnimationFrame(function() {
+                        positionTableDropdown(dropdown, menuBtn);
+                    });
+                }
             });
         }
 
@@ -3543,7 +3657,7 @@ function initCommentEvents(commentEl) {
                     exportMenu.classList.remove('show');
                 }
                 // Hide table menus
-                if (!e.target.closest('.table-menu-wrapper')) {
+                if (!e.target.closest('.table-menu-wrapper') && !e.target.closest('.table-dropdown')) {
                     closeTableMenus();
                 }
                 // Hide relationship context menu
@@ -3968,14 +4082,15 @@ function initCommentEvents(commentEl) {
                  data-database="${this.escapeHtml(table.database || '')}"${tableColorAttr}
                  style="left: ${table.x}px; top: ${table.y}px; width: ${table.width}px; height: ${table.height}px;${tableBorderStyle}">
                 <div class="table-header"${headerStyle}>
-                    <div class="table-header-left">
-                        <span>${this.escapeHtml(table.tableName)}</span>
+                    <div class="table-header-center">
+                        <span class="table-name">${this.escapeHtml(table.tableName)}</span>
                         ${table.comment ? `<span class="table-comment">${this.escapeHtml(table.comment)}</span>` : ''}
                     </div>
                     <div class="table-menu-wrapper">
                         <button type="button" class="table-menu-btn" title="更多选项" aria-label="更多选项">&#8942;</button>
                         <div class="table-dropdown">
                             <button type="button" class="table-dropdown-item table-menu-toggle-comments">隐藏注释</button>
+                            <button type="button" class="table-dropdown-item table-menu-toggle-table-comment">隐藏表名注释</button>
                             <button type="button" class="table-dropdown-item table-menu-set-color">设置颜色</button>
                             <div class="table-color-panel"></div>
                         </div>
