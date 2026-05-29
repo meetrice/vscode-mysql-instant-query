@@ -373,7 +373,7 @@ export class ErdWebView {
             // Calculate table dimensions
             const columnWidth = 220;
             const rowHeight = 30;
-            const headerHeight = 40;
+            const headerHeight = 28;
             const padding = 10;
 
             // Find a non-overlapping position
@@ -471,7 +471,7 @@ export class ErdWebView {
 
                 const columnWidth = 220;
                 const rowHeight = 30;
-                const headerHeight = 40;
+                const headerHeight = 28;
                 const padding = 10;
 
                 // Find a non-overlapping position for related table
@@ -961,9 +961,10 @@ export class ErdWebView {
         .table-header {
             background: linear-gradient(135deg, #007acc 0%, #005a9e 100%);
             color: white;
-            padding: 12px;
+            padding: 6px 10px;
             font-weight: 600;
-            font-size: 14px;
+            font-size: 13px;
+            line-height: 1.2;
             border-radius: 6px 6px 0 0;
             display: flex;
             align-items: center;
@@ -992,8 +993,8 @@ export class ErdWebView {
             background: transparent;
             border: none;
             border-radius: 4px;
-            padding: 2px 6px;
-            font-size: 18px;
+            padding: 0 4px;
+            font-size: 16px;
             line-height: 1;
             color: white;
             cursor: pointer;
@@ -2196,7 +2197,7 @@ export class ErdWebView {
             const w = el.offsetWidth;
             const h = el.offsetHeight;
             const headerEl = el.querySelector('.table-header');
-            const headerHeight = headerEl ? headerEl.offsetHeight : 40;
+            const headerHeight = headerEl ? headerEl.offsetHeight : 28;
             const isMainTable = el.classList.contains('main-table');
             const customColor = el.dataset.color;
             const tableBg = getComputedStyle(document.body).backgroundColor || '#1e1e1e';
@@ -3951,7 +3952,7 @@ function initCommentEvents(commentEl) {
         }
 
         // Calculate max height for table body (subtract header height and padding)
-        const headerHeight = 40; // Fixed header height from CSS
+        const headerHeight = 28; // Fixed header height from CSS
         const padding = 16; // 8px top + 8px bottom padding
         const maxBodyHeight = table.height - headerHeight - padding;
 
